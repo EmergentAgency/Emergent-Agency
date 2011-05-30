@@ -1,0 +1,115 @@
+/**
+ * Emergent Agency node class.  This file contains all the logic for nodes, how to interpret sensor
+ * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
+ * should be in this file so that it can be used in the Processing sim and on the Arduino
+ */
+
+float SECONDS_TO_STAY_ON_AFTER_SENSOR_TRIGGERS = 2.0;
+float SECONDS_TO_BLINK_FAR_NODE = 4.0;
+
+class Node
+{
+
+// NOTE: this is the only difference I couldn't make the same
+// between Processing and Arudino.  You MUST comment out
+// the line "public:" in Processing but it MUST be here for Arduino.
+//public:
+
+    int index;
+    CommunicationLink comLink;
+    boolean bSensorActive;
+    float totalActiveSensorTime;
+    float stayOnTimer;
+
+    // Processing and arduino have different array syntax which makes them incompatible.
+    // This is super frustrating but can be worked around by making functions that access
+    // elements like arrays.
+    boolean LED0; 
+    boolean LED1; 
+    boolean LED2; 
+    boolean LED3; 
+    boolean LED4; 
+
+    boolean getLED(int i)
+    {
+        if(i == 0) return LED0;
+        if(i == 1) return LED1;
+        if(i == 2) return LED2;
+        if(i == 3) return LED3;
+        if(i == 4) return LED4;
+		
+		return false;
+    }
+
+    void setLED(int i, boolean newValue)
+    {
+        if(i == 0) { LED0 = newValue; return; }
+        if(i == 1) { LED1 = newValue; return; }
+        if(i == 2) { LED2 = newValue; return; }
+        if(i == 3) { LED3 = newValue; return; }
+        if(i == 4) { LED4 = newValue; return; }
+    }
+
+    void init(int inIndex, CommunicationLink inComLink)
+    {
+        index = inIndex;
+        comLink = inComLink;
+        bSensorActive = false;
+        totalActiveSensorTime = 0;
+    }
+
+    void update(float deltaSeconds, boolean bInSensorActive)
+    {
+        // save out old sensor value so we can see if anything changed
+        boolean bOldSensorActive = bSensorActive;
+        bSensorActive = bInSensorActive;
+
+        boolean bTurnAllLEDsOn = false;
+
+        if(bSensorActive)
+        {
+            bTurnAllLEDsOn = true;
+
+            boolean bWasOn = totalActiveSensorTime < SECONDS_TO_STAY_ON_AFTER_SENSOR_TRIGGERS;
+            totalActiveSensorTime += deltaSeconds;
+
+            if(totalActiveSensorTime >= SECONDS_TO_STAY_ON_AFTER_SENSOR_TRIGGERS)
+            {
+                bTurnAllLEDsOn = false;
+                totalActiveSensorTime = SECONDS_TO_STAY_ON_AFTER_SENSOR_TRIGGERS; // keeps this from overflowing
+    
+                if(bWasOn) // only send the message once
+                {
+                    comLink.sendMessage((index + NUM_NODES/2) % NUM_NODES, SECONDS_TO_BLINK_FAR_NODE);
+                }
+            }
+        }
+        else
+        {
+            totalActiveSensorTime = 0;
+        }
+
+        bTurnAllLEDsOn = bTurnAllLEDsOn || (stayOnTimer > 0);
+        
+        if(bTurnAllLEDsOn)
+        {
+            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+                setLED(i, true);
+        }
+        else
+        {
+            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+                setLED(i, false);
+        }
+
+        if(stayOnTimer > 0)
+            stayOnTimer -= deltaSeconds;
+    }
+
+    // right now the message is really simple, it is just the number of seconds to stay on for
+    void receiveMessage(float message)
+    {
+        stayOnTimer = message;
+    }
+
+};
