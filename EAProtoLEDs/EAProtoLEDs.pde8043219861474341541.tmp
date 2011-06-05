@@ -1,0 +1,252 @@
+/**
+ * Emergent Agency sim
+ *
+ * Chris Linder
+ * modified by Charlotte McFarland
+ */
+
+// constants
+static final int NUM_SENSORS = 8;
+static final int NUM_LEDS_PER_SENSOR = 5;
+static final int NUM_PEOPLE = 8;
+static final int NUM_TICKS_PER_UPDATE = 10;
+
+// globalTickCount is a super simple way to keep track of time.  This
+// is incremented every update loop
+int globalTickCount = 0;
+
+// All the people in the sim
+Person[] people;
+
+// An index of the person currently being highlighted or dragged around
+int personSelection;
+
+float sensorSize = 200;  // diameter
+
+int numLEDsPerSensor = 5;  // or 3?  or different for each sensor?  
+int numLEDs = NUM_SENSORS * numLEDsPerSensor;
+float LEDsize = sensorSize/numLEDsPerSensor;
+
+class Sensor
+{
+  int index;
+  float x;
+  float y;
+  float radPos; // was distAlongCircle, actually in radians
+  float size = sensorSize; 
+  boolean bActive = false;
+  
+  void init(int inIndex)
+  {
+    index = inIndex;
+    radPos = (float)index / (float)NUM_SENSORS * 2 * PI;
+    
+    x = cos(radPos) * width / 3 + width / 2;
+    y = sin(radPos) * height / 3 + height / 2;
+  }
+
+  void update()
+  {
+    bActive = false;
+    for(int i = 0; i < NUM_PEOPLE; i++)
+    {
+      if(dist(x, y, people[i].x, people[i].y) < size/2)
+      {
+        bActive = true;
+        break;
+      }
+    }
+  }
+}
+Sensor[] sensors;
+
+class LED 
+{ 
+  int index;
+  int sensIndex;  // index of parent sensor
+  float x;
+  float y;
+  float radPos;
+  float size = LEDsize;  
+  boolean bLit = false;
+
+  void init(int inSensIndex, int LEDindex)
+  {
+    index = LEDindex; 
+    sensIndex = inSensIndex;
+    
+    // get LEDs aligned within sensor boundaries
+    float sensRadPos = sensors[sensIndex].radPos;
+    float radOffset = 1 / (2*(float)NUM_SENSORS) * 2 * PI; // 1/2 of sensor radians
+    float LEDoffset = 1 / (2*(float)numLEDs) * 2 * PI;    // 1/2 of LED radians
+    radPos = (float)index / (float)numLEDs * 2 * PI - radOffset + LEDoffset;
+    
+    
+    x = cos(radPos) * width / 3 + width / 2;
+    y = sin(radPos) * height / 3 + height / 2;
+  }
+  
+  void update()
+  {
+    bLit = false;
+    // light up if person in range of parent sensor
+    if(sensors[sensIndex].bActive) 
+      { bLit = true; }
+  }
+}
+LED[] LEDs;
+
+void setup() 
+{
+  size(800, 800);
+  int LEDindex;
+    
+  // init people
+  people = new Person[NUM_PEOPLE];
+  for(int i = 0; i < NUM_PEOPLE; i++)
+  {
+    people[i] = new Person();
+    people[i].x = 50;
+    people[i].y = 50;
+  }
+  
+  // init sensors and LED's at the same time
+  sensors =  new Sensor[NUM_SENSORS];
+  LEDs = new LED[numLEDs];
+  for(int i = 0; i < NUM_SENSORS; i++)
+  {
+    sensors[i] = new Sensor();
+    sensors[i].init(i);
+    
+    /* sensor[0]: LEDs[0-4]
+     * sensor[1]: LEDs[5-9]
+     * sensor[2]: LEDs[10-14]
+     * sensor[3]: LEDs[15-19]
+     * sensor[4]: LEDs[20-24]
+     * sensor[5]: LEDs[25-29]
+     * sensor[6]: LEDs[30-34]
+     * sensor[7]: LEDs[35-39]
+    */
+    for(int j = 0; j < numLEDsPerSensor; j++)
+    { 
+      LEDindex = i * numLEDsPerSensor + j;
+      LEDs[LEDindex] = new LED();
+      LEDs[LEDindex].init(i,LEDindex);
+    }
+  }
+
+  rectMode(RADIUS); // TEMP_CL - do I need this?
+}
+
+void draw() 
+{ 
+  background(0);
+  
+
+  for(int i = 0; i < NUM_SENSORS; i++)
+  {
+    sensors[i].update();
+    
+    if(sensors[i].bActive) 
+      { fill(255, 64, 64); }
+    else 
+      { fill(128, 64, 64); }
+    ellipse(sensors[i].x, sensors[i].y, sensors[i].size, sensors[i].size);
+  }
+  for(int j = 0; j < numLEDs; j++) 
+  {
+    LEDs[j].update();
+    
+    if(LEDs[j].bLit) 
+      { fill(0,255,0); }
+    else 
+      { fill(0,0,0); }
+    ellipse(LEDs[j].x, LEDs[j].y, LEDs[j].size, LEDs[j].size); 
+  }
+  
+  selection = -1;
+  for(int i = 0; i < NUM_PEOPLE; i++)
+  {
+    // if we are holding the mouse down on a circle
+    if(people[i].locked)
+    {
+      selection = i;
+      
+      // Draw white circle
+      stroke(255); 
+      fill(255, 255, 255);
+      ellipse(people[i].x, people[i].y, people[i].size, people[i].size);
+    }
+   
+    // Test if the cursor is over the box 
+    else if (mouseX > people[i].x - people[i].size/2 && mouseX < people[i].x + people[i].size/2 && 
+             mouseY > people[i].y - people[i].size/2 && mouseY < people[i].y + people[i].size/2 &&
+             selection < 0)
+    {
+      people[i].bOver = true;
+      selection = i;
+      
+      // Draw the circle with white edge
+      stroke(255); 
+      fill(153);
+      ellipse(people[i].x, people[i].y, people[i].size, people[i].size);
+    }
+    else
+    {
+      people[i].bOver = false;
+      
+      // Draw a grey circle
+      stroke(153);
+      fill(153);
+      ellipse(people[i].x, people[i].y, people[i].size, people[i].size);
+    }
+    
+  }
+}
+
+void mousePressed()
+{
+  // bail if we aren't over anything
+  if(selection < 0)
+  {
+    return;
+  }
+  
+  if(people[selection].bOver) 
+  { 
+    people[selection].locked = true; 
+  }
+  else
+  {
+    people[selection].locked = false;
+  }
+  people[selection].bdifx = mouseX - people[selection].x; 
+  people[selection].bdify = mouseY - people[selection].y;
+}
+
+void mouseDragged() 
+{
+  // bail if we aren't over anything
+  if(selection < 0)
+  {
+    return;
+  }
+  
+  if(people[selection].locked) 
+  {
+    people[selection].x = mouseX - people[selection].bdifx; 
+    people[selection].y = mouseY - people[selection].bdify; 
+  }
+}
+
+void mouseReleased()
+{
+  // bail if we aren't over anything
+  if(selection < 0)
+  {
+    return;
+  }
+  
+  people[selection].locked = false;
+}
+
