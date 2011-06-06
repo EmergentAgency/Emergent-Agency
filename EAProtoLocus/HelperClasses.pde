@@ -199,31 +199,37 @@ class Locus
     float rad0; // initial position along circle (in radians)
     float radPos;  // variable position along circle
     // float RGB; //(?)
-    float w0;
-    float wd;
-    float v0;
-    float eta;
-    float t0;
     float t;
-        
+    float t0 = 0;
+    
+    // play with these values, leave the rest alone
+    float x0 = PI/2;              // initial posisiton: where the locus will settle relative to the user
+    float v0 = 0;                 // initial velocity
+    float k = 5;                  // other physical parameters
+    float m = 10;
+    float c = 2;
+
+    float eta = c/(2*sqrt(k*m));     // keep this between 0 and 1!!! (underdamping)
+    float w0 = sqrt(k/m);            // natural frequency (rads/sec)
+    float wd = w0*sqrt(1-eta*eta);   // natural damped frequency
+
     void init(float inRadPos) {
         rad0 = inRadPos; // initial position = center of activated node
         radPos = rad0;   // start at initial position
-        t0 = 0;
         t = t0;
-        v0 = PI/4;                 // initial velocity (x0 = 0)
-        w0 = PI/8;                 // natural frequency (rads/sec)
-        eta = 0.1;                 // damping ratio
-        wd = w0*sqrt(1-eta*eta);   // natural damped frequency
     }
     
     void update(float dT) {
         // ugly harmonics -- forgive me
         t += dT;
         float oldRadPos = radPos;
-        radPos = (rad0 + exp(-1*eta*wd*t) * v0/wd * sin(wd*t)) % TWO_PI;
+        // linear equation, wrapped around a circle
+        float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        radPos = (rad0 - x0 + x) % TWO_PI;
 
-        println("locus radpos: " + radPos);
-            //locusActive = false; 
+        println("eta: " + eta + ", radpos: " + radPos);
+        if (t > 100) {  // dumb time limit, future code will calculate when the locus settles down
+            locusActive = false; 
+        }
     }
 }
