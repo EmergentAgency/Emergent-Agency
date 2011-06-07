@@ -87,7 +87,6 @@ class SimNode
     LED[] LEDs = new LED[NUM_LEDS_PER_NODE]; 
     Node logicNode;
     float lastUpdate;
-    float maxLitRange = PI/4; // radians to extend light around locus
 
     void init(int nodeIndex, CommunicationLink inComLink)
     {
@@ -109,19 +108,36 @@ class SimNode
     {
         float offset;
         nodeSensor.update();
-        float deltaSeconds = (millis() - lastUpdate) / 1000; // accurately calculated time
+        float thisUpdate = millis();    // more accurately calculated time
+        float deltaSeconds = (thisUpdate - lastUpdate) / 1000; 
+        lastUpdate = thisUpdate;
         logicNode.update(deltaSeconds, nodeSensor.bActive); 
         
+        float minLitRange = PI/8; // radians to extend light around locus
+        float maxLitRange = PI/2; 
+        float rangeRatio;         // 0 => minLitRange, 1 => maxLitRange
+        float goingLitRange;
+
         if (locusActive) {
           for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
           {    // if within max lit range, scale accordingly
-              offset = abs(LEDs[i].radPos - loci.radPos);
-              if (offset > PI) offset = abs(offset - 2*PI);
-              if (offset >= maxLitRange) {
+              offset = LEDs[i].radPos - loci.radPos;
+              if (offset > PI) offset = offset - 2*PI;
+              
+              // scale light by velocity, max at 1 rad/sec
+              rangeRatio = min(LEDs[i].litRatio * abs(loci.v), 1);   
+              goingLitRange = minLitRange + (maxLitRange - minLitRange) * rangeRatio;
+              
+              if (abs(offset) >= goingLitRange) { // if outside of max lit range
                   LEDs[i].litRatio = 0;
               }
               else {
-                  LEDs[i].litRatio = 1 - (offset / maxLitRange);
+                  LEDs[i].litRatio = 1 - (abs(offset) / goingLitRange);
+                  LEDs[i].litRatio = LEDs[i].litRatio * loci.intensity;
+                  
+                  if (offset * loci.v > 0) {    // if locus moving toward point
+                      // LEDs[i].litRatio *= 0.5;  // squish the light on that side -- just looks ugly
+                  }
               }
           }
           // update the location of the locus
@@ -132,8 +148,6 @@ class SimNode
               LEDs[i].litRatio = 0;  
           }
         }
-
-        lastUpdate = millis();
     }
 
     void drawSensor()
@@ -157,79 +171,68 @@ class SimNode
     }
 }
 
-// class for a single state in a sequence
-// right now, just turn on one node at a time, later will have a complete snapshot
-// of the field of nodes and all their LED's
-class seqState 
-{
-    int nodeON;  // 0 = node where the sequence started
-    float timeON;
-}
-
-class Sequence
-{
-    int initialNode; // node that started the sequence by being activated
-    int num_states;
-    seqState[] states;
-    
-    void init() {
-         num_states = 2;
-         states = new seqState[num_states];
-         for (int i = 0; i < num_states; i++) {
-             states[i] = new seqState(); 
-         }
-         
-    }
-    void begin(int firstIndex) {
-         // clunky way of initializing: should have a parent sequence (where node[0] is always the triggered node)
-         // and a child sequence with absolute node numbers determined at run-time
-         initialNode = firstIndex;
-         states[0].nodeON = initialNode;
-         states[0].timeON = SECONDS_TO_STAY_ON_AFTER_SENSOR_TRIGGERS;
-         
-         states[1].nodeON = (NUM_NODES / 2 + initialNode) % NUM_NODES;
-         states[1].timeON = SECONDS_TO_BLINK_FAR_NODE;
-    }
-}
 
 // "source" of light along the circle, acts as a damped harmonic oscillator
 // LED's are lit based on their proximity to the locus
 class Locus
 {
-    float rad0; // initial position along circle (in radians)
+    float rad0;    // initial position along circle (in radians)
     float radPos;  // variable position along circle
-    // float RGB; //(?)
-    float t;
-    float t0 = 0;
+    // float RGB;  //(?)
+    float t;       // time since bounce began
+    float v;       // current velocity
+    float inflect;      // amplitude of oscillation (not absolute)
+    float cutoff = 0.1; // start dying when amplitude gets below this point
+    float intensity;    // range intensity, from 0 to 1
+    float slow = 10;    // slow down the dying out by this factor, relative to update cycle
     
-    // play with these values, leave the rest alone
-    float x0 = PI/2;              // initial posisiton: where the locus will settle relative to the user
-    float v0 = 0;                 // initial velocity
-    float k = 5;                  // other physical parameters
-    float m = 10;
-    float c = 2;
-
-    float eta = c/(2*sqrt(k*m));     // keep this between 0 and 1!!! (underdamping)
+    // Play with these values. Leave the formulas alone (unless you know differential equations).
+    float m = 20;
+    float k = 10;               // physical parameters
+    float c = 1;
+    float x0 = 3*PI/2;           // initial posisiton (rads): where the locus will settle relative to the user
+    float v0 = -PI/8;            // initial angular velocity (rads/sec)
+    float xFinal;                // final absolute position (rads)
+    
+    // Keep the damping ratio between 0 and 1, otherwise it will not bounce!
+    float eta = c/(2*sqrt(k*m));     // damping ratio
     float w0 = sqrt(k/m);            // natural frequency (rads/sec)
     float wd = w0*sqrt(1-eta*eta);   // natural damped frequency
-
+    float T = 2*PI / sqrt(k*k/(m*m) - c*c/(16*m*m));    // period of oscillation
+    
     void init(float inRadPos) {
         rad0 = inRadPos; // initial position = center of activated node
         radPos = rad0;   // start at initial position
-        t = t0;
+        t = 0;
+        v = v0;
+        xFinal = rad0 - x0; // end at final position
+        intensity = 1;      // reset default values
+        inflect = 1;
     }
     
-    void update(float dT) {
-        // ugly harmonics -- forgive me
+    void update(float dT) { // pretty harmonics !!
         t += dT;
         float oldRadPos = radPos;
-        // linear equation, wrapped around a circle
+        float oldV = v;
+        
+        // linear equation, ends up wrapped around a circle
         float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
         radPos = (rad0 - x0 + x) % TWO_PI;
-
-        println("eta: " + eta + ", radpos: " + radPos);
-        if (t > 100) {  // dumb time limit, future code will calculate when the locus settles down
-            locusActive = false; 
+        v = (radPos - oldRadPos) / dT;
+        if (oldV * v < 0) { // if going in a different direction  than last time
+             inflect = abs(radPos - rad0 + x0);
         }
+
+        println("eta: " + eta + ", radpos: " + radPos + ", v: " + v + ", inflect: " + inflect);
+        if (inflect < cutoff) {       // once settled down to near equilibrium point
+            intensity -= dT/slow;     // die down gracefully
+            if (intensity < 0) {
+                die();        
+            }     
+        }
+    }
+    
+    void die() {        
+        locusActive = false; 
     }
 }

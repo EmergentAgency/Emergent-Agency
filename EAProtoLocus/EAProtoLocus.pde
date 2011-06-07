@@ -31,8 +31,6 @@ int personSelected;
 // All the simulated nodes which contain sensors and LED and the abstract logic nodes
 SimNode[] simNodes;
 
-// A simple example sequence, will eventually be an array of all possible sequences
-Sequence simple;
 // the current state being executed within the sequence
 int currentState;
 
@@ -76,12 +74,8 @@ void setup()
         simNodes[i] = new SimNode();
         simNodes[i].init(i, comLink);
     }
-    
-    // init simple sequence
-    //simple = new Sequence();
-    //simple.init();    
-    
-    // start tracking light source
+
+    // init locus
     loci = new Locus();
 }
 
