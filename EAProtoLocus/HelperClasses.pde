@@ -113,8 +113,10 @@ class SimNode
         lastUpdate = thisUpdate;
         logicNode.update(deltaSeconds, nodeSensor.bActive); 
         
-        float minLitRange = PI/8; // radians to extend light around locus
-        float maxLitRange = PI/2; 
+        //float minLitRange = PI/8; // radians to extend light around locus
+        //float maxLitRange = PI/2; 
+        float minLitRange = PI/12; // radians to extend light around locus
+        float maxLitRange = PI/12; 
         float rangeRatio;         // 0 => minLitRange, 1 => maxLitRange
         float goingLitRange;
 
@@ -133,7 +135,7 @@ class SimNode
               }
               else {
                   LEDs[i].litRatio = 1 - (abs(offset) / goingLitRange);
-                  LEDs[i].litRatio = LEDs[i].litRatio * loci.intensity;
+                  LEDs[i].litRatio = LEDs[i].litRatio * loci.intensity * (random(0.7) + 0.3);
                   
                   if (offset * loci.v > 0) {    // if locus moving toward point
                       // LEDs[i].litRatio *= 0.5;  // squish the light on that side -- just looks ugly
@@ -190,8 +192,10 @@ class Locus
     float m = 20;
     float k = 10;               // physical parameters
     float c = 1;
-    float x0 = 3*PI/2;           // initial posisiton (rads): where the locus will settle relative to the user
-    float v0 = -PI/8;            // initial angular velocity (rads/sec)
+    float defaultX0 = PI;           // initial posisiton (rads): where the locus will settle relative to the user\
+    float defaultV0 = -PI/16;
+    float x0 = defaultX0;
+    float v0 = defaultV0;            // initial angular velocity (rads/sec)
     float xFinal;                // final absolute position (rads)
     
     // Keep the damping ratio between 0 and 1, otherwise it will not bounce!
@@ -199,12 +203,27 @@ class Locus
     float w0 = sqrt(k/m);            // natural frequency (rads/sec)
     float wd = w0*sqrt(1-eta*eta);   // natural damped frequency
     float T = 2*PI / sqrt(k*k/(m*m) - c*c/(16*m*m));    // period of oscillation
+    int lastBounceIdx = -1;
     
     void init(float inRadPos) {
         rad0 = inRadPos; // initial position = center of activated node
         radPos = rad0;   // start at initial position
         t = 0;
-        v = v0;
+        
+        float previousVelocity = v;
+        if(previousVelocity > 0)
+        {
+          v = defaultV0;
+          v0 = defaultV0;
+          x0 = defaultX0;
+        }
+        else
+        {
+          v = -defaultV0;
+          v0 = -defaultV0;
+          x0 = -defaultX0;
+        }
+        
         xFinal = rad0 - x0; // end at final position
         intensity = 1;      // reset default values
         inflect = 1;
@@ -218,18 +237,35 @@ class Locus
         // linear equation, ends up wrapped around a circle
         float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
         radPos = (rad0 - x0 + x) % TWO_PI;
+        
         v = (radPos - oldRadPos) / dT;
         if (oldV * v < 0) { // if going in a different direction  than last time
              inflect = abs(radPos - rad0 + x0);
         }
 
-        println("eta: " + eta + ", radpos: " + radPos + ", v: " + v + ", inflect: " + inflect);
+        //println("eta: " + eta + ", radpos: " + radPos + ", v: " + v + ", inflect: " + inflect);
         if (inflect < cutoff) {       // once settled down to near equilibrium point
             intensity -= dT/slow;     // die down gracefully
             if (intensity < 0) {
                 die();        
             }     
         }
+        
+        int nodeIdx = int(radPos / TWO_PI * NUM_NODES) % NUM_NODES;
+        while(nodeIdx < 0)
+          nodeIdx += NUM_NODES;
+        println(nodeIdx);
+        if(simNodes[nodeIdx].logicNode.bSensorActive && nodeIdx != lastBounceIdx)
+        {
+          println("INIT! " + nodeIdx);
+          init(radPos);
+          lastBounceIdx = nodeIdx;
+        }
+        else if((nodeIdx + NUM_NODES / 2) % NUM_NODES == lastBounceIdx)
+        {
+          lastBounceIdx = -1;
+        }
+               
     }
     
     void die() {        
