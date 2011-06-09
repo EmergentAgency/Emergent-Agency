@@ -27,6 +27,9 @@ int personSelected;
 // All the simulated nodes which contain sensors and LED and the abstract logic nodes
 SimNode[] simNodes;
 
+// last time in milliseconds
+int lastMillis;
+
 // simple example communication system
 class CommunicationLink
 {
@@ -64,10 +67,17 @@ void setup()
 
 void draw() 
 {
+    // calc delta seconds;
+    int curMillis = millis();
+    int deltaMillis = curMillis - lastMillis;
+    lastMillis = curMillis;
+    float deltaSeconds = deltaMillis / 1000.0;
+
     // updates all the nodes
     for(int i = 0; i < NUM_NODES; i++)
     {
-        simNodes[i].update();
+        // update sim nodes
+        simNodes[i].update(deltaSeconds);
     }
 
     // sets background color to black

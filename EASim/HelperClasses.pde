@@ -102,10 +102,10 @@ class SimNode
         logicNode.init(nodeIndex, inComLink);
     }
 
-    void update()
+    void update(float deltaSeconds)
     {
         nodeSensor.update();
-        logicNode.update(0.03, nodeSensor.bActive); // TEMP_CL - don't hard code time!!!
+        logicNode.update(deltaSeconds, nodeSensor.bActive);
         for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
         {
             LEDs[i].bLit = logicNode.getLED(i);
