@@ -34,20 +34,16 @@ SimNode[] simNodes;
 // the current state being executed within the sequence
 int currentState;
 
-// light source
-Locus loci;
-// location along circle (in radians)
-float currentRad;
-// flag if sequence running
-boolean locusActive = false;
-
-// simple example communication system
+// simple communication system
 class CommunicationLink
 {
-    void sendMessage(int nodeIndex, float message)
-    {
-        println("sendMessage:" + nodeIndex + " " + message);
-        simNodes[nodeIndex].logicNode.receiveMessage(message);
+    void sendMessage(int nodeIndex, float radPos, boolean CW)
+    {   // send radial position and index of bounce node, along with the direction of the bounc
+        println("sendMessage:" + nodeIndex + " " + radPos + " CW=" + CW);
+        // ALL nodes receive message !!
+        for (int i=0; i < NUM_NODES; i++) {
+            simNodes[i].logicNode.receiveMessage(nodeIndex, radPos, CW);
+        }
     }
 }
 CommunicationLink comLink = new CommunicationLink();
@@ -74,9 +70,6 @@ void setup()
         simNodes[i] = new SimNode();
         simNodes[i].init(i, comLink);
     }
-
-    // init locus
-    loci = new Locus();
 }
 
 void draw() 
@@ -93,7 +86,7 @@ void draw()
     // draws all the sensors (under everything)
     for(int i = 0; i < NUM_NODES; i++)
     {
-        simNodes[i].drawSensor();
+        //simNodes[i].drawSensor();
     }
     
     // handles dragging and drawing of all the people (draw over the sensors, under the LEDs)

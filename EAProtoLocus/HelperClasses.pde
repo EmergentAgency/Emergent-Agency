@@ -97,7 +97,7 @@ class SimNode
         }
         
         logicNode = new Node();
-        logicNode.init(nodeIndex, inComLink, nodeSensor.radPos, nodeIndex);
+        logicNode.init(nodeIndex, inComLink, nodeSensor.radPos);
         for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
         {
             LEDs[i].litRatio = logicNode.getLED(i);
