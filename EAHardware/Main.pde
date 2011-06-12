@@ -10,6 +10,11 @@ int TEST_LED_PIN = 2;
 // The communication link for this node that takes messages from the logic nodes and turns them into serial messages
 CommunicationLink comLink;
 
+// last time in milliseconds
+int lastMillis;
+
+
+
 void setup()
 {
     // initialize the logic node
@@ -23,7 +28,11 @@ void setup()
 
 void loop()
 {
-    float deltaSeconds = 0.03; // TEMP_CL - do this for real
+    // calc delta seconds;
+    int curMillis = millis();
+    int deltaMillis = curMillis - lastMillis;
+    lastMillis = curMillis;
+    float deltaSeconds = deltaMillis / 1000.0;
 
     // update logic node
     logicNode.update(deltaSeconds, random(2) == 0);
