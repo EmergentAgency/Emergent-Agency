@@ -7,30 +7,46 @@
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
 {
-// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
+// NOTE: this is the only difference I couldn't make the same
+// between Processing and Arudino.  You MUST comment out
+// the line "public:" in Processing but it MUST be here for Arduino.
 //public:
+
     boolean bActive;
     float inflect;      // amplitude of oscillation 
     float intensity;    // intensity, ranges from 0 to 1
     
     // Play with these values. 
-    float defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
-    float defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-    float eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
-    float w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
+    float defaultX0;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
+    float defaultV0;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+    float eta;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+    float w0;          // natural frequency (rads/sec): how fast it wants to go around
 
-    float wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
-    float x0 = defaultX0;
-    float v0 = defaultV0;            
-    boolean CW = false;
+    float wd; // natural frequency, slowed by damping (used in harmonics equations later)
+    float x0;
+    float v0;            
+    boolean CW;
     float rad0;    // initial position along circle (in radians)
     float radPos;  // variable position along circle
     float t;       // time since bounce began
-    float v = -v0; // current velocity (start out negative so first bounce will be positive)
+    float v; // current velocity (start out negative so first bounce will be positive)
     float xFinal;  // final absolute position (rads)
-    int lastBounceIdx = -1;
+    int lastBounceIdx;
     
-    void init(float inRadPos, int inSensIndex, boolean inCW) 
+    void init() 
+    {
+        defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
+        defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+        eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
+        wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
+        x0 = defaultX0;
+        v0 = defaultV0;            
+        v = -v0; // current velocity (start out negative so first bounce will be positive)
+        lastBounceIdx = -1;
+
+    }
+    void bounce(float inRadPos, int inSensIndex, boolean inCW)
     {
         bActive = true;
         t = 0;
@@ -66,7 +82,13 @@ class Locus
         float oldRadPos = radPos;
         float oldV = v;
         float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
-        radPos = (rad0 - x0 + x) % TWO_PI;
+        radPos = (rad0 - x0 + x);
+
+        // ensure radPos is always [0,TWO_PI)
+        while(radPos >= TWO_PI)
+            radPos -= TWO_PI;
+        while(radPos < 0)
+            radPos += TWO_PI;
         
         v = (radPos - oldRadPos) / dT;
         if (oldV * v < 0) 
@@ -173,6 +195,7 @@ class Node
         
         // TEMP - can't use "new" cause arduino can't
         loci = new Locus();        // not needed, if bundling both classes together
+        loci.init();
 
         for(int i=0; i < NUM_LEDS_PER_NODE; i++)
         {
@@ -251,6 +274,6 @@ class Node
 
     void receiveMessage(int inSensIndex, float inRadPos, boolean CW)
     {
-        loci.init(inRadPos, inSensIndex, CW);      // bounce the locus! (in the proper direction)
+        loci.bounce(inRadPos, inSensIndex, CW);      // bounce the locus! (in the proper direction)
     }
 };
