@@ -33,10 +33,13 @@ int lastMillis;
 // simple example communication system
 class CommunicationLink
 {
-    void sendMessage(int nodeIndex, float message)
+    void sendMessage(int nodeIndex, float radPos, boolean bClockwise)
     {
-        println("sendMessage:" + nodeIndex + " " + message);
-        simNodes[nodeIndex].logicNode.receiveMessage(message);
+        println("sendMessage:" + nodeIndex);
+        for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
+        {
+            simNodes[i].logicNode.receiveMessage(nodeIndex, radPos, bClockwise);
+        }
     }
 }
 CommunicationLink comLink = new CommunicationLink();

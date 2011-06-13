@@ -60,7 +60,7 @@ class LED
   float y;
   float radPos;
   float size = LED_SIZE;  
-  boolean bLit = false;
+  float litRatio = 0;  // 0 = totally off, 0.5 = half on, 1 = totally on
 
   void init(int inSensIndex, int LEDindex, float sensRadPos)
   {
@@ -108,7 +108,7 @@ class SimNode
         logicNode.update(deltaSeconds, nodeSensor.bActive);
         for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
         {
-            LEDs[i].bLit = logicNode.getLED(i);
+            LEDs[i].litRatio = logicNode.getLED(i);
         }
     }
 
@@ -126,10 +126,8 @@ class SimNode
     {
         for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
         {
-            if(LEDs[i].bLit) 
-                fill(0,255,0);
-            else 
-                fill(0,0,0);
+            float fillRatio = LEDs[i].litRatio * 255;
+            fill(0,(int) fillRatio,0);
             ellipse(LEDs[i].x, LEDs[i].y, LEDs[i].size, LEDs[i].size); 
         }
     }
