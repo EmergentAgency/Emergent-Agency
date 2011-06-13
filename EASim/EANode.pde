@@ -4,6 +4,90 @@
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
 
+// "source" of light along the circle, acts like a damped harmonic oscillator
+class Locus
+{
+// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
+//public:
+    boolean bActive;
+    float inflect;      // amplitude of oscillation 
+    float intensity;    // intensity, ranges from 0 to 1
+    
+    // Play with these values. 
+    float defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
+    float defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+    float eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+    float w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
+
+    float wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
+    float x0 = defaultX0;
+    float v0 = defaultV0;            
+    boolean CW = false;
+    float rad0;    // initial position along circle (in radians)
+    float radPos;  // variable position along circle
+    float t;       // time since bounce began
+    float v = -v0; // current velocity (start out negative so first bounce will be positive)
+    float xFinal;  // final absolute position (rads)
+    int lastBounceIdx = -1;
+    
+    void init(float inRadPos, int inSensIndex, boolean inCW) 
+    {
+        bActive = true;
+        t = 0;
+        //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
+        rad0 = inRadPos;    // initial position = center of activated node
+        radPos = rad0;      // start at initial position
+        lastBounceIdx = inSensIndex;
+        
+        // bounce in opposite direction (also, excess white space hurts my brain)
+        if (!inCW)
+        {
+            v = defaultV0;
+            v0 = defaultV0;
+            x0 = defaultX0;
+            CW = inCW;
+        }
+        else 
+        {  
+            v = -defaultV0;
+            v0 = -defaultV0;
+            x0 = -defaultX0;
+            CW = inCW;  
+        }
+        
+        xFinal = rad0 - x0; // end at final position
+        intensity = 1;      // reset default values
+        inflect = abs(x0);
+    }
+    
+    void update(float dT) 
+    { // pretty harmonics
+        t += dT;
+        float oldRadPos = radPos;
+        float oldV = v;
+        float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        radPos = (rad0 - x0 + x) % TWO_PI;
+        
+        v = (radPos - oldRadPos) / dT;
+        if (oldV * v < 0) 
+        {                                         // if direction of movement has changed
+             inflect = abs(radPos - xFinal);                        // note amplitude of oscillation
+             if (inflect > PI)
+                 inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)
+             CW = !CW;
+             //println("amplitude = " + inflect);
+        }
+        if (inflect < 0.1) 
+        {                                        // when settled down to near equilibrium
+            intensity -= dT/10;                                     // die down gracefully
+            if (intensity < 0)
+                bActive = false;        
+        }
+    }
+};
+
+
+
 class Node
 {
 
@@ -170,85 +254,3 @@ class Node
         loci.init(inRadPos, inSensIndex, CW);      // bounce the locus! (in the proper direction)
     }
 };
-
-// "source" of light along the circle, acts like a damped harmonic oscillator
-class Locus
-{
-// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
-//public:
-    boolean bActive;
-    float inflect;      // amplitude of oscillation 
-    float intensity;    // intensity, ranges from 0 to 1
-    
-    // Play with these values. 
-    float defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
-    float defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-    float eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
-    float w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
-
-    float wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
-    float x0 = defaultX0;
-    float v0 = defaultV0;            
-    boolean CW = false;
-    float rad0;    // initial position along circle (in radians)
-    float radPos;  // variable position along circle
-    float t;       // time since bounce began
-    float v = -v0; // current velocity (start out negative so first bounce will be positive)
-    float xFinal;  // final absolute position (rads)
-    int lastBounceIdx = -1;
-    
-    void init(float inRadPos, int inSensIndex, boolean inCW) 
-    {
-        bActive = true;
-        t = 0;
-        //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
-        rad0 = inRadPos;    // initial position = center of activated node
-        radPos = rad0;      // start at initial position
-        lastBounceIdx = inSensIndex;
-        
-        // bounce in opposite direction (also, excess white space hurts my brain)
-        if (!inCW)
-        {
-            v = defaultV0;
-            v0 = defaultV0;
-            x0 = defaultX0;
-            CW = inCW;
-        }
-        else 
-        {  
-            v = -defaultV0;
-            v0 = -defaultV0;
-            x0 = -defaultX0;
-            CW = inCW;  
-        }
-        
-        xFinal = rad0 - x0; // end at final position
-        intensity = 1;      // reset default values
-        inflect = abs(x0);
-    }
-    
-    void update(float dT) 
-    { // pretty harmonics
-        t += dT;
-        float oldRadPos = radPos;
-        float oldV = v;
-        float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
-        radPos = (rad0 - x0 + x) % TWO_PI;
-        
-        v = (radPos - oldRadPos) / dT;
-        if (oldV * v < 0) 
-        {                                         // if direction of movement has changed
-             inflect = abs(radPos - xFinal);                        // note amplitude of oscillation
-             if (inflect > PI)
-                 inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)
-             CW = !CW;
-             //println("amplitude = " + inflect);
-        }
-        if (inflect < 0.1) 
-        {                                        // when settled down to near equilibrium
-            intensity -= dT/10;                                     // die down gracefully
-            if (intensity < 0)
-                bActive = false;        
-        }
-    }
-}
