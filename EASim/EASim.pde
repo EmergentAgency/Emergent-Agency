@@ -5,6 +5,10 @@
  * modified by Charlotte McFarland
  */
 
+// tone playing imports
+import ddf.minim.*;
+import ddf.minim.signals.*;
+
 // constants
 static final int   NUM_NODES = 8;
 static final int   NUM_PEOPLE = 8;
@@ -44,6 +48,34 @@ class CommunicationLink
 }
 CommunicationLink comLink = new CommunicationLink();
 
+// tone vars
+Minim minim;
+AudioOutput out;
+SquareWave square;
+int NUM_BASE_NOTES = 6;
+int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+//int NUM_BASE_NOTES = 4;
+//int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
+//int NUM_BASE_NOTES = 3;
+//int[] baseNotes = {131, 196, 262 }; // C, G, C
+//int NUM_BASE_NOTES = 4;
+//int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
+
+// tone functions use to abstract tone implementations being different between
+// arduino and processing
+void playTone(int freq)
+{
+    // play at full volume
+    square.setAmp(1);
+
+    square.setFreq(freq);
+}
+void stopTone()
+{
+    // turn off sound
+    square.setAmp(0);
+}
+
 // setup function which initializes everything
 void setup() 
 {
@@ -66,8 +98,31 @@ void setup()
         simNodes[i] = new SimNode();
         simNodes[i].init(i, comLink);
     }
+
+    // setups tones
+    minim = new Minim(this);
+    // get a line out from Minim, default bufferSize is 1024, default sample rate is 44100, bit depth is 16
+    out = minim.getLineOut(Minim.STEREO);
+    // create a sine wave Oscillator, set to 440 Hz, at 0.5 amplitude, sample rate from line out
+    square = new SquareWave(440, 0.5, out.sampleRate());
+    // set the portamento speed on the oscillator to 0 milliseconds so that there is no sliding of tones
+    square.portamento(10);
+    // turn off sound to start
+    square.setAmp(0);
+    // add the oscillator to the line out
+    out.addSignal(square);
 }
 
+// shut down
+void stop()
+{
+    // turn off tones
+    out.close();
+    minim.stop();
+    super.stop();
+}
+
+// update loop
 void draw() 
 {
     // calc delta seconds;

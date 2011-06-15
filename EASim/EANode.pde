@@ -103,7 +103,10 @@ class Locus
         {                                        // when settled down to near equilibrium
             intensity -= dT/10;                                     // die down gracefully
             if (intensity < 0)
-                bActive = false;        
+            {
+                bActive = false;
+                stopTone();
+            }
         }
     }
 };
@@ -123,6 +126,10 @@ class Node
     boolean bSensorActive;
     float radPos;               // position of node along circle (radians)
     Locus loci;                 // light source (okay to have a second class on Arduino ???)
+
+    float maxTimeBetweenNotes;  // in seconds
+    float timeTillNextNote;     // in seconds
+    float noteTimeStep;         // in seconds
 
     // Processing and arduino have different array syntax which makes them incompatible.
     // This is super frustrating but can be worked around by making functions that access
@@ -192,6 +199,10 @@ class Node
         float radOffset = 1 / (2*(float)NUM_NODES) * 2 * PI; // 1/2 of sensor radians
         float LEDoffset = 1 / (2*(float)NUM_LEDS) * 2 * PI;  // 1/2 of LED radians
         float numLEDoffsets;
+
+        maxTimeBetweenNotes = 0.25;
+        timeTillNextNote = 0;
+        noteTimeStep = 0.125;
         
         // TEMP - can't use "new" cause arduino can't
         loci = new Locus();        // not needed, if bundling both classes together
@@ -263,7 +274,46 @@ class Node
               }
               //if (offset > loci.inflect)
               //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
-           }
+          }
+          
+          // if loci is in this node, make sound from this speaker
+          //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
+          if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
+          {
+              timeTillNextNote -= deltaSeconds;
+              if(timeTillNextNote <= 0)
+              {
+                  // get and bound speed
+                  float maxSpeed = 5.0;
+                  float speed = abs(loci.v);
+                  if(speed > maxSpeed)
+                      speed = maxSpeed;
+
+                  //// shift octave based on speed
+                  //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
+
+                  // shift octave based time since last bounce
+                  //int octave = 3 - int(pow(loci.t*2, 0.5));
+                  int octave = int(3 * 1/(loci.t*2 + 1));
+                  if(octave < 0)
+                      octave = 0;
+                  int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+
+                  // play note
+                  //println("TEMP_CL toneFreq=" + toneFreq);
+                  playTone(toneFreq);
+
+                  //// play note random time bounded by maxTimeBetweenNotes and based on octave
+                  //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
+
+                  //// play note next time step
+                  //timeTillNextNote = noteTimeStep + timeTillNextNote;
+
+                  // play note random time bounded by maxTimeBetweenNotes and based on speed
+                  //timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
+                  timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+              }
+          }
         }
         else
         {
