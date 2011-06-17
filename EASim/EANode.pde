@@ -52,7 +52,6 @@ class Locus
         v = -v0; // current velocity (start out negative so first bounce will be positive)
         lastBounceIdx = -1;
         numBounces = 0;
-        numUnbounces = 0;
     }
     void bounce(float inRadPos, int inSensIndex, boolean inCW)
     {
