@@ -3,6 +3,9 @@
  * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
+ 
+// 6-16-11: Chris, I totally subverted your sounds, in favor of a simple sine tone whose frequency
+//   changes with speed of the locus, which jitters like a bug.  I think it sounds pretty alive!
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
@@ -16,7 +19,6 @@ class Locus
     float inflect;      // amplitude of oscillation 
     float intensity;    // intensity, ranges from 0 to 1
     
-    // Play with these values. 
     float defaultX0;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
     float defaultV0;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
     float eta;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
@@ -29,50 +31,58 @@ class Locus
     float rad0;    // initial position along circle (in radians)
     float radPos;  // variable position along circle
     float t;       // time since bounce began
-    float v; // current velocity (start out negative so first bounce will be positive)
-    float xFinal;  // final absolute position (rads)
+    float x;       // current position (relative to final resting place, in radians)
+    float pureX;   // three variables needed for amplitude calcs (better than using velocity)
+    float lastX1;
+    float lastX2;
+    float v;  // current velocity (start out negative so first bounce will be positive)
     int lastBounceIdx;
+    int numBounces;   // used for phase shifts: keeps things from repeating too much
     
     void init() 
     {
+        // I played with these values, to keep the bug from ever re-entering the node it started from.
         defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
         defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-        eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        eta = 0.11;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
         w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
         wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
         x0 = defaultX0;
-        v0 = defaultV0;            
+        v0 = defaultV0;         
         v = -v0; // current velocity (start out negative so first bounce will be positive)
         lastBounceIdx = -1;
-
+        numBounces = 0;
+        numUnbounces = 0;
     }
     void bounce(float inRadPos, int inSensIndex, boolean inCW)
     {
         bActive = true;
+        numBounces++;
         t = 0;
         //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
         rad0 = inRadPos;    // initial position = center of activated node
         radPos = rad0;      // start at initial position
         lastBounceIdx = inSensIndex;
         
-        // bounce in opposite direction (also, excess white space hurts my brain)
+        // bounce in opposite direction 
         if (!inCW)
         {
             v = defaultV0;
             v0 = defaultV0;
             x0 = defaultX0;
-            CW = inCW;
         }
         else 
         {  
             v = -defaultV0;
             v0 = -defaultV0;
             x0 = -defaultX0;
-            CW = inCW;  
         }
-        
-        xFinal = rad0 - x0; // end at final position
+        CW = inCW;
+        x = x0;             // start at initial position
         intensity = 1;      // reset default values
+        pureX = x0; 
+        lastX1 = x0;
+        lastX2 = x0;
         inflect = abs(x0);
     }
     
@@ -80,8 +90,23 @@ class Locus
     { // pretty harmonics
         t += dT;
         float oldRadPos = radPos;
+        float oldX = x;
         float oldV = v;
-        float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        
+        // add jittery wave to make it look more like a bug
+        float jScale = (1-abs(pureX/x0));              // jitters most near equilibrium point
+        float phi = (float)lastBounceIdx + numBounces; // change phase shifts for every node, every bounce
+        float jitter = jScale*(sin(5*wd*t+phi)+sin(11*wd*t+phi+1)+1.5*(eta*w0*x0 + v0)/wd*sin(1.5*wd*t));  
+        // The third term (1.5*(eta*w0*x0 + v0)/wd*sin(1.5*wd*t)) should NOT have a phase shift:
+        //  -- it means, "Run away from the triggered node real fast!"
+        
+        lastX2 = lastX1;
+        lastX1 = pureX;
+        // underdamped harmonic oscillator equation
+        pureX = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        x = pureX + exp(-1*eta*w0*t) * jitter;
+        // to see just the jittering, without oscillation or time decay, uncomment the next line:
+        // x = jitter;
         radPos = (rad0 - x0 + x);
 
         // ensure radPos is always [0,TWO_PI)
@@ -91,20 +116,24 @@ class Locus
             radPos += TWO_PI;
         
         v = (radPos - oldRadPos) / dT;
-        if (oldV * v < 0) 
-        {                                         // if direction of movement has changed
-             inflect = abs(radPos - xFinal);                        // note amplitude of oscillation
-             if (inflect > PI)
-                 inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)
-             CW = !CW;
-             //println("amplitude = " + inflect);
+        
+        if (pureX <= lastX1 && lastX1 >= lastX2) {  // if (un-jittered) direction has changed
+           inflect = abs(lastX1);                   // note amplitude of oscillation
+           if (inflect > PI)
+               inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)               
         }
+        if (oldV * v < 0)       // keep this here: acts more like bug running away
+        {                                        
+            CW = !CW;
+        }
+
         if (inflect < 0.1) 
         {                                        // when settled down to near equilibrium
-            intensity -= dT/10;                                     // die down gracefully
+            intensity -= dT/10;                      // die down gracefully
             if (intensity < 0)
             {
-                bActive = false;
+                bActive = false;                 // reset default values
+                numBounces = 0;
                 stopTone();
             }
         }
@@ -278,6 +307,8 @@ class Node
           
           // if loci is in this node, make sound from this speaker
           //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
+          
+          // how about a radius variable? check whether loci.radpos is within the node's radius?
           if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
           {
               timeTillNextNote -= deltaSeconds;
@@ -301,7 +332,7 @@ class Node
 
                   // play note
                   //println("TEMP_CL toneFreq=" + toneFreq);
-                  playTone(toneFreq);
+                  //playTone(toneFreq);
 
                   //// play note random time bounded by maxTimeBetweenNotes and based on octave
                   //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
@@ -314,11 +345,19 @@ class Node
                   timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
               }
           }
+          // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
+          float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
+          float testFreq = 150.0 + abs(loci.v / loci.v0) * 100.0 + desperation;
+          if (testFreq > 3000)          // too high a frequency results in ugly static
+            println("v = " + loci.v);
+          else
+            playTone((int)testFreq);
         }
         else
         {
             for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
                 setLED(i,0); // blank LEDs, if no locus
+            playTone(0);     // mute sound
         }
     }
 
