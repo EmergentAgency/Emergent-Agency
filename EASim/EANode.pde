@@ -21,6 +21,7 @@ class Locus
     
     float defaultX0;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
     float defaultV0;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+    float defaultEta;
     float eta;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
     float w0;          // natural frequency (rads/sec): how fast it wants to go around
 
@@ -37,21 +38,30 @@ class Locus
     float lastX2;
     float v;  // current velocity (start out negative so first bounce will be positive)
     int lastBounceIdx;
-    int numBounces;   // used for phase shifts: keeps things from repeating too much
+    int numBounces;         // used for phase shifts: keeps things from repeating exactly every time
+    int numTrappedBounces;
+    float desperation;      // grows with every bounce, gets reset when locus dies out
+    float voice;            // the frequency it produces as it moves
+    float jitterScale;      // how much jittering to perform
     
     void init() 
     {
         // I played with these values, to keep the bug from ever re-entering the node it started from.
         defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
         defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-        eta = 0.11;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        defaultEta = 0.10;  // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        eta = defaultEta;   
         w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
         wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
         x0 = defaultX0;
         v0 = defaultV0;         
         v = -v0; // current velocity (start out negative so first bounce will be positive)
         lastBounceIdx = -1;
+        inflect = abs(x0);
         numBounces = 0;
+        numTrappedBounces = 0;
+        desperation = 0;
+        voice = 0;
     }
     void bounce(float inRadPos, int inSensIndex, boolean inCW)
     {
@@ -61,20 +71,46 @@ class Locus
         //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
         rad0 = inRadPos;    // initial position = center of activated node
         radPos = rad0;      // start at initial position
-        lastBounceIdx = inSensIndex;
+        int currentBounceIdx = inSensIndex;
+        int offset;
+        float currentX0 = defaultX0;
+        
+        // check for trapped condition: a second bounce before first swing has completed 
+        if (lastBounceIdx != -1 && inflect == abs(x0)) {
+            numTrappedBounces++;
+            if (inCW) 
+                offset = lastBounceIdx - currentBounceIdx;
+            else 
+                offset = currentBounceIdx - lastBounceIdx;
+            if (offset < 0)
+                offset += NUM_NODES;        // # of nodes between bounces
+            // adjust final resting place to be between the bouncing nodes
+            if (offset != 0) 
+            {
+                currentX0 = (float)offset/2.0 * TWO_PI/(float)NUM_NODES;
+                eta *= 2;
+                if (eta >=1) eta = 0.9;    // eta >= 1 does not work in the equation
+                //println("offset = " + offset + ", current x0 = " + currentX0);
+            }
+        }
+        else
+        {
+            eta = defaultEta;
+        }
+        lastBounceIdx = currentBounceIdx;   // record current bounce index
         
         // bounce in opposite direction 
         if (!inCW)
         {
             v = defaultV0;
             v0 = defaultV0;
-            x0 = defaultX0;
+            x0 = currentX0;
         }
         else 
         {  
             v = -defaultV0;
             v0 = -defaultV0;
-            x0 = -defaultX0;
+            x0 = -currentX0;
         }
         CW = inCW;
         x = x0;             // start at initial position
@@ -83,6 +119,7 @@ class Locus
         lastX1 = x0;
         lastX2 = x0;
         inflect = abs(x0);
+        desperation  = abs(numTrappedBounces * inflect / x0);
     }
     
     void update(float dT) 
@@ -93,19 +130,25 @@ class Locus
         float oldV = v;
         
         // add jittery wave to make it look more like a bug
-        float jScale = (1-abs(pureX/x0));              // jitters most near equilibrium point
+        jitterScale = (1-abs(x/x0));              // jitters most near equilibrium point
         float phi = (float)lastBounceIdx + numBounces; // change phase shifts for every node, every bounce
-        float jitter = jScale*(sin(5*wd*t+phi)+sin(11*wd*t+phi+1)+1.5*(eta*w0*x0 + v0)/wd*sin(1.5*wd*t));  
-        // The third term (1.5*(eta*w0*x0 + v0)/wd*sin(1.5*wd*t)) should NOT have a phase shift:
+        float largeJitter = sin(1.5*wd*t);    // slight exaggeration of normal bounce
+        float mediumJitter = sin(9*wd*t+phi);                      // having this here increases the randomness
+        float smallJitter = sin(11*wd*t+phi+1);                    // super buggy jitter
+        float antiJitter = 1 - eta;                                // high damping (due to many bounces) means less jittering
+        float jitter = jitterScale*antiJitter*(0.3*largeJitter + 0.5*mediumJitter + 2.0*smallJitter);  
+        //if (inflect < 0.2)         // don't jitter out of equilibrium if nearly settled
+            //jitter = antiJitter*(0.5*mediumJitter + 2.0*smallJitter);  
+        // The third term ((eta*w0*x0 + v0)/wd*sin(1.5*wd*t)) should NOT have a phase shift:
         //  -- it means, "Run away from the triggered node real fast!"
         
-        lastX2 = lastX1;
+        lastX2 = lastX1;    // record last two positions, to detect peak amplitude of each oscillation
         lastX1 = pureX;
         // underdamped harmonic oscillator equation
         pureX = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
         x = pureX + exp(-1*eta*w0*t) * jitter;
         // to see just the jittering, without oscillation or time decay, uncomment the next line:
-        // x = jitter;
+        //x = jitter;
         radPos = (rad0 - x0 + x);
 
         // ensure radPos is always [0,TWO_PI)
@@ -121,17 +164,30 @@ class Locus
            if (inflect > PI)
                inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)               
         }
-        if (oldV * v < 0)       // keep this here: acts more like bug running away
+        if (oldV * v < 0)         // this makes it act super random (potition tracking would be more predictable)
         {                                        
             CW = !CW;
         }
+        if (numTrappedBounces > 30)     // this protects it from being trapped too long
+        {
+            CW = !CW;
+            numTrappedBounces = 15;      // it can still get trapped again, but will break out sooner
+            eta = 2.0 * defaultEta;
+        }
+        // bug gets a little higher-pitched with every bounce (not really noticeable until you trap it)
+        //desperation  = abs(numTrappedBounces); 
+        voice = (200.0 + 450.0*abs(x/x0) + 35.0*abs(v/v0) + 4.0*numTrappedBounces + 2.0*numBounces) * intensity;
+        if (voice < 20)  voice = 0;
 
-        if (inflect < 0.1) 
+        if (inflect < 0.2) // * abs(x0) ?? 
         {                                        // when settled down to near equilibrium
-            intensity -= dT/10;                      // die down gracefully
-            if (intensity < 0)
+            intensity -= dT/5;                      // start dying down gracefully
+            numTrappedBounces = min(numTrappedBounces, 10); // let it calm down a bit
+            if (intensity < 0.1)                 // when effectively dead
             {
                 bActive = false;                 // reset default values
+                lastBounceIdx = -1;
+                numTrappedBounces = 0;
                 numBounces = 0;
                 stopTone();
             }
@@ -272,7 +328,7 @@ class Node
                    if (offset > PI)
                        offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
                    
-                   if (offset < 0.3)
+                   if (offset < 0.5)
                    {                                                 // if close to node center (never exactly on center)
                        CW = !loci.CW;                                // note direction of bounce, otherwise errors ensue
                        comLink.sendMessage(index, radPos, CW);       // bounce the locus!
@@ -283,7 +339,7 @@ class Node
         }
         if (loci.bActive)
         {
-          loci.update(deltaSeconds); // update locus position
+          loci.update(deltaSeconds); // update locus position, velocity, etc.
 
           for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
           {                                                          // if LED within lit range, light accordingly
@@ -345,11 +401,9 @@ class Node
               }
           }
           // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
-          float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
-          float testFreq = 150.0 + abs(loci.v / loci.v0) * 100.0 + desperation;
-          if (testFreq > 3000)          // too high a frequency results in ugly static
-            println("v = " + loci.v);
-          else
+          //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
+          float testFreq = loci.voice;
+          if (testFreq < 2000.0)          // too high a frequency results in ugly static
             playTone((int)testFreq);
         }
         else

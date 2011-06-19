@@ -13,10 +13,10 @@ import ddf.minim.signals.*;
 static final int   NUM_NODES = 8;
 static final int   NUM_PEOPLE = 8;
 static final int   NUM_TICKS_PER_UPDATE = 10;
-static final float SENSOR_SIZE = 210;
+static final float SENSOR_SIZE = 200;
 static final int   NUM_LEDS_PER_NODE = 5;
 static final int   NUM_LEDS = NUM_NODES * NUM_LEDS_PER_NODE;
-static final float LED_SIZE = 20;
+static final float LED_SIZE = 15;
 
 // globalTickCount is a super simple way to keep track of time.  This
 // is incremented every update loop
