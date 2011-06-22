@@ -16,7 +16,7 @@ static final int   NUM_TICKS_PER_UPDATE = 10;
 static final float SENSOR_SIZE = 200;
 static final int   NUM_LEDS_PER_NODE = 5;
 static final int   NUM_LEDS = NUM_NODES * NUM_LEDS_PER_NODE;
-static final float LED_SIZE = 20;
+static final float LED_SIZE = 15;
 
 // globalTickCount is a super simple way to keep track of time.  This
 // is incremented every update loop
@@ -52,6 +52,7 @@ CommunicationLink comLink = new CommunicationLink();
 Minim minim;
 AudioOutput out;
 SquareWave square;
+SineWave sine;
 int NUM_BASE_NOTES = 6;
 int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
 //int NUM_BASE_NOTES = 4;
@@ -69,11 +70,15 @@ void playTone(int freq)
     square.setAmp(1);
 
     square.setFreq(freq);
+    
+    sine.setAmp(1);
+    sine.setFreq(freq);
 }
 void stopTone()
 {
     // turn off sound
     square.setAmp(0);
+    sine.setAmp(0);
 }
 
 // setup function which initializes everything
@@ -110,7 +115,12 @@ void setup()
     // turn off sound to start
     square.setAmp(0);
     // add the oscillator to the line out
-    out.addSignal(square);
+    //out.addSignal(square);
+    
+    sine = new SineWave(20, 0.5, out.sampleRate());
+    sine.portamento(10);
+    sine.setAmp(0);
+    out.addSignal(sine);
 }
 
 // shut down
@@ -144,7 +154,7 @@ void draw()
     // draws all the sensors (under everything)
     for(int i = 0; i < NUM_NODES; i++)
     {
-        simNodes[i].drawSensor();
+        //simNodes[i].drawSensor();
     }
     
     // handles dragging and drawing of all the people (draw over the sensors, under the LEDs)
