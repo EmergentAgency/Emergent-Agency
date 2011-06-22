@@ -5,7 +5,7 @@ Node logicNode;
 int NODE_INDEX = 0;
 
 // test LED pin number
-int START_TEST_LED_PIN = 1;
+int START_TEST_LED_PIN = 8;
 
 // The communication link for this node that takes messages from the logic nodes and turns them into serial messages
 CommunicationLink comLink;
@@ -13,10 +13,11 @@ CommunicationLink comLink;
 // last time in milliseconds
 int lastMillis;
 
-
-
 void setup()
 {
+    Serial.begin(9600);           // set up Serial library at 9600 bps
+    Serial.println("EAHardware - setup");
+
     // initialize the logic node
     logicNode.init(NODE_INDEX, comLink);
 
@@ -25,9 +26,6 @@ void setup()
         // turn on pins for output to test an LED
         pinMode(START_TEST_LED_PIN + i, OUTPUT);   
     }
-
-    // debugging
-    //Serial.begin(9600);
 }
 
 
@@ -41,26 +39,24 @@ void loop()
     float deltaSeconds = deltaMillis / 1000.0;
 
     // update logic node
+    // TEMP_CL - fake input for now...
     //logicNode.update(deltaSeconds, random(2) == 0);
     logicNode.update(deltaSeconds, true);
+
+    Serial.println("Post update:"); // TEMP_CL
 
     for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
     {
         int LEDbrightness = logicNode.getLED(i) * 255;
 
-        //Serial.println(LEDbrightness);
-
         if(LEDbrightness > 0)
         {
-           //analogWrite(START_TEST_LED_PIN + i, LEDbrightness);   // set the LED brightness
-           analogWrite(START_TEST_LED_PIN + i, HIGH);   // set the LED brightness
+            Serial.println(LEDbrightness); // TEMP_CL
+            analogWrite(START_TEST_LED_PIN + i, LEDbrightness);   // set the LED brightness
         }
         else
         {
             digitalWrite(START_TEST_LED_PIN + i, LOW);   // set the LED off
         }
     }
-
-    // wait half a second
-    //delay(deltaSeconds * 1000);
 }

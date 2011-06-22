@@ -204,7 +204,6 @@ public:
             if (LEDradPos < 0) LEDradPos += TWO_PI;
             setLED(i,0); 
             setLEDpos(i,LEDradPos);
-            //println("node " + sensIndex + ", LED " + i + ": " + LEDradPos);
         }
     }
 
@@ -223,7 +222,17 @@ public:
             if (!bOldSensorActive && !loci.bActive) // if newly activated and no locus running
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
-                comLink.sendMessage(index, radPos, CW);
+
+                //// send message to all other nodes
+                //comLink.sendMessage(index, radPos, CW);
+
+                //// let ourselves know about the message too
+                //receiveMessage(index, radPos, CW);
+
+                // TEMP_CL - fake a bounce on the far node for testing
+                int tempIdx = index+4;
+                float tempRadPos = (float)tempIdx / (float)NUM_NODES * 2 * PI;
+                receiveMessage(tempIdx, tempRadPos, CW);
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
