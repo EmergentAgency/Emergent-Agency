@@ -3,10 +3,27 @@
  * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
+ 
+// Tuning params
+boolean bUseScaleBasedSounds = true;
+
+// Scale based tones
+// SYNTAX - Arduino vs Processing difference
+int NUM_BASE_NOTES = 6;
+int baseNotes[] = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+//int NUM_BASE_NOTES = 4;
+//int baseNotes[] = {131, 175, 220, 262 }; // C, F, A, C
+//int NUM_BASE_NOTES = 3;
+//int baseNotes[] = {131, 196, 262 }; // C, G, C
+//int NUM_BASE_NOTES = 4;
+//int baseNotes[] = {131, 156, 196, 262 }; // C, Eflat, G, C
+
+
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
 {
+// SYNTAX - Arduino vs Processing difference
 // NOTE: this is the only difference I couldn't make the same
 // between Processing and Arudino.  You MUST comment out
 // the line "public:" in Processing but it MUST be here for Arduino.
@@ -16,9 +33,9 @@ public:
     float inflect;      // amplitude of oscillation 
     float intensity;    // intensity, ranges from 0 to 1
     
-    // Play with these values. 
     float defaultX0;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
     float defaultV0;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+    float defaultEta;
     float eta;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
     float w0;          // natural frequency (rads/sec): how fast it wants to go around
 
@@ -29,59 +46,123 @@ public:
     float rad0;    // initial position along circle (in radians)
     float radPos;  // variable position along circle
     float t;       // time since bounce began
-    float v; // current velocity (start out negative so first bounce will be positive)
-    float xFinal;  // final absolute position (rads)
+    float x;       // current position (relative to final resting place, in radians)
+    float pureX;   // three variables needed for amplitude calcs (better than using velocity)
+    float lastX1;
+    float lastX2;
+    float v;  // current velocity (start out negative so first bounce will be positive)
     int lastBounceIdx;
+    int numBounces;         // used for phase shifts: keeps things from repeating exactly every time
+    int numTrappedBounces;
+    float desperation;      // grows with every bounce, gets reset when locus dies out
+    float voice;            // the frequency it produces as it moves
+    float jitterScale;      // how much jittering to perform
     
     void init() 
     {
+        // I played with these values, to keep the bug from ever re-entering the node it started from.
         defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
         defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-        eta = 0.05;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        defaultEta = 0.10;  // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        eta = defaultEta;   
         w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
         wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
         x0 = defaultX0;
-        v0 = defaultV0;            
+        v0 = defaultV0;         
         v = -v0; // current velocity (start out negative so first bounce will be positive)
         lastBounceIdx = -1;
-
+        inflect = abs(x0);
+        numBounces = 0;
+        numTrappedBounces = 0;
+        desperation = 0;
+        voice = 0;
     }
     void bounce(float inRadPos, int inSensIndex, boolean inCW)
     {
         bActive = true;
+        numBounces++;
         t = 0;
         //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
         rad0 = inRadPos;    // initial position = center of activated node
         radPos = rad0;      // start at initial position
-        lastBounceIdx = inSensIndex;
+        int currentBounceIdx = inSensIndex;
+        int offset;
+        float currentX0 = defaultX0;
         
-        // bounce in opposite direction (also, excess white space hurts my brain)
+        // check for trapped condition: a second bounce before first swing has completed 
+        if (lastBounceIdx != -1 && inflect == abs(x0)) {
+            numTrappedBounces++;
+            if (inCW) 
+                offset = lastBounceIdx - currentBounceIdx;
+            else 
+                offset = currentBounceIdx - lastBounceIdx;
+            if (offset < 0)
+                offset += NUM_NODES;        // # of nodes between bounces
+            // adjust final resting place to be between the bouncing nodes
+            if (offset != 0) 
+            {
+                currentX0 = (float)offset/2.0 * TWO_PI/(float)NUM_NODES;
+                eta *= 2;
+                if (eta >=1) eta = 0.9;    // eta >= 1 does not work in the equation
+                //println("offset = " + offset + ", current x0 = " + currentX0);
+            }
+        }
+        else
+        {
+            eta = defaultEta;
+        }
+        lastBounceIdx = currentBounceIdx;   // record current bounce index
+        
+        // bounce in opposite direction 
         if (!inCW)
         {
             v = defaultV0;
             v0 = defaultV0;
-            x0 = defaultX0;
-            CW = inCW;
+            x0 = currentX0;
         }
         else 
         {  
             v = -defaultV0;
             v0 = -defaultV0;
-            x0 = -defaultX0;
-            CW = inCW;  
+            x0 = -currentX0;
         }
-        
-        xFinal = rad0 - x0; // end at final position
+        CW = inCW;
+        x = x0;             // start at initial position
         intensity = 1;      // reset default values
+        pureX = x0; 
+        lastX1 = x0;
+        lastX2 = x0;
         inflect = abs(x0);
+        desperation  = abs(numTrappedBounces * inflect / x0);
     }
     
     void update(float dT) 
     { // pretty harmonics
         t += dT;
         float oldRadPos = radPos;
+        float oldX = x;
         float oldV = v;
-        float x = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        
+        // add jittery wave to make it look more like a bug
+        jitterScale = (1-abs(x/x0));              // jitters most near equilibrium point
+        float phi = (float)lastBounceIdx + numBounces; // change phase shifts for every node, every bounce
+        float largeJitter = sin(1.5*wd*t);    // slight exaggeration of normal bounce
+        float mediumJitter = sin(9*wd*t+phi);                      // having this here increases the randomness
+        float smallJitter = sin(11*wd*t+phi+1);                    // super buggy jitter
+        float antiJitter = 1 - eta;                                // high damping (due to many bounces) means less jittering
+        float jitter = jitterScale*antiJitter*(0.3*largeJitter + 0.5*mediumJitter + 2.0*smallJitter);  
+        //if (inflect < 0.2)         // don't jitter out of equilibrium if nearly settled
+            //jitter = antiJitter*(0.5*mediumJitter + 2.0*smallJitter);  
+        // The third term ((eta*w0*x0 + v0)/wd*sin(1.5*wd*t)) should NOT have a phase shift:
+        //  -- it means, "Run away from the triggered node real fast!"
+        
+        lastX2 = lastX1;    // record last two positions, to detect peak amplitude of each oscillation
+        lastX1 = pureX;
+        // underdamped harmonic oscillator equation
+        pureX = exp(-1*eta*w0*t) * (x0*cos(wd*t) + (eta*w0*x0 + v0)/wd * sin(wd*t));
+        x = pureX + exp(-1*eta*w0*t) * jitter;
+        // to see just the jittering, without oscillation or time decay, uncomment the next line:
+        //x = jitter;
         radPos = (rad0 - x0 + x);
 
         // ensure radPos is always [0,TWO_PI)
@@ -91,19 +172,39 @@ public:
             radPos += TWO_PI;
         
         v = (radPos - oldRadPos) / dT;
-        if (oldV * v < 0) 
-        {                                         // if direction of movement has changed
-             inflect = abs(radPos - xFinal);                        // note amplitude of oscillation
-             if (inflect > PI)
-                 inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)
-             CW = !CW;
-             //println("amplitude = " + inflect);
+        
+        if (pureX <= lastX1 && lastX1 >= lastX2) {  // if (un-jittered) direction has changed
+           inflect = abs(lastX1);                   // note amplitude of oscillation
+           if (inflect > PI)
+               inflect = abs(inflect - TWO_PI);     // deal with wraparound (+3*pi/2 = -pi/2)               
         }
-        if (inflect < 0.1) 
+        if (oldV * v < 0)         // this makes it act super random (potition tracking would be more predictable)
+        {                                        
+            CW = !CW;
+        }
+        if (numTrappedBounces > 30)     // this protects it from being trapped too long
+        {
+            CW = !CW;
+            numTrappedBounces = 15;      // it can still get trapped again, but will break out sooner
+            eta = 2.0 * defaultEta;
+        }
+        // bug gets a little higher-pitched with every bounce (not really noticeable until you trap it)
+        //desperation  = abs(numTrappedBounces); 
+        voice = (200.0 + 450.0*abs(x/x0) + 35.0*abs(v/v0) + 4.0*numTrappedBounces + 2.0*numBounces) * intensity;
+        if (voice < 20)  voice = 0;
+
+        if (inflect < 0.2) // * abs(x0) ?? 
         {                                        // when settled down to near equilibrium
-            intensity -= dT/10;                                     // die down gracefully
-            if (intensity < 0)
-                bActive = false;        
+            intensity -= dT/5;                      // start dying down gracefully
+            numTrappedBounces = min(numTrappedBounces, 10); // let it calm down a bit
+            if (intensity < 0.1)                 // when effectively dead
+            {
+                bActive = false;                 // reset default values
+                lastBounceIdx = -1;
+                numTrappedBounces = 0;
+                numBounces = 0;
+                stopTone();
+            }
         }
     }
 };
@@ -113,6 +214,7 @@ public:
 class Node
 {
 
+// SYNTAX - Arduino vs Processing difference
 // NOTE: this is the only difference I couldn't make the same
 // between Processing and Arudino.  You MUST comment out
 // the line "public:" in Processing but it MUST be here for Arduino.
@@ -123,6 +225,10 @@ public:
     boolean bSensorActive;
     float radPos;               // position of node along circle (radians)
     Locus loci;                 // light source (okay to have a second class on Arduino ???)
+
+    float maxTimeBetweenNotes;  // in seconds
+    float timeTillNextNote;     // in seconds
+    float noteTimeStep;         // in seconds
 
     // Processing and arduino have different array syntax which makes them incompatible.
     // This is super frustrating but can be worked around by making functions that access
@@ -192,9 +298,14 @@ public:
         float radOffset = 1 / (2*(float)NUM_NODES) * 2 * PI; // 1/2 of sensor radians
         float LEDoffset = 1 / (2*(float)NUM_LEDS) * 2 * PI;  // 1/2 of LED radians
         float numLEDoffsets;
+
+        maxTimeBetweenNotes = 0.25;
+        timeTillNextNote = 0;
+        noteTimeStep = 0.125;
         
-        // TEMP - can't use "new" cause arduino can't
+        // SYNTAX - Arduino vs Processing difference
         //loci = new Locus();        // not needed, if bundling both classes together
+
         loci.init();
 
         for(int i=0; i < NUM_LEDS_PER_NODE; i++)
@@ -204,6 +315,7 @@ public:
             if (LEDradPos < 0) LEDradPos += TWO_PI;
             setLED(i,0); 
             setLEDpos(i,LEDradPos);
+            //println("node " + sensIndex + ", LED " + i + ": " + LEDradPos);
         }
     }
 
@@ -223,16 +335,11 @@ public:
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
 
-                //// send message to all other nodes
-                //comLink.sendMessage(index, radPos, CW);
+                // send message to all other nodes
+                comLink.sendMessage(index, radPos, CW);
 
-                //// let ourselves know about the message too
-                //receiveMessage(index, radPos, CW);
-
-                // TEMP_CL - fake a bounce on the far node for testing
-                int tempIdx = index+4;
-                float tempRadPos = (float)tempIdx / (float)NUM_NODES * 2 * PI;
-                receiveMessage(tempIdx, tempRadPos, CW);
+                // let ourselves know about the message too
+                receiveMessage(index, radPos, CW);
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -242,7 +349,7 @@ public:
                    if (offset > PI)
                        offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
                    
-                   if (offset < 0.3)
+                   if (offset < 0.5)
                    {                                                 // if close to node center (never exactly on center)
                        CW = !loci.CW;                                // note direction of bounce, otherwise errors ensue
                        comLink.sendMessage(index, radPos, CW);       // bounce the locus!
@@ -253,31 +360,86 @@ public:
         }
         if (loci.bActive)
         {
-          loci.update(deltaSeconds); // update locus position
+            loci.update(deltaSeconds); // update locus position, velocity, etc.
 
-          for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
-          {                                                          // if LED within lit range, light accordingly
-              offset = abs(getLEDpos(i) - loci.radPos);              // find distance from LED to locus
-              if (offset > PI)
-                  offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
+            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+            {                                                          // if LED within lit range, light accordingly
+                offset = abs(getLEDpos(i) - loci.radPos);              // find distance from LED to locus
+                if (offset > PI)
+                    offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
               
-              wasLit = getLED(i);
-              litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
-              if (offset >= maxLitRange)
-                  setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
-              else
-              {
-                  litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
-                  setLED(i, litRatio * loci.intensity);
-              }
-              //if (offset > loci.inflect)
-              //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
-           }
+                wasLit = getLED(i);
+                litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
+                if (offset >= maxLitRange)
+                    setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
+                else
+                {
+                    litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
+                    setLED(i, litRatio * loci.intensity);
+                }
+                //if (offset > loci.inflect)
+                //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
+            }
+          
+            // if loci is in this node, make sound from this speaker
+            //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
+            
+            // how about a radius variable? check whether loci.radpos is within the node's radius?
+            if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
+            {
+                if(bUseScaleBasedSounds)
+                {
+                    timeTillNextNote -= deltaSeconds;
+                    if(timeTillNextNote <= 0)
+                    {
+                        // get and bound speed
+                        float maxSpeed = 5.0;
+                        float speed = abs(loci.v);
+                        if(speed > maxSpeed)
+                            speed = maxSpeed;
+     
+                        //// shift octave based on speed
+                        //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
+     
+                        // shift octave based time since last bounce
+                        //int octave = 3 - int(pow(loci.t*2, 0.5));
+                        int octave = int(3 * 1/(loci.t*2 + 1));
+                        if(octave < 0)
+                            octave = 0;
+                        int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+  
+                        // play note
+                        //println("TEMP_CL toneFreq=" + toneFreq);
+                        playTone(toneFreq);
+
+                        //// play note random time bounded by maxTimeBetweenNotes and based on octave
+                        //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
+   
+                        //// play note next time step
+                        //timeTillNextNote = noteTimeStep + timeTillNextNote;
+   
+                        // play note random time bounded by maxTimeBetweenNotes and based on speed
+                        //timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
+                        timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+                    }
+                }
+                else
+                {
+                    // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
+                    //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
+                    float testFreq = loci.voice;
+                    if (testFreq < 2000.0)          // too high a frequency results in ugly static
+                    {
+                        playTone((int)testFreq);
+                    }
+                }
+            }
         }
         else
         {
             for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
                 setLED(i,0); // blank LEDs, if no locus
+            stopTone();     // mute sound
         }
     }
 

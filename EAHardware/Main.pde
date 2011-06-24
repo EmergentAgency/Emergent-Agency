@@ -13,6 +13,9 @@ CommunicationLink comLink;
 // last time in milliseconds
 int lastMillis;
 
+// TEMP_CL - testing vars
+boolean bHasFakedBounce = false;
+
 void setup()
 {
     Serial.begin(9600);           // set up Serial library at 9600 bps
@@ -39,9 +42,16 @@ void loop()
     float deltaSeconds = deltaMillis / 1000.0;
 
     // update logic node
-    // TEMP_CL - fake input for now...
-    //logicNode.update(deltaSeconds, random(2) == 0);
-    logicNode.update(deltaSeconds, true);
+    logicNode.update(deltaSeconds, false); // TEMP_CL - get actual sensor data
+
+    // TEMP_CL - fake a bounce on the far node for testing
+    if(!bHasFakedBounce)
+    {
+        int tempIdx = 4;
+        float tempRadPos = (float)tempIdx / (float)NUM_NODES * 2 * PI;
+        logicNode.receiveMessage(tempIdx, tempRadPos, false);
+        bHasFakedBounce = true;
+    }
 
     Serial.println("Post update:"); // TEMP_CL
 

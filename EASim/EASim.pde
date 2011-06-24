@@ -42,7 +42,10 @@ class CommunicationLink
         println("sendMessage:" + nodeIndex);
         for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
         {
-            simNodes[i].logicNode.receiveMessage(nodeIndex, radPos, bClockwise);
+            // Don't send the msg to the node that sent it because wifi
+            // communication doesn't work like that
+            if(i != nodeIndex)
+                simNodes[i].logicNode.receiveMessage(nodeIndex, radPos, bClockwise);
         }
     }
 }
@@ -52,15 +55,6 @@ CommunicationLink comLink = new CommunicationLink();
 Minim minim;
 AudioOutput out;
 SquareWave square;
-SineWave sine;
-int NUM_BASE_NOTES = 6;
-int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
-//int NUM_BASE_NOTES = 4;
-//int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
-//int NUM_BASE_NOTES = 3;
-//int[] baseNotes = {131, 196, 262 }; // C, G, C
-//int NUM_BASE_NOTES = 4;
-//int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
 
 // tone functions use to abstract tone implementations being different between
 // arduino and processing
@@ -68,17 +62,12 @@ void playTone(int freq)
 {
     // play at full volume
     square.setAmp(1);
-
     square.setFreq(freq);
-    
-    sine.setAmp(1);
-    sine.setFreq(freq);
 }
 void stopTone()
 {
     // turn off sound
     square.setAmp(0);
-    sine.setAmp(0);
 }
 
 // setup function which initializes everything
@@ -115,12 +104,7 @@ void setup()
     // turn off sound to start
     square.setAmp(0);
     // add the oscillator to the line out
-    //out.addSignal(square);
-    
-    sine = new SineWave(20, 0.5, out.sampleRate());
-    sine.portamento(10);
-    sine.setAmp(0);
-    out.addSignal(sine);
+    out.addSignal(square);
 }
 
 // shut down

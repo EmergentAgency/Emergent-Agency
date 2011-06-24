@@ -4,12 +4,26 @@
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
  
-// 6-16-11: Chris, I totally subverted your sounds, in favor of a simple sine tone whose frequency
-//   changes with speed of the locus, which jitters like a bug.  I think it sounds pretty alive!
+// Tuning params
+boolean bUseScaleBasedSounds = true;
+
+// Scale based tones
+// SYNTAX - Arduino vs Processing difference
+int NUM_BASE_NOTES = 6;
+int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+//int NUM_BASE_NOTES = 4;
+//int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
+//int NUM_BASE_NOTES = 3;
+//int[] baseNotes = {131, 196, 262 }; // C, G, C
+//int NUM_BASE_NOTES = 4;
+//int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
+
+
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
 {
+// SYNTAX - Arduino vs Processing difference
 // NOTE: this is the only difference I couldn't make the same
 // between Processing and Arudino.  You MUST comment out
 // the line "public:" in Processing but it MUST be here for Arduino.
@@ -200,6 +214,7 @@ class Locus
 class Node
 {
 
+// SYNTAX - Arduino vs Processing difference
 // NOTE: this is the only difference I couldn't make the same
 // between Processing and Arudino.  You MUST comment out
 // the line "public:" in Processing but it MUST be here for Arduino.
@@ -288,7 +303,7 @@ class Node
         timeTillNextNote = 0;
         noteTimeStep = 0.125;
         
-        // TEMP - can't use "new" cause arduino can't
+        // SYNTAX - Arduino vs Processing difference
         loci = new Locus();        // not needed, if bundling both classes together
         loci.init();
 
@@ -318,7 +333,12 @@ class Node
             if (!bOldSensorActive && !loci.bActive) // if newly activated and no locus running
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
+
+                // send message to all other nodes
                 comLink.sendMessage(index, radPos, CW);
+
+                // let ourselves know about the message too
+                receiveMessage(index, radPos, CW);
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -339,78 +359,86 @@ class Node
         }
         if (loci.bActive)
         {
-          loci.update(deltaSeconds); // update locus position, velocity, etc.
+            loci.update(deltaSeconds); // update locus position, velocity, etc.
 
-          for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
-          {                                                          // if LED within lit range, light accordingly
-              offset = abs(getLEDpos(i) - loci.radPos);              // find distance from LED to locus
-              if (offset > PI)
-                  offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
+            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+            {                                                          // if LED within lit range, light accordingly
+                offset = abs(getLEDpos(i) - loci.radPos);              // find distance from LED to locus
+                if (offset > PI)
+                    offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
               
-              wasLit = getLED(i);
-              litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
-              if (offset >= maxLitRange)
-                  setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
-              else
-              {
-                  litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
-                  setLED(i, litRatio * loci.intensity);
-              }
-              //if (offset > loci.inflect)
-              //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
-          }
+                wasLit = getLED(i);
+                litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
+                if (offset >= maxLitRange)
+                    setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
+                else
+                {
+                    litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
+                    setLED(i, litRatio * loci.intensity);
+                }
+                //if (offset > loci.inflect)
+                //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
+            }
           
-          // if loci is in this node, make sound from this speaker
-          //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
-          
-          // how about a radius variable? check whether loci.radpos is within the node's radius?
-          if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
-          {
-              timeTillNextNote -= deltaSeconds;
-              if(timeTillNextNote <= 0)
-              {
-                  // get and bound speed
-                  float maxSpeed = 5.0;
-                  float speed = abs(loci.v);
-                  if(speed > maxSpeed)
-                      speed = maxSpeed;
+            // if loci is in this node, make sound from this speaker
+            //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
+            
+            // how about a radius variable? check whether loci.radpos is within the node's radius?
+            if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
+            {
+                if(bUseScaleBasedSounds)
+                {
+                    timeTillNextNote -= deltaSeconds;
+                    if(timeTillNextNote <= 0)
+                    {
+                        // get and bound speed
+                        float maxSpeed = 5.0;
+                        float speed = abs(loci.v);
+                        if(speed > maxSpeed)
+                            speed = maxSpeed;
+     
+                        //// shift octave based on speed
+                        //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
+     
+                        // shift octave based time since last bounce
+                        //int octave = 3 - int(pow(loci.t*2, 0.5));
+                        int octave = int(3 * 1/(loci.t*2 + 1));
+                        if(octave < 0)
+                            octave = 0;
+                        int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+  
+                        // play note
+                        //println("TEMP_CL toneFreq=" + toneFreq);
+                        playTone(toneFreq);
 
-                  //// shift octave based on speed
-                  //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
-
-                  // shift octave based time since last bounce
-                  //int octave = 3 - int(pow(loci.t*2, 0.5));
-                  int octave = int(3 * 1/(loci.t*2 + 1));
-                  if(octave < 0)
-                      octave = 0;
-                  int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
-
-                  // play note
-                  //println("TEMP_CL toneFreq=" + toneFreq);
-                  //playTone(toneFreq);
-
-                  //// play note random time bounded by maxTimeBetweenNotes and based on octave
-                  //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
-
-                  //// play note next time step
-                  //timeTillNextNote = noteTimeStep + timeTillNextNote;
-
-                  // play note random time bounded by maxTimeBetweenNotes and based on speed
-                  //timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
-                  timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
-              }
-          }
-          // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
-          //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
-          float testFreq = loci.voice;
-          if (testFreq < 2000.0)          // too high a frequency results in ugly static
-            playTone((int)testFreq);
+                        //// play note random time bounded by maxTimeBetweenNotes and based on octave
+                        //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
+   
+                        //// play note next time step
+                        //timeTillNextNote = noteTimeStep + timeTillNextNote;
+   
+                        // play note random time bounded by maxTimeBetweenNotes and based on speed
+                        //timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
+                        timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+                    }
+                }
+                else
+                {
+                    // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
+                    //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
+                    float testFreq = loci.voice;
+                    if (testFreq < 2000.0)          // too high a frequency results in ugly static
+                    {
+                        playTone((int)testFreq);
+                    }
+                }
+            }
         }
         else
         {
             for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
                 setLED(i,0); // blank LEDs, if no locus
-            playTone(0);     // mute sound
+            stopTone();     // mute sound
         }
     }
 
