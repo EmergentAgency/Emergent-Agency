@@ -13,11 +13,11 @@ public:
 
 // tone functions use to abstract tone implementations being different between
 // arduino and processing
-void playTone(int freq)
+void playTone(int nodeIndex, int freq)
 {
     // TODO - fill in with tone code
 }
-void stopTone()
+void stopTone(int nodeIndex)
 {
     // TODO - fill in with tone code
 }

@@ -10,13 +10,15 @@ import ddf.minim.*;
 import ddf.minim.signals.*;
 
 // constants
-static final int   NUM_NODES = 8;
-static final int   NUM_PEOPLE = 8;
-static final int   NUM_TICKS_PER_UPDATE = 10;
-static final float SENSOR_SIZE = 200;
-static final int   NUM_LEDS_PER_NODE = 5;
-static final int   NUM_LEDS = NUM_NODES * NUM_LEDS_PER_NODE;
-static final float LED_SIZE = 15;
+static final int     NUM_NODES = 8;
+static final int     NUM_PEOPLE = 8;
+static final int     NUM_TICKS_PER_UPDATE = 10;
+static final float   SENSOR_SIZE = 200;
+static final int     NUM_LEDS_PER_NODE = 5;
+static final int     NUM_LEDS = NUM_NODES * NUM_LEDS_PER_NODE;
+static final float   LED_SIZE = 15;
+static final boolean DRAW_SENSORS = true;
+static final boolean PLAY_SOUNDS = true;
 
 // globalTickCount is a super simple way to keep track of time.  This
 // is incremented every update loop
@@ -54,21 +56,23 @@ CommunicationLink comLink = new CommunicationLink();
 // tone vars
 Minim minim;
 AudioOutput out;
-SquareWave square;
+SquareWave[] square;
 
 // tone functions use to abstract tone implementations being different between
 // arduino and processing
-void playTone(int freq)
+void playTone(int nodeIndex, int freq)
 {
     // play at full volume
-    square.setAmp(1);
-    square.setFreq(freq);
+    square[nodeIndex].setAmp(1);
+    square[nodeIndex].setFreq(freq);
 }
-void stopTone()
+void stopTone(int nodeIndex)
 {
     // turn off sound
-    square.setAmp(0);
+    square[nodeIndex].setAmp(0);
 }
+
+
 
 // setup function which initializes everything
 void setup() 
@@ -97,14 +101,21 @@ void setup()
     minim = new Minim(this);
     // get a line out from Minim, default bufferSize is 1024, default sample rate is 44100, bit depth is 16
     out = minim.getLineOut(Minim.STEREO);
-    // create a sine wave Oscillator, set to 440 Hz, at 0.5 amplitude, sample rate from line out
-    square = new SquareWave(440, 0.5, out.sampleRate());
-    // set the portamento speed on the oscillator to 0 milliseconds so that there is no sliding of tones
-    square.portamento(10);
-    // turn off sound to start
-    square.setAmp(0);
-    // add the oscillator to the line out
-    out.addSignal(square);
+
+
+    square = new SquareWave[NUM_NODES];
+    for(int i = 0; i < NUM_NODES; i++)
+    {
+        // create a sine wave Oscillator, set to 440 Hz, at 0.5 amplitude, sample rate from line out
+        square[i] = new SquareWave(440, 0.5, out.sampleRate());
+        // set the portamento speed on the oscillator to 0 milliseconds so that there is no sliding of tones
+        square[i].portamento(10);
+        // turn off sound to start
+        square[i].setAmp(0);
+        // add the oscillator to the line out
+        if(PLAY_SOUNDS)
+            out.addSignal(square[i]);
+    }
 }
 
 // shut down
@@ -138,7 +149,8 @@ void draw()
     // draws all the sensors (under everything)
     for(int i = 0; i < NUM_NODES; i++)
     {
-        //simNodes[i].drawSensor();
+        if(DRAW_SENSORS)
+            simNodes[i].drawSensor();
     }
     
     // handles dragging and drawing of all the people (draw over the sensors, under the LEDs)

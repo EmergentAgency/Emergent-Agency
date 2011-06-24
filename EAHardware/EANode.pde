@@ -5,7 +5,8 @@
  */
  
 // Tuning params
-boolean bUseScaleBasedSounds = true;
+boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
+float globalJitterScale = 1.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
@@ -150,7 +151,11 @@ public:
         float mediumJitter = sin(9*wd*t+phi);                      // having this here increases the randomness
         float smallJitter = sin(11*wd*t+phi+1);                    // super buggy jitter
         float antiJitter = 1 - eta;                                // high damping (due to many bounces) means less jittering
-        float jitter = jitterScale*antiJitter*(0.3*largeJitter + 0.5*mediumJitter + 2.0*smallJitter);  
+        float jitter = jitterScale*antiJitter*(0.3*largeJitter + 0.5*mediumJitter + 2.0*smallJitter);
+
+        // Allow us to easily turn up and down the jitter
+        jitter *= globalJitterScale;
+
         //if (inflect < 0.2)         // don't jitter out of equilibrium if nearly settled
             //jitter = antiJitter*(0.5*mediumJitter + 2.0*smallJitter);  
         // The third term ((eta*w0*x0 + v0)/wd*sin(1.5*wd*t)) should NOT have a phase shift:
@@ -203,7 +208,7 @@ public:
                 lastBounceIdx = -1;
                 numTrappedBounces = 0;
                 numBounces = 0;
-                stopTone();
+                stopTone(0); // TEMP_CL - not sure which index this supposed to be
             }
         }
     }
@@ -229,6 +234,9 @@ public:
     float maxTimeBetweenNotes;  // in seconds
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
+
+    // TEMP_CL - hack for second notes right now
+    boolean bUpdateSecondNote;
 
     // Processing and arduino have different array syntax which makes them incompatible.
     // This is super frustrating but can be worked around by making functions that access
@@ -410,17 +418,26 @@ public:
   
                         // play note
                         //println("TEMP_CL toneFreq=" + toneFreq);
-                        playTone(toneFreq);
+                        playTone(index, toneFreq);
+
+                        // TEMP_CL - hack for second notes right now
+                        if(bUpdateSecondNote)
+                        {
+                            int toneFreq2 = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+                            playTone(index+1, toneFreq2*2);
+                        }
+                        bUpdateSecondNote = !bUpdateSecondNote;
 
                         //// play note random time bounded by maxTimeBetweenNotes and based on octave
                         //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
    
-                        //// play note next time step
-                        //timeTillNextNote = noteTimeStep + timeTillNextNote;
+                        // play note next time step
+                        int numBeatsToPlay = int((1 - (speed / maxSpeed)) * random(2)) + 1;
+                        timeTillNextNote = noteTimeStep * numBeatsToPlay + timeTillNextNote;
    
-                        // play note random time bounded by maxTimeBetweenNotes and based on speed
-                        //timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
-                        timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+                        //// play note random time bounded by maxTimeBetweenNotes and based on speed
+                        ////timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
+                        //timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
                     }
                 }
                 else
@@ -430,7 +447,7 @@ public:
                     float testFreq = loci.voice;
                     if (testFreq < 2000.0)          // too high a frequency results in ugly static
                     {
-                        playTone((int)testFreq);
+                        playTone(index, (int)testFreq);
                     }
                 }
             }
@@ -439,7 +456,7 @@ public:
         {
             for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
                 setLED(i,0); // blank LEDs, if no locus
-            stopTone();     // mute sound
+            stopTone(index);     // mute sound
         }
     }
 
