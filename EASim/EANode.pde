@@ -3,31 +3,30 @@
  * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
- 
+// 6-25-11 Next steps: move all unchanging variables into #DEFINE statements
+
 // Tuning params
 boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
 float globalJitterScale = 1.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
-int NUM_BASE_NOTES = 6;
-int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+//int NUM_BASE_NOTES = 6;
+//int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
 //int NUM_BASE_NOTES = 4;
 //int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
 //int NUM_BASE_NOTES = 3;
 //int[] baseNotes = {131, 196, 262 }; // C, G, C
 //int NUM_BASE_NOTES = 4;
 //int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
-
-
+int NUM_BASE_NOTES = 3;
+int[] baseNotes = {131, 156, 196 }; // C, Eflat, G 
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
 {
 // SYNTAX - Arduino vs Processing difference
-// NOTE: this is the only difference I couldn't make the same
-// between Processing and Arudino.  You MUST comment out
-// the line "public:" in Processing but it MUST be here for Arduino.
+// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
 //public:
 
     boolean bActive;
@@ -220,9 +219,7 @@ class Node
 {
 
 // SYNTAX - Arduino vs Processing difference
-// NOTE: this is the only difference I couldn't make the same
-// between Processing and Arudino.  You MUST comment out
-// the line "public:" in Processing but it MUST be here for Arduino.
+// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
 //public:
 
     int index;
@@ -446,8 +443,8 @@ class Node
                 else
                 {
                     // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
-                    //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
                     float testFreq = loci.voice;
+					// 
                     if (testFreq < 2000.0)          // too high a frequency results in ugly static
                     {
                         playTone(index, (int)testFreq);
