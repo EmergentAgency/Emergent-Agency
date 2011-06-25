@@ -358,8 +358,12 @@ class Node
                    
                    if (offset < 0.5)
                    {                                                 // if close to node center (never exactly on center)
-                       CW = !loci.CW;                                // note direction of bounce, otherwise errors ensue
-                       comLink.sendMessage(index, radPos, CW);       // bounce the locus!
+                        CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
+						// send message to all other nodes
+						comLink.sendMessage(index, radPos, CW);      // bounce the locus!
+
+						// let ourselves know about the message too
+						receiveMessage(index, radPos, CW);
                    }
                 }
             }
