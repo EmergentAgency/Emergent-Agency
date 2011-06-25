@@ -6,18 +6,18 @@
  
 // Tuning params
 boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
-float globalJitterScale = 1.0;       // scales the amount of jitter the loci has
+float globalJitterScale = 0.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
-int NUM_BASE_NOTES = 6;
-int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+//int NUM_BASE_NOTES = 6;
+//int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
 //int NUM_BASE_NOTES = 4;
 //int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
 //int NUM_BASE_NOTES = 3;
 //int[] baseNotes = {131, 196, 262 }; // C, G, C
-//int NUM_BASE_NOTES = 4;
-//int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
+int NUM_BASE_NOTES = 4;
+int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
 
 
 
