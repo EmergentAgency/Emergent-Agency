@@ -6,7 +6,7 @@
  
 // Tuning params
 boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
-float globalJitterScale = 1.0;       // scales the amount of jitter the loci has
+float globalJitterScale = 0.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
