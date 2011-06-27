@@ -5,7 +5,7 @@
  */
  
 // Tuning params
-boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
+boolean bUseScaleBasedSounds = false; // switches between scale based tones and smoothy velocity tones
 float globalJitterScale = 0.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
@@ -78,12 +78,13 @@ public:
         desperation = 0;
         voice = 0;
     }
-    void bounce(float inRadPos, int inSensIndex, boolean inCW)
+    void bounce(int inSensIndex, boolean inCW)
     {
         bActive = true;
         numBounces++;
         t = 0;
         //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
+        float inRadPos = (float)inSensIndex / (float)NUM_NODES * 2 * PI;
         rad0 = inRadPos;    // initial position = center of activated node
         radPos = rad0;      // start at initial position
         int currentBounceIdx = inSensIndex;
@@ -105,6 +106,7 @@ public:
                 currentX0 = (float)offset/2.0 * TWO_PI/(float)NUM_NODES;
                 eta *= 2;
                 if (eta >=1) eta = 0.9;    // eta >= 1 does not work in the equation
+                Serial.println("hi");
                 //println("offset = " + offset + ", current x0 = " + currentX0);
             }
         }
@@ -198,9 +200,9 @@ public:
         voice = (200.0 + 450.0*abs(x/x0) + 35.0*abs(v/v0) + 4.0*numTrappedBounces + 2.0*numBounces) * intensity;
         if (voice < 20)  voice = 0;
 
-        if (inflect < 0.2) // * abs(x0) ?? 
+        if (inflect < 1/(2*(float)NUM_LEDS)*2*PI) // 1/2 of LED radians
         {                                        // when settled down to near equilibrium
-            intensity -= dT/5;                      // start dying down gracefully
+            intensity -= dT/10;                      // start dying down gracefully
             numTrappedBounces = min(numTrappedBounces, 10); // let it calm down a bit
             if (intensity < 0.1)                 // when effectively dead
             {
@@ -226,7 +228,6 @@ class Node
 public:
 
     int index;
-    CommunicationLink comLink;
     boolean bSensorActive;
     float radPos;               // position of node along circle (radians)
     Locus loci;                 // light source (okay to have a second class on Arduino ???)
@@ -234,6 +235,11 @@ public:
     float maxTimeBetweenNotes;  // in seconds
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
+    
+    int bounceNode;
+    boolean rotation;
+    char bounceChar;
+    boolean newBounce;
 
     // TEMP_CL - hack for second notes right now
     boolean bUpdateSecondNote;
@@ -296,10 +302,9 @@ public:
     }
 
 
-    void init(int inIndex, CommunicationLink inComLink)
+    void init(int inIndex)
     {
         index = inIndex;
-        comLink = inComLink;
         radPos = (float)index / (float)NUM_NODES * 2 * PI;
         bSensorActive = false;
         float LEDradPos;
@@ -343,11 +348,8 @@ public:
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
 
-                // send message to all other nodes
-                comLink.sendMessage(index, radPos, CW);
-
-                // let ourselves know about the message too
-                receiveMessage(index, radPos, CW);
+                newBounce = true;            // flag for main routing to print to Uart
+                parse_outgoing(index, CW);   // sets bounceChar with correct character
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -360,11 +362,9 @@ public:
                    if (offset < 0.5)
                    {                                                 // if close to node center (never exactly on center)
                         CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
-						// send message to all other nodes
-						comLink.sendMessage(index, radPos, CW);      // bounce the locus!
-
-						// let ourselves know about the message too
-						receiveMessage(index, radPos, CW);
+                        
+                        newBounce = true;            // flag for main routing to print to Uart
+                        parse_outgoing(index, CW);   // sets bounceChar with correct character
                    }
                 }
             }
@@ -397,7 +397,13 @@ public:
             //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
             
             // how about a radius variable? check whether loci.radpos is within the node's radius?
-            if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
+            offset = abs(radPos - loci.radPos);               // find distance from node center to locus
+            if (offset > PI) {
+                offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
+            }
+            //Serial.println(offset);
+            
+            if (offset < 1/(2*(float)NUM_NODES)*2*PI)         // if locus within node radius
             {
                 if(bUseScaleBasedSounds)
                 {
@@ -455,6 +461,9 @@ public:
                     }
                 }
             }
+            else {
+                stopTone(index);
+            }
         }
         else
         {
@@ -464,8 +473,139 @@ public:
         }
     }
 
-    void receiveMessage(int inSensIndex, float inRadPos, boolean CW)
+    void receiveMessage(char x)
     {
-        loci.bounce(inRadPos, inSensIndex, CW);      // bounce the locus! (in the proper direction)
+        parse_incoming(x);
+        Serial.println(x);
+        Serial.println(bounceNode);
+        loci.bounce(bounceNode, rotation);      // bounce the locus! (in the proper direction)
+    }
+    
+    void parse_outgoing(int node, boolean rotation) {
+        switch (rotation) {
+          case 1:
+            switch (node) {
+              case 0:
+                bounceChar = 'a';
+                break;
+              case 1:
+                bounceChar = 'b';
+                break;
+              case 2:
+                bounceChar = 'c';
+                break;
+              case 3:
+                bounceChar = 'd';
+                break;
+              case 4:
+                bounceChar = 'e';
+                break;
+              case 5:
+                bounceChar = 'f';
+                break;
+              case 6:
+                bounceChar = 'g';
+                break;
+              case 7:
+                bounceChar = 'h';
+                break;
+            }
+          case 0:
+            switch (node) {
+              case 0:
+                bounceChar = 'A';
+                break;
+              case 1:
+                bounceChar = 'B';
+                break;
+              case 2:
+                bounceChar = 'C';
+                break;
+              case 3:
+                bounceChar = 'D';
+                break;
+              case 4:
+                bounceChar = 'E';
+                break;
+              case 5:
+                bounceChar = 'F';
+                break;
+              case 6:
+                bounceChar = 'G';
+                break;
+              case 7:
+                bounceChar = 'H';
+                break;
+            }
+        }
+    }
+    void parse_incoming(char x) {
+        switch (x) {
+          case 'a':
+            bounceNode = 0;
+            //This means CW
+            rotation = 1;
+            break;
+          case 'b':
+            bounceNode = 1;
+            rotation = 1;
+            break;
+          case 'c':
+            bounceNode = 2;
+            rotation = 1;
+            break;
+          case 'd':
+            bounceNode = 3;
+            rotation = 1;
+            break;
+          case 'e':
+            bounceNode = 4;
+            rotation = 1;
+            break;
+          case 'f':
+            bounceNode = 5;
+            rotation = 1;
+            break;
+          case 'g':
+            bounceNode = 6;
+            rotation = 1;
+            break;
+          case 'h':
+            bounceNode = 7;
+            rotation = 1;
+            break;
+          case 'A':
+            bounceNode = 0;
+            rotation = 0;
+            break;
+          case 'B':
+            bounceNode = 1;
+            rotation = 0;
+            break;
+          case 'C':
+            bounceNode = 2;
+            rotation = 0;
+            break;
+          case 'D':
+            bounceNode = 3;
+            rotation = 0;
+            break;
+          case 'E':
+            bounceNode = 4;
+            rotation = 0;
+            break;
+          case 'F':
+            bounceNode = 5;
+            rotation = 0;
+            break;
+          case 'G':
+            bounceNode = 6;
+            rotation = 0;
+            break;
+          case 'H':
+            bounceNode = 7;
+            rotation = 0;
+            break;
+        }
     }
 };
