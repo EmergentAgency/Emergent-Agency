@@ -6,7 +6,7 @@
 
 // Constants
 // SYNTAX - Arduino vs Processing difference
-static const int MAX_NUM_LOCI = 2;
+static const int MAX_NUM_LOCI = 1;
 //int MAX_NUM_LOCI = 2;
 
 // Tuning params
