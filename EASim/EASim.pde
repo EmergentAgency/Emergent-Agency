@@ -37,28 +37,15 @@ SimNode[] simNodes;
 int lastMillis;
 
 // simple communication system
-void sendMessage(int nodeIndex, boolean bClockwise)
+void sendMessage(int nodeIndex, int lociIdx, boolean bClockwise)
 {
-<<<<<<< HEAD
-    void sendMessage(int nodeIndex, int lociIdx, float radPos, boolean bClockwise)
-    {
-        println("sendMessage:" + nodeIndex);
-        for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
-        {
-            // Don't send the msg to the node that sent it because wifi
-            // communication doesn't work like that
-            if(i != nodeIndex)
-                simNodes[i].logicNode.receiveMessage(nodeIndex, lociIdx, radPos, bClockwise);
-        }
-=======
     println("sendMessage:" + nodeIndex);
-    for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
+    for (int i=0; i < NUM_NODES; i++)    // all other nodes receive message
     {
         // Don't send the msg to the node that sent it because wifi
         // communication doesn't work like that
         if(i != nodeIndex)
-            simNodes[i].logicNode.receiveMessage(nodeIndex, bClockwise);
->>>>>>> origin/master
+            simNodes[i].logicNode.receiveMessage(nodeIndex, lociIdx, bClockwise);
     }
 }
 

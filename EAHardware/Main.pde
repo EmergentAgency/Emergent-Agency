@@ -133,7 +133,8 @@ void loop()
             parse_incoming(incomingByte);    // sets global vars bounceNode and rotation with appropriate values
             Serial.println(bounceNode);
             Serial.println(rotation);
-            logicNode.receiveMessage(bounceNode, rotation);
+            logicNode.receiveMessage(bounceNode, 0, rotation); // TEMP_CL ignore lociIdx for now
+
         }
     }
 
@@ -145,7 +146,7 @@ void loop()
     {
         parse_outgoing(4, true);               // fake a bounce from node 4, in clockwise direction
         Uart.print(bounceChar);                // tell other nodes about the bounce
-        logicNode.receiveMessage(4, true);     // tell this node about the bounce
+        logicNode.receiveMessage(4, 0, true);  // tell this node about the bounce - TEMP_CL - hack loci index to 0
         //Serial.println(logicNode.lastBounceIdx);
         
         // temp

@@ -25,7 +25,8 @@ void stopTone(int nodeIndex)
 }
 
 // communication functions to abstract differences between arduino and processing
-void sendMessage(int nodeIndex, boolean CW) 
+// TEMP_CL ignore lociIdx for now
+void sendMessage(int nodeIndex, int lociIdx, boolean CW) 
 {
     parse_outgoing(nodeIndex, CW);    // sets global var bounceChar with appropriate character
     Uart.print(bounceChar);

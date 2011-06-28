@@ -3,10 +3,17 @@
  * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
- 
+
+// Constants
+// SYNTAX - Arduino vs Processing difference
+static const int MAX_NUM_LOCI = 2;
+//int MAX_NUM_LOCI = 2;
+
 // Tuning params
-boolean bUseScaleBasedSounds = false; // switches between scale based tones and smoothy velocity tones
-float globalJitterScale = 0.0;       // scales the amount of jitter the loci has
+boolean bUseScaleBasedSounds = true;      // switches between scale based tones and smoothy velocity tones
+boolean bComeToRestBetweenPeople = false; // If the loci should try to come to rest between the last two bounces
+boolean bEscapeBeingTrapped = false;      // if true, the loci will  "get away" if it has been trapped for too long
+float globalJitterScale = 0.0;            // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
@@ -18,8 +25,10 @@ int baseNotes[] = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
 //int baseNotes[] = {131, 196, 262 }; // C, G, C
 //int NUM_BASE_NOTES = 4;
 //int baseNotes[] = {131, 156, 196, 262 }; // C, Eflat, G, C
-
-
+//int NUM_BASE_NOTES = 3;
+//int baseNotes[] = {131, 156, 196 }; // C, Eflat, G 
+//int NUM_BASE_NOTES = 3;
+//int[] baseNotes[] = {131, 165, 196 }; // C, E, G 
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
@@ -34,8 +43,8 @@ public:
     float inflect;      // amplitude of oscillation 
     float intensity;    // intensity, ranges from 0 to 1
     
-    float defaultX0;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
-    float defaultV0;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+    float defaultX0;    // initial posisiton (rads): where the locus will settle relative to the triggered sensor
+    float defaultV0;    // initial angular velocity (rads/sec): how big a kick it gets on each bounce
     float defaultEta;
     float eta;         // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
     float w0;          // natural frequency (rads/sec): how fast it wants to go around
@@ -100,13 +109,13 @@ public:
                 offset = currentBounceIdx - lastBounceIdx;
             if (offset < 0)
                 offset += NUM_NODES;        // # of nodes between bounces
-            // adjust final resting place to be between the bouncing nodes
-            if (offset != 0) 
+
+            if(bComeToRestBetweenPeople)
             {
                 currentX0 = (float)offset/2.0 * TWO_PI/(float)NUM_NODES;
                 eta *= 2;
                 if (eta >=1) eta = 0.9;    // eta >= 1 does not work in the equation
-                Serial.println("hi");
+                //Serial.println("hi");
                 //println("offset = " + offset + ", current x0 = " + currentX0);
             }
         }
@@ -189,7 +198,7 @@ public:
         {                                        
             CW = !CW;
         }
-        if (numTrappedBounces > 30)     // this protects it from being trapped too long
+        if (numTrappedBounces > 30 && bEscapeBeingTrapped)     // this protects it from being trapped too long
         {
             CW = !CW;
             numTrappedBounces = 15;      // it can still get trapped again, but will break out sooner
@@ -210,7 +219,7 @@ public:
                 lastBounceIdx = -1;
                 numTrappedBounces = 0;
                 numBounces = 0;
-                stopTone(0); // TEMP_CL - not sure which index this supposed to be
+                //stopTone(0); // TEMP_CL - not sure which index this supposed to be
             }
         }
     }
@@ -230,7 +239,10 @@ public:
     int index;
     boolean bSensorActive;
     float radPos;               // position of node along circle (radians)
-    Locus loci;                 // light source (okay to have a second class on Arduino ???)
+    // SYNTAX - Arduino vs Processing difference
+    Locus loci[MAX_NUM_LOCI];   // light source (okay to have a second class on Arduino ???)
+    //Locus[] loci;                 // light source (okay to have a second class on Arduino ???)
+
 
     float maxTimeBetweenNotes;  // in seconds
     float timeTillNextNote;     // in seconds
@@ -312,9 +324,17 @@ public:
         noteTimeStep = 0.125;
         
         // SYNTAX - Arduino vs Processing difference
-        //loci = new Locus();        // not needed, if bundling both classes together
+        //loci = new Locus[MAX_NUM_LOCI];
+        //for(int i = 0; i < MAX_NUM_LOCI; i++)
+        //{
+        //    loci[i] = new Locus();
+        //}
 
-        loci.init();
+        // init loci
+        for(int i = 0; i < MAX_NUM_LOCI; i++)
+        {
+          loci[i].init();
+        }
 
         for(int i=0; i < NUM_LEDS_PER_NODE; i++)
         {
@@ -337,139 +357,163 @@ public:
         float litRatio;             // newly calculated lit ratio
         boolean CW;                 // direction of locus (true if clockwise)
 
-        if(bSensorActive)
-        {
-            if (!bOldSensorActive && !loci.bActive) // if newly activated and no locus running
-            {
-                CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
-                
-                sendMessage(index, CW);                // tell other nodes about the bounce
-				receiveMessage(index, CW);			   // tell this node about the bounce
-            }
-            else   // bounce the locus when it reaches the center of this (active) node from another node
-            {
-                if (loci.bActive && index != loci.lastBounceIdx)
-                {                                                    // if not already bouncing away from this node
-                   offset = abs(radPos - loci.radPos);               // find distance from node center to locus
-                   if (offset > PI)
-                       offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
-                   
-                   if (offset < 0.5)
-                   {                                                 // if close to node center (never exactly on center)
-                        CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
-                        
-                        sendMessage(index, CW);                      // tell other nodes about the bounce
-						receiveMessage(index, CW);					 // tell this node about the bounce
-                   }
-                }
-            }
-            //totalActiveSensorTime += deltaSeconds;  // do we need this?  maybe for auto reset after 10 minutes?
-        }
-        if (loci.bActive)
-        {
-            loci.update(deltaSeconds); // update locus position, velocity, etc.
+        // loci on this node
+        boolean bAnyActiveLociHere = false;
 
-            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
-            {                                                          // if LED within lit range, light accordingly
-                offset = abs(getLEDpos(i) - loci.radPos);              // find distance from LED to locus
-                if (offset > PI)
-                    offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
+        // update the loci
+        for(int lociIdx = 0; lociIdx < MAX_NUM_LOCI; lociIdx++)
+        {
+            if(bSensorActive)
+            {
+                if (!bOldSensorActive && !loci[lociIdx].bActive) // if newly activated and no locus running
+                {
+                    CW = (loci[lociIdx].v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
+
+                    // reverse direction for even numbered loci so if two are started at the same
+                    // time they go in opposite direction
+                    if(lociIdx % 2 == 0)
+                        CW = !CW;
+
+                    // send message to all other nodes
+                    sendMessage(index, lociIdx, CW);
+
+                    // let ourselves know about the message too
+                    receiveMessage(index, lociIdx, CW);
+                }
+                else   // bounce the locus when it reaches the center of this (active) node from another node
+                {
+                    if (loci[lociIdx].bActive && index != loci[lociIdx].lastBounceIdx)
+                    {                                                    // if not already bouncing away from this node
+                       offset = abs(radPos - loci[lociIdx].radPos);               // find distance from node center to locus
+                       if (offset > PI)
+                           offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
+                       
+                       if (offset < 0.5)
+                       {                                                 // if close to node center (never exactly on center)
+                            CW = !loci[lociIdx].CW;                               // note direction of bounce, otherwise errors ensue
+						    // send message to all other nodes
+						    sendMessage(index, lociIdx, CW);      // bounce the locus!
+
+						    // let ourselves know about the message too
+						    receiveMessage(index, lociIdx, CW);
+                       }
+                    }
+                }
+                //totalActiveSensorTime += deltaSeconds;  // do we need this?  maybe for auto reset after 10 minutes?
+            }
+            if (loci[lociIdx].bActive)
+            {
+                loci[lociIdx].update(deltaSeconds); // update locus position, velocity, etc.
+
+                for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+                {                                                          // if LED within lit range, light accordingly
+                    offset = abs(getLEDpos(i) - loci[lociIdx].radPos);              // find distance from LED to locus
+                    if (offset > PI)
+                        offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
+                  
+                    wasLit = getLED(i);
+                    litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
+                    if (offset >= maxLitRange)
+                        setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
+                    else
+                    {
+                        litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
+
+                        // add new value to existing value (which would be from the other loci)
+                        float newLit = litRatio * loci[lociIdx].intensity + getLED(i);
+                        if(newLit > 1)
+                            newLit = 1;
+
+                        // update the LED
+                        setLED(i, litRatio * loci[lociIdx].intensity);
+                    }
+                    //if (offset > loci[lociIdx].inflect)
+                    //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
+                }
               
-                wasLit = getLED(i);
-                litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
-                if (offset >= maxLitRange)
-                    setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
-                else
-                {
-                    litRatio = max(1 - (offset/maxLitRange),litRatio); // scale LED lights, if within range
-                    setLED(i, litRatio * loci.intensity);
+                // how about a radius variable? check whether loci.radpos is within the node's radius?
+                offset = abs(radPos - loci[lociIdx].radPos);               // find distance from node center to locus
+                if (offset > PI) {
+                    offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
                 }
-                //if (offset > loci.inflect)
-                //   setLED(i,0);                // blank LEDs, if outside amplitude of oscillation
-            }
-          
-            // if loci is in this node, make sound from this speaker
-            //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
-            
-            // how about a radius variable? check whether loci.radpos is within the node's radius?
-            offset = abs(radPos - loci.radPos);               // find distance from node center to locus
-            if (offset > PI) {
-                offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
-            }
-            //Serial.println(offset);
-            
-            if (offset < 1/(2*(float)NUM_NODES)*2*PI)         // if locus within node radius
-            {
-                if(bUseScaleBasedSounds)
+                //Serial.println(offset);
+                
+                if (offset < 1/(2*(float)NUM_NODES)*2*PI)         // if locus within node radius
                 {
-                    timeTillNextNote -= deltaSeconds;
-                    if(timeTillNextNote <= 0)
-                    {
-                        // get and bound speed
-                        float maxSpeed = 5.0;
-                        float speed = abs(loci.v);
-                        if(speed > maxSpeed)
-                            speed = maxSpeed;
-     
-                        //// shift octave based on speed
-                        //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
-     
-                        // shift octave based time since last bounce
-                        //int octave = 3 - int(pow(loci.t*2, 0.5));
-                        int octave = int(3 * 1/(loci.t*2 + 1));
-                        if(octave < 0)
-                            octave = 0;
-                        int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
-  
-                        // play note
-                        //println("TEMP_CL toneFreq=" + toneFreq);
-                        playTone(index, toneFreq);
+                    bAnyActiveLociHere = true;
 
-                        // TEMP_CL - hack for second notes right now
-                        if(bUpdateSecondNote)
+                    if(bUseScaleBasedSounds)
+                    {
+                        timeTillNextNote -= deltaSeconds;
+                        if(timeTillNextNote <= 0)
                         {
-                            int toneFreq2 = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
-                            playTone(index+1, toneFreq2*2);
-                        }
-                        bUpdateSecondNote = !bUpdateSecondNote;
+                            // get and bound speed
+                            float maxSpeed = 5.0;
+                            float speed = abs(loci[lociIdx].v);
+                            if(speed > maxSpeed)
+                                speed = maxSpeed;
+         
+                            //// shift octave based on speed
+                            //int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, int(speed / 2.0)));
+         
+                            // shift octave based time since last bounce
+                            //int octave = 3 - int(pow(loci[lociIdx].t*2, 0.5));
+                            int octave = int(3 * 1/(loci[lociIdx].t*2 + 1));
+                            if(octave < 0)
+                                octave = 0;
+                            int toneFreq = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+      
+                            // play note
+                            //println("TEMP_CL toneFreq=" + toneFreq);
+                            playTone(index, toneFreq);
 
-                        //// play note random time bounded by maxTimeBetweenNotes and based on octave
-                        //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
-   
-                        // play note next time step
-                        int numBeatsToPlay = int((1 - (speed / maxSpeed)) * random(2)) + 1;
-                        timeTillNextNote = noteTimeStep * numBeatsToPlay + timeTillNextNote;
-   
-                        //// play note random time bounded by maxTimeBetweenNotes and based on speed
-                        ////timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
-                        //timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+                            //// TEMP_CL - hack for second notes right now
+                            //if(bUpdateSecondNote)
+                            //{
+                            //    int toneFreq2 = baseNotes[int(random(NUM_BASE_NOTES))] * int(pow(2, octave));
+                            //    playTone(index+1, toneFreq2*2);
+                            //}
+                            //bUpdateSecondNote = !bUpdateSecondNote;
+
+                            //// play note random time bounded by maxTimeBetweenNotes and based on octave
+                            //timeTillNextNote = random(maxTimeBetweenNotes) / (octave + 1);
+       
+                            // play note next time step
+                            int numBeatsToPlay = int((1 - (speed / maxSpeed)) * random(2)) + 1;
+                            timeTillNextNote = noteTimeStep * numBeatsToPlay + timeTillNextNote;
+       
+                            //// play note random time bounded by maxTimeBetweenNotes and based on speed
+                            ////timeTillNextNote = random(maxTimeBetweenNotes) / maxSpeed * speed;
+                            //timeTillNextNote = random(maxTimeBetweenNotes) * (1 - (speed / maxSpeed));
+                        }
+                    }
+                    else
+                    {
+                        // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
+                        //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
+                        float testFreq = loci[lociIdx].voice;
+                        if (testFreq < 2000.0)          // too high a frequency results in ugly static
+                        {
+                            playTone(index, (int)testFreq);
+                        }
                     }
                 }
                 else
                 {
-                    // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
-                    //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
-                    float testFreq = loci.voice;
-                    if (testFreq < 2000.0)          // too high a frequency results in ugly static
-                    {
-                        playTone(index, (int)testFreq);
-                    }
+                    //stopTone(index);
                 }
-            }
-            else {
-                stopTone(index);
             }
         }
-        else
+
+        // turn off the sound if no loci here
+        if(!bAnyActiveLociHere)
         {
-            for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
-                setLED(i,0); // blank LEDs, if no locus
-            stopTone(index);     // mute sound
+            stopTone(index);
         }
     }
 
-    void receiveMessage(int inBounceNode, boolean inRotation)
+    void receiveMessage(int inBounceNode, int lociIdx, boolean CW)
     {
-        loci.bounce(inBounceNode, inRotation);      // bounce the locus! (in the proper direction)
+        loci[lociIdx].bounce(inBounceNode, CW);      // bounce the locus! (in the proper direction)
     }
 };
