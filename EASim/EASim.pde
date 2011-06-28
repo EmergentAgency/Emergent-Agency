@@ -39,7 +39,7 @@ int lastMillis;
 // simple example communication system
 class CommunicationLink
 {
-    void sendMessage(int nodeIndex, float radPos, boolean bClockwise)
+    void sendMessage(int nodeIndex, int lociIdx, float radPos, boolean bClockwise)
     {
         println("sendMessage:" + nodeIndex);
         for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
@@ -47,7 +47,7 @@ class CommunicationLink
             // Don't send the msg to the node that sent it because wifi
             // communication doesn't work like that
             if(i != nodeIndex)
-                simNodes[i].logicNode.receiveMessage(nodeIndex, radPos, bClockwise);
+                simNodes[i].logicNode.receiveMessage(nodeIndex, lociIdx, radPos, bClockwise);
         }
     }
 }
