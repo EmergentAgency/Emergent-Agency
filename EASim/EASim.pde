@@ -36,9 +36,10 @@ SimNode[] simNodes;
 // last time in milliseconds
 int lastMillis;
 
-// simple example communication system
-class CommunicationLink
+// simple communication system
+void sendMessage(int nodeIndex, boolean bClockwise)
 {
+<<<<<<< HEAD
     void sendMessage(int nodeIndex, int lociIdx, float radPos, boolean bClockwise)
     {
         println("sendMessage:" + nodeIndex);
@@ -49,9 +50,17 @@ class CommunicationLink
             if(i != nodeIndex)
                 simNodes[i].logicNode.receiveMessage(nodeIndex, lociIdx, radPos, bClockwise);
         }
+=======
+    println("sendMessage:" + nodeIndex);
+    for (int i=0; i < NUM_NODES; i++)    // ALL nodes receive message !!
+    {
+        // Don't send the msg to the node that sent it because wifi
+        // communication doesn't work like that
+        if(i != nodeIndex)
+            simNodes[i].logicNode.receiveMessage(nodeIndex, bClockwise);
+>>>>>>> origin/master
     }
 }
-CommunicationLink comLink = new CommunicationLink();
 
 // tone vars
 Minim minim;
@@ -94,7 +103,7 @@ void setup()
     for(int i = 0; i < NUM_NODES; i++)
     {
         simNodes[i] = new SimNode();
-        simNodes[i].init(i, comLink);
+        simNodes[i].init(i);
     }
 
     // setups tones

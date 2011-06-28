@@ -343,7 +343,8 @@ public:
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
                 
-                sendMessage(index, CW);                // global function for inter-node communication
+                sendMessage(index, CW);                // tell other nodes about the bounce
+				receiveMessage(index, CW);			   // tell this node about the bounce
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -357,7 +358,8 @@ public:
                    {                                                 // if close to node center (never exactly on center)
                         CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
                         
-                        sendMessage(index, CW);                      // global function for inter-node communication
+                        sendMessage(index, CW);                      // tell other nodes about the bounce
+						receiveMessage(index, CW);					 // tell this node about the bounce
                    }
                 }
             }
