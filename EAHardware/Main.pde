@@ -28,7 +28,6 @@ int SENSOR_DELAY_TIME_IN_MILLS = 2000;
 unsigned long lastSensorTime = 0;
 boolean bSensorOn = false;
 boolean readWireless = true;
-HardwareSerial Uart = HardwareSerial();
 float totalSensorOnTime;
 float timeSinceLastSensor = -1;
 
@@ -131,23 +130,23 @@ void loop()
         if (Uart.available() > 0) {
             incomingByte = Uart.read();
             //readWireless = false;
-            logicNode.receiveMessage(incomingByte);
+            parse_incoming(incomingByte);    // sets global vars bounceNode and rotation with appropriate values
+            Serial.println(bounceNode);
+            Serial.println(rotation);
+            logicNode.receiveMessage(bounceNode, rotation);
         }
     }
 
     // update logic node
     logicNode.update(deltaSeconds, bSensorOn);
 
-    // send new message if necessary
-    //if (logicNode.newBounce) {
     // hack to test print and receive
     if (NODE_INDEX == 6 && (timeSinceLastSensor > 40 || timeSinceLastSensor < 0)) 
     {
-        logicNode.bounceChar = 'f';
-        Uart.print(logicNode.bounceChar);                // tell other nodes about the bounce
-        logicNode.newBounce = false;                     // reset flag
-        logicNode.receiveMessage(logicNode.bounceChar);  // tell this node about the bounce
-        Serial.println(logicNode.bounceNode);
+        parse_outgoing(4, true);               // fake a bounce from node 4, in clockwise direction
+        Uart.print(bounceChar);                // tell other nodes about the bounce
+        logicNode.receiveMessage(4, true);     // tell this node about the bounce
+        //Serial.println(logicNode.lastBounceIdx);
         
         // temp
         timeSinceLastSensor = 0;

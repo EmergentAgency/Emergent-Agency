@@ -236,11 +236,6 @@ public:
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
     
-    int bounceNode;
-    boolean rotation;
-    char bounceChar;
-    boolean newBounce;
-
     // TEMP_CL - hack for second notes right now
     boolean bUpdateSecondNote;
 
@@ -347,9 +342,8 @@ public:
             if (!bOldSensorActive && !loci.bActive) // if newly activated and no locus running
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
-
-                newBounce = true;            // flag for main routing to print to Uart
-                parse_outgoing(index, CW);   // sets bounceChar with correct character
+                
+                sendMessage(index, CW);                // global function for inter-node communication
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -363,8 +357,7 @@ public:
                    {                                                 // if close to node center (never exactly on center)
                         CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
                         
-                        newBounce = true;            // flag for main routing to print to Uart
-                        parse_outgoing(index, CW);   // sets bounceChar with correct character
+                        sendMessage(index, CW);                      // global function for inter-node communication
                    }
                 }
             }
@@ -473,139 +466,8 @@ public:
         }
     }
 
-    void receiveMessage(char x)
+    void receiveMessage(int inBounceNode, boolean inRotation)
     {
-        parse_incoming(x);
-        Serial.println(x);
-        Serial.println(bounceNode);
-        loci.bounce(bounceNode, rotation);      // bounce the locus! (in the proper direction)
-    }
-    
-    void parse_outgoing(int node, boolean rotation) {
-        switch (rotation) {
-          case 1:
-            switch (node) {
-              case 0:
-                bounceChar = 'a';
-                break;
-              case 1:
-                bounceChar = 'b';
-                break;
-              case 2:
-                bounceChar = 'c';
-                break;
-              case 3:
-                bounceChar = 'd';
-                break;
-              case 4:
-                bounceChar = 'e';
-                break;
-              case 5:
-                bounceChar = 'f';
-                break;
-              case 6:
-                bounceChar = 'g';
-                break;
-              case 7:
-                bounceChar = 'h';
-                break;
-            }
-          case 0:
-            switch (node) {
-              case 0:
-                bounceChar = 'A';
-                break;
-              case 1:
-                bounceChar = 'B';
-                break;
-              case 2:
-                bounceChar = 'C';
-                break;
-              case 3:
-                bounceChar = 'D';
-                break;
-              case 4:
-                bounceChar = 'E';
-                break;
-              case 5:
-                bounceChar = 'F';
-                break;
-              case 6:
-                bounceChar = 'G';
-                break;
-              case 7:
-                bounceChar = 'H';
-                break;
-            }
-        }
-    }
-    void parse_incoming(char x) {
-        switch (x) {
-          case 'a':
-            bounceNode = 0;
-            //This means CW
-            rotation = 1;
-            break;
-          case 'b':
-            bounceNode = 1;
-            rotation = 1;
-            break;
-          case 'c':
-            bounceNode = 2;
-            rotation = 1;
-            break;
-          case 'd':
-            bounceNode = 3;
-            rotation = 1;
-            break;
-          case 'e':
-            bounceNode = 4;
-            rotation = 1;
-            break;
-          case 'f':
-            bounceNode = 5;
-            rotation = 1;
-            break;
-          case 'g':
-            bounceNode = 6;
-            rotation = 1;
-            break;
-          case 'h':
-            bounceNode = 7;
-            rotation = 1;
-            break;
-          case 'A':
-            bounceNode = 0;
-            rotation = 0;
-            break;
-          case 'B':
-            bounceNode = 1;
-            rotation = 0;
-            break;
-          case 'C':
-            bounceNode = 2;
-            rotation = 0;
-            break;
-          case 'D':
-            bounceNode = 3;
-            rotation = 0;
-            break;
-          case 'E':
-            bounceNode = 4;
-            rotation = 0;
-            break;
-          case 'F':
-            bounceNode = 5;
-            rotation = 0;
-            break;
-          case 'G':
-            bounceNode = 6;
-            rotation = 0;
-            break;
-          case 'H':
-            bounceNode = 7;
-            rotation = 0;
-            break;
-        }
+        loci.bounce(inBounceNode, inRotation);      // bounce the locus! (in the proper direction)
     }
 };
