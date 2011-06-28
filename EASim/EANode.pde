@@ -3,30 +3,31 @@
  * data, which LEDs should be on, and what messages to send and receive.  Nothing platform specific
  * should be in this file so that it can be used in the Processing sim and on the Arduino
  */
-// 6-25-11 Next steps: move all unchanging variables into #DEFINE statements
-
+ 
 // Tuning params
-boolean bUseScaleBasedSounds = true; // switches between scale based tones and smoothy velocity tones
-float globalJitterScale = 1.0;       // scales the amount of jitter the loci has
+boolean bUseScaleBasedSounds = false; // switches between scale based tones and smoothy velocity tones
+float globalJitterScale = 0.0;       // scales the amount of jitter the loci has
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
-//int NUM_BASE_NOTES = 6;
-//int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
+int NUM_BASE_NOTES = 6;
+int[] baseNotes = {131, 147, 175, 196, 220, 262 }; // C, D, F, G, A, C
 //int NUM_BASE_NOTES = 4;
 //int[] baseNotes = {131, 175, 220, 262 }; // C, F, A, C
 //int NUM_BASE_NOTES = 3;
 //int[] baseNotes = {131, 196, 262 }; // C, G, C
 //int NUM_BASE_NOTES = 4;
 //int[] baseNotes = {131, 156, 196, 262 }; // C, Eflat, G, C
-int NUM_BASE_NOTES = 3;
-int[] baseNotes = {131, 156, 196 }; // C, Eflat, G 
+
+
 
 // "source" of light along the circle, acts like a damped harmonic oscillator
 class Locus
 {
 // SYNTAX - Arduino vs Processing difference
-// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
+// NOTE: this is the only difference I couldn't make the same
+// between Processing and Arudino.  You MUST comment out
+// the line "public:" in Processing but it MUST be here for Arduino.
 //public:
 
     boolean bActive;
@@ -77,12 +78,13 @@ class Locus
         desperation = 0;
         voice = 0;
     }
-    void bounce(float inRadPos, int inSensIndex, boolean inCW)
+    void bounce(int inSensIndex, boolean inCW)
     {
         bActive = true;
         numBounces++;
         t = 0;
         //println("Bounce from " + inSensIndex + ": w0=" + w0 + ", eta=" + eta);
+        float inRadPos = (float)inSensIndex / (float)NUM_NODES * 2 * PI;
         rad0 = inRadPos;    // initial position = center of activated node
         radPos = rad0;      // start at initial position
         int currentBounceIdx = inSensIndex;
@@ -104,6 +106,7 @@ class Locus
                 currentX0 = (float)offset/2.0 * TWO_PI/(float)NUM_NODES;
                 eta *= 2;
                 if (eta >=1) eta = 0.9;    // eta >= 1 does not work in the equation
+                //Serial.println("hi");
                 //println("offset = " + offset + ", current x0 = " + currentX0);
             }
         }
@@ -197,9 +200,9 @@ class Locus
         voice = (200.0 + 450.0*abs(x/x0) + 35.0*abs(v/v0) + 4.0*numTrappedBounces + 2.0*numBounces) * intensity;
         if (voice < 20)  voice = 0;
 
-        if (inflect < 0.2) // * abs(x0) ?? 
+        if (inflect < 1/(2*(float)NUM_LEDS)*2*PI) // 1/2 of LED radians
         {                                        // when settled down to near equilibrium
-            intensity -= dT/5;                      // start dying down gracefully
+            intensity -= dT/10;                      // start dying down gracefully
             numTrappedBounces = min(numTrappedBounces, 10); // let it calm down a bit
             if (intensity < 0.1)                 // when effectively dead
             {
@@ -219,11 +222,12 @@ class Node
 {
 
 // SYNTAX - Arduino vs Processing difference
-// You MUST comment out the line "public:" in Processing but it MUST be here for Arduino.
+// NOTE: this is the only difference I couldn't make the same
+// between Processing and Arudino.  You MUST comment out
+// the line "public:" in Processing but it MUST be here for Arduino.
 //public:
 
     int index;
-    CommunicationLink comLink;
     boolean bSensorActive;
     float radPos;               // position of node along circle (radians)
     Locus loci;                 // light source (okay to have a second class on Arduino ???)
@@ -231,7 +235,7 @@ class Node
     float maxTimeBetweenNotes;  // in seconds
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
-
+    
     // TEMP_CL - hack for second notes right now
     boolean bUpdateSecondNote;
 
@@ -293,10 +297,9 @@ class Node
     }
 
 
-    void init(int inIndex, CommunicationLink inComLink)
+    void init(int inIndex)
     {
         index = inIndex;
-        comLink = inComLink;
         radPos = (float)index / (float)NUM_NODES * 2 * PI;
         bSensorActive = false;
         float LEDradPos;
@@ -310,6 +313,7 @@ class Node
         
         // SYNTAX - Arduino vs Processing difference
         loci = new Locus();        // not needed, if bundling both classes together
+
         loci.init();
 
         for(int i=0; i < NUM_LEDS_PER_NODE; i++)
@@ -338,12 +342,9 @@ class Node
             if (!bOldSensorActive && !loci.bActive) // if newly activated and no locus running
             {
                 CW = (loci.v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
-
-                // send message to all other nodes
-                comLink.sendMessage(index, radPos, CW);
-
-                // let ourselves know about the message too
-                receiveMessage(index, radPos, CW);
+                
+                sendMessage(index, CW);                // tell other nodes about the bounce
+				receiveMessage(index, CW);			   // tell this node about the bounce
             }
             else   // bounce the locus when it reaches the center of this (active) node from another node
             {
@@ -356,11 +357,9 @@ class Node
                    if (offset < 0.5)
                    {                                                 // if close to node center (never exactly on center)
                         CW = !loci.CW;                               // note direction of bounce, otherwise errors ensue
-						// send message to all other nodes
-						comLink.sendMessage(index, radPos, CW);      // bounce the locus!
-
-						// let ourselves know about the message too
-						receiveMessage(index, radPos, CW);
+                        
+                        sendMessage(index, CW);                      // tell other nodes about the bounce
+						receiveMessage(index, CW);					 // tell this node about the bounce
                    }
                 }
             }
@@ -393,7 +392,13 @@ class Node
             //if(loci.radPos >= getLEDpos(0) && loci.radPos <= getLEDpos(NUM_LEDS_PER_NODE-1))
             
             // how about a radius variable? check whether loci.radpos is within the node's radius?
-            if(index == 0) // TEMP_CL - that wasn't working so I just hard coded this to be node 0
+            offset = abs(radPos - loci.radPos);               // find distance from node center to locus
+            if (offset > PI) {
+                offset = abs(offset - TWO_PI);                // deal with wraparound (+3*pi/2 = -pi/2)
+            }
+            //Serial.println(offset);
+            
+            if (offset < 1/(2*(float)NUM_NODES)*2*PI)         // if locus within node radius
             {
                 if(bUseScaleBasedSounds)
                 {
@@ -443,13 +448,16 @@ class Node
                 else
                 {
                     // set frequency by velocity, gradually increasing with number of bounces (bug gets angrier)
+                    //float desperation  = abs(loci.numBounces * loci.inflect / loci.x0) * 8.0;
                     float testFreq = loci.voice;
-					// 
                     if (testFreq < 2000.0)          // too high a frequency results in ugly static
                     {
                         playTone(index, (int)testFreq);
                     }
                 }
+            }
+            else {
+                stopTone(index);
             }
         }
         else
@@ -460,8 +468,8 @@ class Node
         }
     }
 
-    void receiveMessage(int inSensIndex, float inRadPos, boolean CW)
+    void receiveMessage(int inBounceNode, boolean inRotation)
     {
-        loci.bounce(inRadPos, inSensIndex, CW);      // bounce the locus! (in the proper direction)
+        loci.bounce(inBounceNode, inRotation);      // bounce the locus! (in the proper direction)
     }
 };

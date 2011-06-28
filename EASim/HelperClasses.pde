@@ -87,7 +87,7 @@ class SimNode
     LED[] LEDs = new LED[NUM_LEDS_PER_NODE]; 
     Node logicNode;
 
-    void init(int nodeIndex, CommunicationLink inComLink)
+    void init(int nodeIndex)
     {
         nodeSensor = new Sensor();
         nodeSensor.init(nodeIndex);
@@ -99,7 +99,7 @@ class SimNode
         }
         
         logicNode = new Node();
-        logicNode.init(nodeIndex, inComLink);
+        logicNode.init(nodeIndex);
     }
 
     void update(float deltaSeconds)
