@@ -9,6 +9,8 @@ int SOUND_PIN = 18;
 int bounceNode;      // stuff needed by Uart parsers
 boolean rotation;
 char bounceChar;
+int lociIdx;
+char lociCharEncodingOffset = 'i' - 'a';
 boolean newBounce;
 
 HardwareSerial Uart = HardwareSerial();
@@ -28,69 +30,31 @@ void stopTone(int nodeIndex)
 // TEMP_CL ignore lociIdx for now
 void sendMessage(int nodeIndex, int lociIdx, boolean CW) 
 {
-    parse_outgoing(nodeIndex, CW);    // sets global var bounceChar with appropriate character
+    parse_outgoing(nodeIndex, lociIdx, CW);    // sets global var bounceChar with appropriate character
     Uart.print(bounceChar);
 }
 
-void parse_outgoing(int node, boolean rotation) {
-    switch (rotation) {
-      case 1:
-        switch (node) {
-          case 0:
-            bounceChar = 'a';
-            break;
-          case 1:
-            bounceChar = 'b';
-            break;
-          case 2:
-            bounceChar = 'c';
-            break;
-          case 3:
-            bounceChar = 'd';
-            break;
-          case 4:
-            bounceChar = 'e';
-            break;
-          case 5:
-            bounceChar = 'f';
-            break;
-          case 6:
-            bounceChar = 'g';
-            break;
-          case 7:
-            bounceChar = 'h';
-            break;
-        }
-      case 0:
-        switch (node) {
-          case 0:
-            bounceChar = 'A';
-            break;
-          case 1:
-            bounceChar = 'B';
-            break;
-          case 2:
-            bounceChar = 'C';
-            break;
-          case 3:
-            bounceChar = 'D';
-            break;
-          case 4:
-            bounceChar = 'E';
-            break;
-          case 5:
-            bounceChar = 'F';
-            break;
-          case 6:
-            bounceChar = 'G';
-            break;
-          case 7:
-            bounceChar = 'H';
-            break;
-        }
+void parse_outgoing(int node, int lociIdx, boolean rotation)
+{
+    if(rotation)
+    {
+        bounceChar = 'a' + lociCharEncodingOffset + node;
+    }
+    else
+    {
+        bounceChar = 'A' + lociCharEncodingOffset + node;
     }
 }
-void parse_incoming(char x) {
+
+void parse_incoming(char x)
+{
+    char lociIdx = 0;
+    if(x > 'h' || (x < 'a' && x > 'H'))
+    {
+        lociIdx = 1;
+        x -= lociCharEncodingOffset;
+    }
+
     switch (x) {
       case 'a':
         bounceNode = 0;

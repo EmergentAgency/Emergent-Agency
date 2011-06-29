@@ -2,7 +2,9 @@
 Node logicNode;
 
 // The index for this node.  Started setup for dip switches.
-int NODE_INDEX;
+int NODE_INDEX = 4;
+
+// Dip switches
 int NODE_PIN_0 = 5;		// Note: dip switch numbers start from 1, 
 int NODE_PIN_1 = 7;     //       while node indices start from 0
 int NODE_PIN_2 = 8;
@@ -12,7 +14,6 @@ int NODE_PIN_5 = 11;
 int NODE_PIN_6 = 12;
 int NODE_PIN_7 = 13;
 int nodePins[8];
-
 
 // test LED pin number
 int LED_PIN_0 = 16;
@@ -68,7 +69,6 @@ void setup()
 //    }
 
     // initialize the logic node
-    NODE_INDEX = 1;
     logicNode.init(NODE_INDEX);
 
     // define LED pins
@@ -104,25 +104,31 @@ void loop()
     //Serial.println(rawSensorValue);
     if(rawSensorValue > 100)
     {
-//        bSensorOn = true;
-//        lastSensorTime = millis();
+        bSensorOn = true;
+        lastSensorTime = millis();
     }
     else
     {
-//        if(millis() - lastSensorTime > SENSOR_DELAY_TIME_IN_MILLS)
-//        bSensorOn = false;
+        if(millis() - lastSensorTime > SENSOR_DELAY_TIME_IN_MILLS)
+        bSensorOn = false;
     }
 
     // insert Joel's boolean sensor function here:
     // bSensorOn = ...
-    if (bSensorOn) {
+    if (bSensorOn)
+    {
         totalSensorOnTime += deltaSeconds;
         timeSinceLastSensor = 0;
     }
-    else {
+    else
+    {
         totalSensorOnTime = 0;
         timeSinceLastSensor += deltaSeconds;
     }
+
+    // Debugging - print sensor
+    Serial.println(bSensorOn ? "Sensor: on" : "Sensor: off");
+
     
     char incomingByte;
     if(readWireless)
@@ -133,7 +139,7 @@ void loop()
             parse_incoming(incomingByte);    // sets global vars bounceNode and rotation with appropriate values
             Serial.println(bounceNode);
             Serial.println(rotation);
-            logicNode.receiveMessage(bounceNode, 0, rotation); // TEMP_CL ignore lociIdx for now
+            logicNode.receiveMessage(bounceNode, lociIdx, rotation);
 
         }
     }
@@ -141,17 +147,17 @@ void loop()
     // update logic node
     logicNode.update(deltaSeconds, bSensorOn);
 
-    // hack to test print and receive
-    if (NODE_INDEX == 6 && (timeSinceLastSensor > 40 || timeSinceLastSensor < 0)) 
-    {
-        parse_outgoing(4, true);               // fake a bounce from node 4, in clockwise direction
-        Uart.print(bounceChar);                // tell other nodes about the bounce
-        logicNode.receiveMessage(4, 0, true);  // tell this node about the bounce - TEMP_CL - hack loci index to 0
-        //Serial.println(logicNode.lastBounceIdx);
-        
-        // temp
-        timeSinceLastSensor = 0;
-    }
+    //// hack to test print and receive
+    //if (NODE_INDEX == 6 && (timeSinceLastSensor > 40 || timeSinceLastSensor < 0)) 
+    //{
+    //    parse_outgoing(4, 0, true);            // fake a bounce from node 4, in clockwise direction
+    //    Uart.print(bounceChar);                // tell other nodes about the bounce
+    //    logicNode.receiveMessage(4, 0, true);  // tell this node about the bounce
+    //    //Serial.println(logicNode.lastBounceIdx);
+    //    
+    //    // temp
+    //    timeSinceLastSensor = 0;
+    //}
 
     for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
     {
@@ -159,7 +165,7 @@ void loop()
 
         if(LEDbrightness > 0)
         {
-            //Serial.println(LEDbrightness); // TEMP_CL
+            //Serial.println(LEDbrightness);
             analogWrite(pins[i], LEDbrightness);   // set the LED brightness
         }
         else
