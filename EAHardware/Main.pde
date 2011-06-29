@@ -2,7 +2,7 @@
 Node logicNode;
 
 // The index for this node.  Started setup for dip switches.
-int NODE_INDEX = 4;
+int NODE_INDEX = 2;
 
 // Dip switches
 int NODE_PIN_0 = 5;		// Note: dip switch numbers start from 1, 
