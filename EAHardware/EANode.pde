@@ -248,8 +248,14 @@ public:
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
     
-    // TEMP_CL - hack for second notes right now
-    boolean bUpdateSecondNote;
+	// startup sequence vars
+	boolean startupSequence;
+	float startupSeconds;
+	float startupSecondsLeft;
+	int startupLED;
+	float startupDelay;
+	float startupDelayLeft;
+	int startupCount;
 
     // Processing and arduino have different array syntax which makes them incompatible.
     // This is super frustrating but can be worked around by making functions that access
@@ -323,6 +329,14 @@ public:
         timeTillNextNote = 0;
         noteTimeStep = 0.125;
         
+		startupSequence = true;
+		startupCount = 3;
+		startupSeconds = 1.0;
+		startupSecondsLeft = startupSeconds;
+		startupLED = 0;
+		startupDelay = 2.0;
+		startupDelayLeft = startupDelay;
+        
         // SYNTAX - Arduino vs Processing difference
         //loci = new Locus[MAX_NUM_LOCI];
         //for(int i = 0; i < MAX_NUM_LOCI; i++)
@@ -360,7 +374,31 @@ public:
         // loci on this node
         boolean bAnyActiveLociHere = false;
 
-        // update the loci
+		// startup sequence that shows LED order and makes sure they work
+		if (startupSequence && startupCount > 0) 
+		{
+			if (startupDelayLeft > 0) {
+				startupDelayLeft -= deltaSeconds;
+			}
+			else {
+				setLED(startupLED,1);
+				startupSecondsLeft -= deltaSeconds;
+				if (startupSecondsLeft < 0)
+				{
+					setLED(startupLED,0);
+					startupLED++;
+					startupSecondsLeft = startupSeconds;
+					if (startupLED == NUM_LEDS_PER_NODE)
+					{
+						startupLED = 0;
+						startupDelayLeft = startupDelay;
+						startupCount--;
+					}
+				}
+			}
+		}
+
+		// update the loci
         for(int lociIdx = 0; lociIdx < MAX_NUM_LOCI; lociIdx++)
         {
             if(bSensorActive)
