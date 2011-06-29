@@ -238,12 +238,14 @@ class Node
     boolean bSensorActive;
     float radPos;                 // position of node along circle (radians)
     // SYNTAX - Arduino vs Processing difference
+    //Locus loci[MAX_NUM_LOCI];   // light source (okay to have a second class on Arduino ???)
     Locus[] loci;                 // light source (okay to have a second class on Arduino ???)
 
     float maxTimeBetweenNotes;  // in seconds
     float timeTillNextNote;     // in seconds
     float noteTimeStep;         // in seconds
     
+	// startup sequence vars
 	boolean startupSequence;
 	float startupSeconds;
 	float startupSecondsLeft;
