@@ -2,7 +2,7 @@
 Node logicNode;
 
 // The index for this node.  Started setup for dip switches.
-int NODE_INDEX = 4;
+int NODE_INDEX = 3;
 
 // Dip switches
 int NODE_PIN_0 = 5;		// Note: dip switch numbers start from 1, 
@@ -24,13 +24,10 @@ int LED_PIN_4 = 25;
 int pins[5];
 
 // sensor vars
-int INPUT_SENSOR_PIN = 38;
-int SENSOR_DELAY_TIME_IN_MILLS = 2000;
-unsigned long lastSensorTime = 0;
 boolean bSensorOn = false;
+
+// wireless vars
 boolean readWireless = true;
-float totalSensorOnTime;
-float timeSinceLastSensor = -1;
 
 // last time in milliseconds
 unsigned long lastMillis;
@@ -99,37 +96,13 @@ void loop()
     lastMillis = curMillis;
     float deltaSeconds = deltaMillis / 1000.0;
 
-    // read sensor -- need to add Joel's code that smooths out input!
-    int rawSensorValue = analogRead(INPUT_SENSOR_PIN);
-    //Serial.println(rawSensorValue);
-    if(rawSensorValue > 100)
-    {
-        bSensorOn = true;
-        lastSensorTime = millis();
-    }
-    else
-    {
-        if(millis() - lastSensorTime > SENSOR_DELAY_TIME_IN_MILLS)
-        bSensorOn = false;
-    }
-
-    // insert Joel's boolean sensor function here:
-    // bSensorOn = ...
-    if (bSensorOn)
-    {
-        totalSensorOnTime += deltaSeconds;
-        timeSinceLastSensor = 0;
-    }
-    else
-    {
-        totalSensorOnTime = 0;
-        timeSinceLastSensor += deltaSeconds;
-    }
+    // use fancy sensor code
+    bSensorOn = check_motion_state();
 
     // Debugging - print sensor
     Serial.println(bSensorOn ? "Sensor: on" : "Sensor: off");
 
-    
+    // check for wireless messages
     char incomingByte;
     if(readWireless)
     {
@@ -147,18 +120,7 @@ void loop()
     // update logic node
     logicNode.update(deltaSeconds, bSensorOn);
 
-    //// hack to test print and receive
-    //if (NODE_INDEX == 6 && (timeSinceLastSensor > 40 || timeSinceLastSensor < 0)) 
-    //{
-    //    parse_outgoing(4, 0, true);            // fake a bounce from node 4, in clockwise direction
-    //    Uart.print(bounceChar);                // tell other nodes about the bounce
-    //    logicNode.receiveMessage(4, 0, true);  // tell this node about the bounce
-    //    //Serial.println(logicNode.lastBounceIdx);
-    //    
-    //    // temp
-    //    timeSinceLastSensor = 0;
-    //}
-
+    // set actual LED pins based on logic node state
     for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
     {
         int LEDbrightness = logicNode.getLED(i) * 255;
