@@ -2,7 +2,7 @@
 Node logicNode;
 
 // The index for this node.  Started setup for dip switches.
-int NODE_INDEX = 3;
+int NODE_INDEX = 7;
 
 // Dip switches
 int NODE_PIN_0 = 5;		// Note: dip switch numbers start from 1, 
@@ -100,7 +100,7 @@ void loop()
     bSensorOn = check_motion_state();
 
     // Debugging - print sensor
-    Serial.println(bSensorOn ? "Sensor: on" : "Sensor: off");
+    //Serial.println(bSensorOn ? "Sensor: on" : "Sensor: off");
 
     // check for wireless messages
     char incomingByte;
@@ -110,9 +110,12 @@ void loop()
             incomingByte = Uart.read();
             //readWireless = false;
             parse_incoming(incomingByte);    // sets global vars bounceNode and rotation with appropriate values
+            Serial.println("Got message (incomingByte, bounce, rotation, lociIdxMsg");
+            Serial.println(incomingByte);
             Serial.println(bounceNode);
-            Serial.println(rotation);
-            logicNode.receiveMessage(bounceNode, lociIdx, rotation);
+            Serial.println(rotation ? "CW" : "CCW");
+            Serial.println(lociIdxMsg);
+            logicNode.receiveMessage(bounceNode, lociIdxMsg, rotation);
 
         }
     }

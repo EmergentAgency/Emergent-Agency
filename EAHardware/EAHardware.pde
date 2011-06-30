@@ -9,7 +9,7 @@ int SOUND_PIN = 18;
 int bounceNode;      // stuff needed by Uart parsers
 boolean rotation;
 char bounceChar;
-int lociIdx;
+int lociIdxMsg;
 char lociCharEncodingOffset = 'i' - 'a';
 boolean newBounce;
 
@@ -27,7 +27,6 @@ void stopTone(int nodeIndex)
 }
 
 // communication functions to abstract differences between arduino and processing
-// TEMP_CL ignore lociIdx for now
 void sendMessage(int nodeIndex, int lociIdx, boolean CW) 
 {
     parse_outgoing(nodeIndex, lociIdx, CW);    // sets global var bounceChar with appropriate character
@@ -36,22 +35,22 @@ void sendMessage(int nodeIndex, int lociIdx, boolean CW)
 
 void parse_outgoing(int node, int lociIdx, boolean rotation)
 {
-    if(rotation)
-    {
-        bounceChar = 'a' + lociCharEncodingOffset + node;
-    }
-    else
-    {
-        bounceChar = 'A' + lociCharEncodingOffset + node;
-    }
+    // set capitals or lower case based on rotation
+    bounceChar = rotation ? 'a' : 'A';
+
+    // add in node
+    bounceChar += node;
+
+    // add in loci index
+    bounceChar += lociIdx * lociCharEncodingOffset;
 }
 
 void parse_incoming(char x)
 {
-    char lociIdx = 0;
+    lociIdxMsg = 0;
     if(x > 'h' || (x < 'a' && x > 'H'))
     {
-        lociIdx = 1;
+        lociIdxMsg = 1;
         x -= lociCharEncodingOffset;
     }
 

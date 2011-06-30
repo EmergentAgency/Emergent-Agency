@@ -12,6 +12,14 @@ boolean bUseScaleBasedSounds = true;      // switches between scale based tones 
 boolean bComeToRestBetweenPeople = false; // If the loci should try to come to rest between the last two bounces
 boolean bEscapeBeingTrapped = false;      // if true, the loci will  "get away" if it has been trapped for too long
 float globalJitterScale = 0.0;            // scales the amount of jitter the loci has
+float lociInitialRadialSpeed = PI/6;      // initial angular velocity (rads/sec): how big a kick it gets on each bounce
+float lociRadialSpeed = PI/12;            // natural frequency (rads/sec): how fast it wants to go around
+float dampingRatio = 0.5;                 // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+int numTestSequences = 5;                 // number of time the startup sequence of stepping through each of the LEDs goes
+float LEDFadeTimeInSeconds = 0.5;         // time it takes for and LED to fade after a locus has past it
+float lociDeadThreshold = 0.5;            // this loci will die if their intensity is below this threshold
+float MinTimeBeforeRandomBounceInSec = 120;
+float MaxTimeBeforeRandomBounceInSec = 200;
 
 // Scale based tones
 // SYNTAX - Arduino vs Processing difference
@@ -71,9 +79,9 @@ class Locus
         // I played with these values, to keep the bug from ever re-entering the node it started from.
         defaultX0 = PI;     // initial posisiton (rads): where the locus will settle relative to the triggered sensor
         defaultV0 = -PI/2;  // initial angular velocity (rads/sec): how big a kick it gets on each bounce
-        defaultEta = 0.10;  // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
+        defaultEta = dampingRatio;  // damping ratio (<0.1 means lots of swinging, >=1 means no swinging, <=0 doesn't compute)
         eta = defaultEta;   
-        w0 = PI/2;          // natural frequency (rads/sec): how fast it wants to go around
+        w0 = lociRadialSpeed; // natural frequency (rads/sec): how fast it wants to go around
         wd = w0*sqrt(1-eta*eta); // natural frequency, slowed by damping (used in harmonics equations later)
         x0 = defaultX0;
         v0 = defaultV0;         
@@ -211,7 +219,7 @@ class Locus
         {                                        // when settled down to near equilibrium
             intensity -= dT/10;                      // start dying down gracefully
             numTrappedBounces = min(numTrappedBounces, 10); // let it calm down a bit
-            if (intensity < 0.1)                 // when effectively dead
+            if (intensity < lociDeadThreshold)                 // when effectively dead
             {
                 bActive = false;                 // reset default values
                 lastBounceIdx = -1;
@@ -253,6 +261,13 @@ class Node
 	float startupDelay;
 	float startupDelayLeft;
 	int startupCount;
+
+    // random bounce vars
+    float lastMessageTimer;
+
+    // values used to flicker middle LED when the sensor is on
+    float sensorLEDTimer;
+    float sensorLEDValue;
 
     // Processing and arduino have different array syntax which makes them incompatible.
     // This is super frustrating but can be worked around by making functions that access
@@ -326,8 +341,13 @@ class Node
         timeTillNextNote = 0;
         noteTimeStep = 0.125;
 
+        lastMessageTimer = 999.9;
+
+        sensorLEDTimer = 0;
+        sensorLEDValue = 0;
+
 		startupSequence = true;
-		startupCount = 3;
+		startupCount = numTestSequences;
 		startupSeconds = 1.0;
 		startupSecondsLeft = startupSeconds;
 		startupLED = 0;
@@ -397,11 +417,33 @@ class Node
 		else 
 		{
 			// update the loci
+
+            boolean bActiveLoci = false;
+			for(int lociIdx = 0; lociIdx < MAX_NUM_LOCI; lociIdx++)
+            {
+                if(loci[lociIdx].bActive)
+                {
+                    bActiveLoci = true;
+                    break;
+                }
+            }
+
+            // count down lastMessageTimer and if it reaches 0 pretend our sensor was active
+            lastMessageTimer -= deltaSeconds;
+            if(lastMessageTimer <= 0)
+            {
+                bSensorActive = true;
+
+                // set count down till we random make a bounce happen
+                lastMessageTimer = MinTimeBeforeRandomBounceInSec + 
+                                   random(MaxTimeBeforeRandomBounceInSec - MinTimeBeforeRandomBounceInSec);
+            }
+
 			for(int lociIdx = 0; lociIdx < MAX_NUM_LOCI; lociIdx++)
 			{
 				if(bSensorActive)
 				{
-					if (!bOldSensorActive && !loci[lociIdx].bActive) // if newly activated and no locus running
+					if ((!bOldSensorActive && !loci[lociIdx].bActive) || !bActiveLoci) // if newly activated and no locus running
 					{
 						CW = (loci[lociIdx].v > 0) ? true : false;      // note direction of bounce, otherwise errors ensue
 
@@ -448,7 +490,7 @@ class Node
 							offset = abs(offset - TWO_PI);                     // deal with wraparound (+3*pi/2 = -pi/2)
                   
 						wasLit = getLED(i);
-						litRatio = max(wasLit - deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
+						litRatio = max(wasLit - 1.0/LEDFadeTimeInSeconds * deltaSeconds, 0);              // fade light over time (max lit time = 1 second)
 						if (offset >= maxLitRange)
 							setLED(i,litRatio);                                // fade LEDs to blank, if outside max lit range
 						else
@@ -546,10 +588,27 @@ class Node
         {
             stopTone(index);
         }
+
+        // show that the sensor is on with a flickering flame thing on the middle LED
+        if(bSensorActive)
+		{
+            sensorLEDTimer -= deltaSeconds;
+            if(sensorLEDTimer <= 0)
+            {
+                sensorLEDTimer = random(1) * 0.1 + 0.05;
+                sensorLEDValue = 0.4 + random(1) * 0.4;
+            }
+            setLED(2, sensorLEDValue);
+        }
     }
 
     void receiveMessage(int inBounceNode, int lociIdx, boolean CW)
     {
         loci[lociIdx].bounce(inBounceNode, CW);      // bounce the locus! (in the proper direction)
+
+        // set count down till we random make a bounce happen
+        lastMessageTimer = MinTimeBeforeRandomBounceInSec + 
+                           random(MaxTimeBeforeRandomBounceInSec - MinTimeBeforeRandomBounceInSec);
+
     }
 };
