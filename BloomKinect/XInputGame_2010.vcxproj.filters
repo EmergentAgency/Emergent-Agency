@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="DXUT\Core\DXUT.cpp" />
+    <ClCompile Include="DXUT\Core\DXUTenum.cpp" />
+    <ClCompile Include="DXUT\Core\DXUTmisc.cpp" />
+    <ClCompile Include="DXUT\Optional\DXUTcamera.cpp" />
+    <ClCompile Include="DXUT\Optional\DXUTgui.cpp" />
+    <ClCompile Include="DXUT\Optional\DXUTres.cpp" />
+    <ClCompile Include="DXUT\Optional\DXUTsettingsdlg.cpp" />
+    <ClCompile Include="DXUT\Optional\SDKmesh.cpp" />
+    <ClCompile Include="DXUT\Optional\SDKmisc.cpp" />
+    <ClCompile Include="DrawDevice.cpp">
+      <Filter>SkelViewer</Filter>
+    </ClCompile>
+    <ClCompile Include="NuiImpl.cpp">
+      <Filter>SkelViewer</Filter>
+    </ClCompile>
+    <ClCompile Include="SkeletalViewer.cpp">
+      <Filter>SkelViewer</Filter>
+    </ClCompile>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>SkelViewer</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DXUT\Core\DXUT.h" />
+    <ClInclude Include="DXUT\Core\DXUTenum.h" />
+    <ClInclude Include="DXUT\Core\DXUTmisc.h" />
+    <ClInclude Include="DXUT\Optional\DXUTcamera.h" />
+    <ClInclude Include="DXUT\Optional\DXUTgui.h" />
+    <ClInclude Include="DXUT\Optional\DXUTres.h" />
+    <ClInclude Include="DXUT\Optional\DXUTsettingsdlg.h" />
+    <ClInclude Include="DXUT\Optional\SDKmesh.h" />
+    <ClInclude Include="DXUT\Optional\SDKmisc.h" />
+    <ClInclude Include="targetver.h">
+      <Filter>SkelViewer</Filter>
+    </ClInclude>
+    <ClInclude Include="DrawDevice.h">
+      <Filter>SkelViewer</Filter>
+    </ClInclude>
+    <ClInclude Include="SkeletalViewer.h">
+      <Filter>SkelViewer</Filter>
+    </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>SkelViewer</Filter>
+    </ClInclude>
+    <ClInclude Include="Resource.h">
+      <Filter>SkelViewer</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="DXUT\Optional\directx.ico" />
+    <None Include="ReadMe.txt">
+      <Filter>SkelViewer</Filter>
+    </None>
+    <None Include="SkeletalViewer.ico">
+      <Filter>SkelViewer</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="SkelViewer">
+      <UniqueIdentifier>{50b72d34-ccb3-48b3-8688-0ceb0236d76e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="SkeletalViewer.rc">
+      <Filter>SkelViewer</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>
