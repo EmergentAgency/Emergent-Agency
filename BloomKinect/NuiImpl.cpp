@@ -585,7 +585,7 @@ void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
 	// Config vars
 	// TEMP_CL - put config vars somewhere data driven
-	static const float fHeightAboveShoulderForUpInMeters = 0.1f;
+	static const float fHeightAboveShoulderForUpInMeters = -0.1f;
 
 	// Find the first valid skel
 	NUI_SKELETON_DATA* pSkel = NULL;
@@ -608,6 +608,10 @@ void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_iCurSkelFrame++;
 	if(m_iCurSkelFrame >= NUM_SKELETON_HISTORY_FRAMES)
 		m_iCurSkelFrame = 0;
+	// memcpy here requires NUI_SKELETON_DATA and SkeletonData to be EXACTLY the same in
+	// terms of size AND order or variables.  The assert below is a safegaurd against size
+	// mismatch but does not check for order.
+	assert(sizeof(SkeletonData) == sizeof(NUI_SKELETON_DATA));
 	memcpy(&m_aSkelHistory[m_iCurSkelFrame], pSkel, sizeof(NUI_SKELETON_DATA));
 
 	// Get joint positions this frame
@@ -615,7 +619,7 @@ void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	//D3DXVECTOR4 vLeftHandPos       = GetRealVect(pSkel->SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT]);
 	//D3DXVECTOR4 vRightHandPos      = GetRealVect(pSkel->SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT]);
 	int iCurIndex = GetPastHistoryIndex(0);
-	int iPastIndex = GetPastHistoryIndex(-4);
+	int iPastIndex = GetPastHistoryIndex(-4); // TEMP - don't hard code!  Match 4 below
 	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
 	D3DXVECTOR4 vLeftHandPos       = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
 	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
@@ -669,7 +673,7 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 
     // transform 13-bit depth information into an 8-bit intensity appropriate
     // for display (we disregard information in most significant bit)
-    BYTE l = 255 - (BYTE)(256*RealDepth/0x0fff);
+    BYTE l = 255 - (BYTE)(256*RealDepth/0x0fff); // TEMP - dear god rename this var!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     RGBQUAD q;
     q.rgbRed = q.rgbBlue = q.rgbGreen = 0;
@@ -686,28 +690,42 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 	}
 	l = (BYTE)(l * fHandVelocityScale);
 
-	if(m_bLeftHandUp)
-	{
-		q.rgbRed = l;
-	}
-	if(m_bRightHandUp)
-	{
-		q.rgbGreen = l;
-	}
-	if(m_bLeftHandUp || m_bRightHandUp)
-	{
-		return q;
-	}
-	// /Bloom
-
-	// TEMP_CL
 	if(Player != NUI_SKELETON_INVALID_TRACKING_ID)
 	{
-        q.rgbRed =   ((s & 0xf000) >> 12) * 16;
-        q.rgbBlue =  ((s & 0x0f00) >> 8)  * 16;
-        q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
-		return q;
+		if(m_bLeftHandUp && m_bRightHandUp)
+		{
+			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
+			//q.rgbRed =   ((s >> 3) & 0x0ff);
+			q.rgbBlue =  0;
+			q.rgbGreen = q.rgbRed;
+			return q;
+		}
+		else if(m_bLeftHandUp)
+		{
+			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
+			q.rgbBlue =  0;
+			q.rgbGreen = 0;
+			return q;
+		}
+		else if(m_bRightHandUp)
+		{
+			q.rgbRed =   0;
+			q.rgbBlue =  0;
+			q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
+			return q;
+		}
 	}
+
+
+	//// TEMP_CL
+	//if(Player != NUI_SKELETON_INVALID_TRACKING_ID)
+	//{
+ //       q.rgbRed =   ((s & 0xf000) >> 12) * 16;
+ //       q.rgbBlue =  ((s & 0x0f00) >> 8)  * 16;
+ //       q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
+	//	return q;
+	//}
+	// /Bloom
 
     switch( Player )
     {
