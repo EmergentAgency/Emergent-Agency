@@ -11,16 +11,16 @@
     <ClCompile Include="DXUT\Optional\SDKmesh.cpp" />
     <ClCompile Include="DXUT\Optional\SDKmisc.cpp" />
     <ClCompile Include="DrawDevice.cpp">
-      <Filter>SkelViewer</Filter>
-    </ClCompile>
-    <ClCompile Include="NuiImpl.cpp">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClCompile>
     <ClCompile Include="SkeletalViewer.cpp">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
+    </ClCompile>
+    <ClCompile Include="BLOOM_NuiImpl.cpp">
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -34,38 +34,38 @@
     <ClInclude Include="DXUT\Optional\SDKmesh.h" />
     <ClInclude Include="DXUT\Optional\SDKmisc.h" />
     <ClInclude Include="targetver.h">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
     <ClInclude Include="DrawDevice.h">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
     <ClInclude Include="SkeletalViewer.h">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
     <ClInclude Include="stdafx.h">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
     <ClInclude Include="Resource.h">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="DXUT\Optional\directx.ico" />
     <None Include="ReadMe.txt">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </None>
     <None Include="SkeletalViewer.ico">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
-    <Filter Include="SkelViewer">
+    <Filter Include="BLOOM_SkelViewer">
       <UniqueIdentifier>{50b72d34-ccb3-48b3-8688-0ceb0236d76e}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="SkeletalViewer.rc">
-      <Filter>SkelViewer</Filter>
+      <Filter>BLOOM_SkelViewer</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>

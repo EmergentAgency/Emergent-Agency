@@ -27,7 +27,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectName>XInputGame</ProjectName>
+    <ProjectName>BLOOM_XInputGame</ProjectName>
     <ProjectGuid>{939C0F41-DA35-4F9F-BD82-87394C3810F9}</ProjectGuid>
     <RootNamespace>XInputGame</RootNamespace>
     <Keyword>Win32Proj</Keyword>
@@ -379,7 +379,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="NuiImpl.cpp" />
+    <ClCompile Include="BLOOM_NuiImpl.cpp" />
     <ClCompile Include="SkeletalViewer.cpp" />
     <ClCompile Include="stdafx.cpp" />
     <ClInclude Include="DrawDevice.h" />
