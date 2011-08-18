@@ -16,25 +16,7 @@
 #include "resource.h"
 #include <mmsystem.h>
 
-//// BLOOM
-//// Direct3D9 includes
-//#include <d3d9.h>
-////#include <d3dx9.h>
-//
-//// Direct3D10 includes
-//#include <d3dcommon.h>
-//#include <dxgi.h>
-//#include <d3d10_1.h>
-//#include <d3d10.h>
-////#include <d3dcompiler.h>
-////#include <d3dx10.h>
-//
-//// XInput includes
-//#include <xinput.h>
-//
-//// HRESULT translation for Direct3D and other APIs 
-////#include <dxerr.h>
-//#include "d3dx9math.h"
+// Bloom
 #include <math.h>
 #include "DXUT.h"
 #include "DXUTsettingsdlg.h"
@@ -72,6 +54,7 @@ CSkeletalViewerApp::CSkeletalViewerApp()
 	: m_bLeftHandUp(false)
 	, m_bRightHandUp(false)
 	, m_iCurSkelFrame(0)
+	, m_fAdjustableFlameIntensity(0)
 {
 }
 // /Bloom
@@ -102,7 +85,15 @@ void CSkeletalViewerApp::Nui_Zero()
 
 HRESULT CSkeletalViewerApp::Nui_Init()
 {
-    HRESULT                hr;
+	// Bloom - setup serial communication
+	m_bSerialPortOpen = m_serial.Open(0, 9600); // first param is ignored
+	if (m_bSerialPortOpen)	
+		_tprintf(_T("Serial Port Open!\n"));
+	else
+		_tprintf(_T("Serial Port Fail!\n"));
+	// /Bloom
+
+	HRESULT                hr;
     RECT                rc;
 
     m_hNextDepthFrameEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
@@ -192,7 +183,7 @@ HRESULT CSkeletalViewerApp::Nui_Init()
     // Start the Nui processing thread
     m_hEvNuiProcessStop=CreateEvent(NULL,FALSE,FALSE,NULL);
     m_hThNuiProcess=CreateThread(NULL,0,Nui_ProcessThread,this,0,NULL);
-
+	
     return hr;
 }
 
@@ -581,6 +572,20 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 	return iIndex;
 }
 
+char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float iAdjustableFlameIntensity)
+{
+	char state = 0;
+
+	state |= bMainEffectOn ? 0x1 : 0;
+	state |= bRedOn        ? 0x2 : 0;
+	state |= bGreenOn      ? 0x4 : 0;
+	state |= bYellowOn     ? 0x8 : 0;
+
+	int iFlameIntensity = iAdjustableFlameIntensity * 0xF; // map 0.0-1.0 to 0-15
+	state |= iFlameIntensity << 4;
+
+	return state;
+}
 void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
 	// Config vars
@@ -644,10 +649,6 @@ void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_vRightHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
 	m_vPrevRightHandPos = vRightHandPos;
 
-	// log?
-	SetDlgItemInt( m_hWnd, IDC_FPS, (int)m_vRightHandSpeed,FALSE );
-
-
 	//// TEMP_CL - draw text?
 	//if(!g_pFont)
 	//{
@@ -664,6 +665,46 @@ void CSkeletalViewerApp::ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
  //                               DXUTGetD3D9BackBufferSurfaceDesc()->Height / 2 - 50 );
  //   txtHelper.SetForegroundColor( D3DXCOLOR( 1.0f, 1.0f, 1.0f, 1.0f ) );
  //   txtHelper.DrawTextLine( L"Testing..." );
+
+	bool bMainEffectOn = false;
+	bool bRedOn = false;
+	bool bGreenOn = false;
+	bool bYellowOn = false;
+	float iNewAdjustableFlameIntensity = 0;
+
+	if(m_bLeftHandUp && m_bRightHandUp)
+		bYellowOn = true;
+	else if(m_bLeftHandUp)
+		bRedOn = true;
+	else if(m_bRightHandUp)
+		bGreenOn = true;
+
+	if(bYellowOn || bRedOn || bGreenOn)
+		bMainEffectOn = true;
+
+	iNewAdjustableFlameIntensity = (m_vLeftHandSpeed + m_vRightHandSpeed) * 0.2f;
+	float fFlameSmoothing = 0.8;
+	m_fAdjustableFlameIntensity = m_fAdjustableFlameIntensity * fFlameSmoothing +
+		                          iNewAdjustableFlameIntensity * (1.f - fFlameSmoothing);
+	if(m_fAdjustableFlameIntensity > 1.f)
+	{
+		m_fAdjustableFlameIntensity = 1.f;
+	}
+
+	// Serial out
+	if(m_bSerialPortOpen)
+	{
+		//char iEffectState = 0;
+		//if(m_bLeftHandUp || m_bRightHandUp)
+		//{
+		//	iEffectState = 0xF;
+		//}
+		char iEffectState = ComputeEffectState(bMainEffectOn, bRedOn, bGreenOn, bYellowOn, m_fAdjustableFlameIntensity);
+		m_serial.SendData(&iEffectState, 1);
+
+		// log?
+		SetDlgItemInt( m_hWnd, IDC_FPS, iEffectState & 0xF0 ,FALSE );
+	}
 }
 
 RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
@@ -679,7 +720,7 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
     q.rgbRed = q.rgbBlue = q.rgbGreen = 0;
 
 	// Bloom - CTL - Change color of the depth feed based on which hands are up
-	float fHandVelocityScale = (m_vLeftHandSpeed + m_vRightHandSpeed) * 0.4f; // TEMP_CL - put in general tuning place
+	float fHandVelocityScale = m_fAdjustableFlameIntensity;
 	if(fHandVelocityScale < 0.3)
 	{
 		fHandVelocityScale = 0.3f;

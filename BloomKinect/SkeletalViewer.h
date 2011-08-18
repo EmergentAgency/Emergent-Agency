@@ -16,6 +16,7 @@
 #include "MSR_NuiApi.h"
 #include "DrawDevice.h"
 #include "DXUT.h"
+#include "Serial.h" // Bloom
 
 #define SZ_APPDLG_WINDOW_CLASS        _T("SkeletalViewerAppDlgWndClass")
 
@@ -111,6 +112,12 @@ private:
 
 	float         m_vLeftHandSpeed;
 	float         m_vRightHandSpeed;
+
+	float         m_fAdjustableFlameIntensity;
+
+	// serial code
+	CSerial       m_serial;
+	bool          m_bSerialPortOpen;
 	// /Bloom
 
 };

@@ -22,6 +22,7 @@
     <ClCompile Include="stdafx.cpp">
       <Filter>SkelViewer</Filter>
     </ClCompile>
+    <ClCompile Include="Serial.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DXUT\Core\DXUT.h" />
@@ -48,6 +49,7 @@
     <ClInclude Include="Resource.h">
       <Filter>SkelViewer</Filter>
     </ClInclude>
+    <ClInclude Include="Serial.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="DXUT\Optional\directx.ico" />
