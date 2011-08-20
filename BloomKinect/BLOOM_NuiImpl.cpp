@@ -18,31 +18,15 @@
 
 //// BLOOM
 // Config vars
-static const float fHeightAboveShoulderForUpInMeters = -0.2f;	// 20cm below shoulder = less tiring
+static const float fHeightAboveShoulderForUpInMeters = -0.1f;	// 20cm below shoulder = less tiring
 static const float numSecondsPerFrame = 0.0333f;	//TEMP_CL: hack until we get proper timestamps working
 static const int numPastFrames = 4;		// go back this many frames in the past for velocity data, etc.
 static const float fHandVelocityFactor = 0.4f;  // scale down velocity for use in depth feed display
 static const float fHandVelocityScaleLow = 0.2f;  // low threshold for scaling luminence
 static const float fHandVelocityScaleHigh = 1.0f; // high threshold for scaling luminence
+static const float minUpSpeedForFlame = 5.0;	  // min upward/downward speed to trigger flame on/off (meters/sec)
+static const float fBufferForwardInMeters = 0.2f; // distance to be in front of shoulder to be considered forward
 
-//// Direct3D9 includes
-//#include <d3d9.h>
-////#include <d3dx9.h>
-//
-//// Direct3D10 includes
-//#include <d3dcommon.h>
-//#include <dxgi.h>
-//#include <d3d10_1.h>
-//#include <d3d10.h>
-////#include <d3dcompiler.h>
-////#include <d3dx10.h>
-//
-//// XInput includes
-//#include <xinput.h>
-//
-//// HRESULT translation for Direct3D and other APIs 
-////#include <dxerr.h>
-//#include "d3dx9math.h"
 #include <math.h>
 #include "DXUT.h"
 #include "DXUTsettingsdlg.h"
@@ -80,6 +64,12 @@ CSkeletalViewerApp::CSkeletalViewerApp()
 	// initialize useful variables
 	: m_bLeftHandUp(false)
 	, m_bRightHandUp(false)
+	, m_bLeftHandForward(false)
+	, m_bRightHandForward(false)
+	, m_bMainEffectOn(false)
+	, m_bRedOn(false)
+	, m_bYellowOn(false)
+	, m_bGreenOn(false)
 	, m_iCurSkelFrame(0)
 {
 }
@@ -111,6 +101,13 @@ void CSkeletalViewerApp::Nui_Zero()
 
 HRESULT CSkeletalViewerApp::Nui_Init()
 {
+	// Bloom - setup serial communication
+	m_bSerialPortOpen = m_serial.Open(0, 9600); // first param is ignored
+	if (m_bSerialPortOpen)	
+		_tprintf(_T("Serial Port Open!\n"));
+	else
+		_tprintf(_T("Serial Port Fail!\n"));
+	// /Bloom
     HRESULT                hr;
     RECT                rc;
 
@@ -569,7 +566,7 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
 
     Nui_DoDoubleBuffer(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), m_SkeletonDC);
 }
-
+// ^ calls ProcessSkeletonForBloom
 
 
 // TEMP_CL -- is this still necessary?
@@ -588,6 +585,21 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 	if(iIndex < 0)
 		iIndex += NUM_SKELETON_HISTORY_FRAMES;
 	return iIndex;
+}
+
+char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float iAdjustableFlameIntensity)
+{
+	char state = 0;
+
+	state |= bMainEffectOn ? 0x1 : 0;
+	state |= bRedOn        ? 0x2 : 0;
+	state |= bGreenOn      ? 0x4 : 0;
+	state |= bYellowOn     ? 0x8 : 0;
+
+	int iFlameIntensity = iAdjustableFlameIntensity * 0xF; // map 0.0-1.0 to 0-15
+	state |= iFlameIntensity << 4;
+
+	return state;
 }
 
 // fixed all the 'Skelton's
@@ -616,15 +628,12 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 		m_iCurSkelFrame = 0;
 	// REVISIT
 	// memcpy here requires NUI_SKELETON_DATA and SkeletonData to be EXACTLY the same in
-	// terms of size AND order or variables.  The assert below is a safegaurd against size
+	// terms of size AND order of variables.  The assert below is a safegaurd against size
 	// mismatch but does not check for variable order.
 	assert(sizeof(SkeletonData) == sizeof(NUI_SKELETON_DATA));
 	memcpy(&m_aSkelHistory[m_iCurSkelFrame], pSkel, sizeof(NUI_SKELETON_DATA));
 
 	// Get joint positions this frame
-	//D3DXVECTOR4 vShoulderCenterPos = GetRealVect(pSkel->SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER]);
-	//D3DXVECTOR4 vLeftHandPos       = GetRealVect(pSkel->SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT]);
-	//D3DXVECTOR4 vRightHandPos      = GetRealVect(pSkel->SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT]);
 	int iCurIndex = GetPastHistoryIndex(0);
 	int iPastIndex = GetPastHistoryIndex(-1*numPastFrames); 
 	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
@@ -635,29 +644,81 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	D3DXVECTOR4 vLeftElbowPos       = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_LEFT];
 	D3DXVECTOR4 vRightElbowPos      = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_RIGHT];
 
-	// Check to see if hands are up
+	// Check to see if hands are above and/or in front of shoulder center
 	m_bLeftHandUp  = vLeftHandPos.y  > vShoulderCenterPos.y + fHeightAboveShoulderForUpInMeters;
 	m_bRightHandUp = vRightHandPos.y > vShoulderCenterPos.y + fHeightAboveShoulderForUpInMeters;
+	// positive z  = away from camera
+	m_bLeftHandForward = vLeftHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
+	m_bRightHandForward = vRightHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 
 	// Get delta time in seconds
-	//float fDeltaSeconds = (pSkelFrame->liTimeStamp.LowPart - m_liLastTimeStamp.LowPart) / 1000.f;
-	//float fDeltaSeconds = (pSkelFrame->liTimeStamp.LowPart - m_liLastTimeStamp.LowPart) / 1000.f * 4; // TEMP_CL - hack since we aren't storing all the time stamps back in time;
 	float fDeltaSeconds = numSecondsPerFrame * numPastFrames; // TEMP_CL - hack since we aren't storing all the time stamps back in time;
 	m_liLastTimeStamp = pSkelFrame->liTimeStamp;
 
-	// Get hand velocity
+	// Get hand velocity (absolute)
 	D3DXVECTOR4 vDiff = vLeftHandPos - vLeftHandPosPast;
 	m_vLeftHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
-	m_vPrevLeftHandPos = vLeftHandPos;
 	vDiff = vRightHandPos - vRightHandPosPast;
 	m_vRightHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
-	m_vPrevRightHandPos = vRightHandPos;
+
+	// Get hand velocity (Y-component only)
+	float yDiff = vLeftHandPos.y - vLeftHandPosPast.y;
+	m_vLeftHandSpeedY = yDiff / fDeltaSeconds;
+	yDiff = vRightHandPos.y - vRightHandPosPast.y;	
+	m_vRightHandSpeedY = yDiff / fDeltaSeconds;
 
 	// log?
-	// display fastest hand speed in feet per second
-	float fastestHandSpeed = max(m_vRightHandSpeed,m_vLeftHandSpeed)*3.28f;
-	SetDlgItemInt( m_hWnd, IDC_FPS, (int)fastestHandSpeed,FALSE );
+	// display fastest Y-component of hand speed in numbers large enough to see variation
+	// SetDlgItemInt cannot handle negative numbers: 4294967
+	// add scaling by arm length to account for big and small people
+	float fastestHandSpeedUp = max(m_vRightHandSpeedY, m_vLeftHandSpeedY) * 3.28f;
+	float fastestHandSpeedDown = min(m_vRightHandSpeedY, m_vLeftHandSpeedY) * -3.28f;
+	SetDlgItemInt( m_hWnd, IDC_FPS, (int)fastestHandSpeedUp,FALSE );
 
+	// if either hand is up and moving up fast enough, trigger flame on
+	if( (m_vRightHandSpeedY >= minUpSpeedForFlame && m_bRightHandUp) ||
+		(m_vLeftHandSpeedY  >= minUpSpeedForFlame && m_bLeftHandUp) )
+	{
+		m_bMainEffectOn = true;
+	}
+	// if either hand is down and moving down fast enough, trigger flame off
+	else if( (m_vRightHandSpeedY <= -1.0f*minUpSpeedForFlame && !m_bRightHandUp) ||
+		     (m_vLeftHandSpeedY  <= -1.0f*minUpSpeedForFlame && !m_bLeftHandUp) )
+	{
+		m_bMainEffectOn = false;
+	}
+	
+	bool bMainEffectOn = false;
+	bool bRedOn = false;
+	bool bGreenOn = false;
+	bool bYellowOn = false;
+	float iNewAdjustableFlameIntensity = 0;
+
+	if(m_bLeftHandUp && m_bRightHandUp)
+		bYellowOn = true;
+	else if(m_bLeftHandUp)
+		bRedOn = true;
+	else if(m_bRightHandUp)
+		bGreenOn = true;
+
+	if(bYellowOn || bRedOn || bGreenOn)
+		bMainEffectOn = true;
+
+	iNewAdjustableFlameIntensity = (m_vLeftHandSpeed + m_vRightHandSpeed) * 0.2f;
+	float fFlameSmoothing = 0.8;
+	m_fAdjustableFlameIntensity = m_fAdjustableFlameIntensity * fFlameSmoothing +
+		                          iNewAdjustableFlameIntensity * (1.f - fFlameSmoothing);
+	if(m_fAdjustableFlameIntensity > 1.f)
+	{
+		m_fAdjustableFlameIntensity = 1.f;
+	}
+
+	// Serial out
+	if(m_bSerialPortOpen)
+	{
+		char iEffectState = ComputeEffectState(m_bMainEffectOn, m_bRedOn, m_bGreenOn, m_bYellowOn, m_fAdjustableFlameIntensity);
+		m_serial.SendData(&iEffectState, 1);
+	}
 
 	//// TEMP_CL - draw text?
 	//if(!g_pFont)
@@ -701,29 +762,38 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 	}
 	lumens = (BYTE)(lumens * fHandVelocityScale);
 
-	if(Player != NUI_SKELETON_INVALID_TRACKING_ID)
+	// only render depth field if "flame" is on, otherwise use flat colors
+	if(Player != NUI_SKELETON_INVALID_TRACKING_ID && m_bMainEffectOn)
 	{
-		// switched to both hands = green (most powerful color)
-		if(m_bLeftHandUp && m_bRightHandUp)
+		// both hands forward = yellow
+		if(m_bLeftHandForward && m_bRightHandForward)
 		{
-			q.rgbRed =   0;
+			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
+			//q.rgbRed =   ((s >> 3) & 0x0ff);
 			q.rgbBlue =  0;
-			q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
+			q.rgbGreen = q.rgbRed;
 			return q;
 		}
-		else if(m_bLeftHandUp)
+		else if(m_bLeftHandForward)
 		{
 			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
 			q.rgbBlue =  0;
 			q.rgbGreen = 0;
 			return q;
 		}
-		else if(m_bRightHandUp)
+		else if(m_bRightHandForward)
 		{
-			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
-			//q.rgbRed =   ((s >> 3) & 0x0ff);
+			q.rgbRed =   0;
 			q.rgbBlue =  0;
+			q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
+			return q;
+		}
+		else
+		{
+			// white if neither hand is forward
+			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
 			q.rgbGreen = q.rgbRed;
+			q.rgbBlue = q.rgbRed;
 			return q;
 		}
 	}

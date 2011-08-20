@@ -16,6 +16,7 @@
 #include "MSR_NuiApi.h"
 #include "DrawDevice.h"
 #include "DXUT.h"
+#include "Serial.h" // Bloom
 
 #define SZ_APPDLG_WINDOW_CLASS        _T("SkeletalViewerAppDlgWndClass")
 
@@ -109,7 +110,7 @@ private:
     int           m_LastFramesTotal;
 
 	// Bloom - CTL
-	//SkeletonFrame m_aSkelFrame;
+	//SkeletonFrame m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	SkeletonData  m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
@@ -121,9 +122,23 @@ private:
 
 	bool          m_bLeftHandUp;
 	bool          m_bRightHandUp;
+	bool		  m_bLeftHandForward;
+	bool		  m_bRightHandForward;
+	bool		  m_bMainEffectOn;
+	bool		  m_bRedOn;
+	bool		  m_bYellowOn;
+	bool		  m_bGreenOn;
 
 	float         m_vLeftHandSpeed;
 	float         m_vRightHandSpeed;
+	float		  m_vLeftHandSpeedY;
+	float		  m_vRightHandSpeedY;
+	
+	float         m_fAdjustableFlameIntensity;
+
+	// serial code
+	CSerial       m_serial;
+	bool          m_bSerialPortOpen;
 	// /Bloom
 
 };
