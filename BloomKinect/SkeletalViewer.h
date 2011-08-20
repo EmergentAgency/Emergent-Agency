@@ -16,14 +16,14 @@
 #include "MSR_NuiApi.h"
 #include "DrawDevice.h"
 #include "DXUT.h"
-#include "Serial.h" // Bloom
 
 #define SZ_APPDLG_WINDOW_CLASS        _T("SkeletalViewerAppDlgWndClass")
 
 // Bloom - CTL
 #define NUM_SKELETON_HISTORY_FRAMES 60
 
-typedef struct _SkeletonFrame
+// custom structs use D3DX vectors to save the work of defining operations (+,-, *, x, etc.)
+typedef struct _SkeletonData
 {
   NUI_SKELETON_TRACKING_STATE eTrackingState;
   DWORD dwTrackingID;
@@ -35,6 +35,16 @@ typedef struct _SkeletonFrame
   DWORD dwQualityFlags;
 } SkeletonData;
 
+typedef struct _SkeletonFrame
+{
+  LARGE_INTEGER         liTimeStamp;
+  DWORD                 dwFrameNumber;
+  DWORD                 dwFlags;
+  D3DXVECTOR4           vFloorClipPlane;
+  D3DXVECTOR4           vNormalToGravity;
+  SkeletonData          SkeletonData[NUI_SKELETON_COUNT];
+} SkeletonFrame;
+// /Bloom
 
 class CSkeletalViewerApp
 {
@@ -57,10 +67,11 @@ public:
     void                    Nui_DrawSkeletonSegment( NUI_SKELETON_DATA * pSkel, int numJoints, ... );
 
 	// Bloom - CTL
-	void					ProcessSkeltonForBloom(NUI_SKELETON_FRAME* pSkel);
-	// /Bloom
+	void					ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkel);
 
+	// Nui_ShortToQuad_Depth: overloaded to visually render interactivity
     RGBQUAD                 Nui_ShortToQuad_Depth( USHORT s );
+	// /Bloom
 
     static LONG CALLBACK    WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -98,6 +109,7 @@ private:
     int           m_LastFramesTotal;
 
 	// Bloom - CTL
+	//SkeletonFrame m_aSkelFrame;
 	SkeletonData  m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
@@ -112,12 +124,6 @@ private:
 
 	float         m_vLeftHandSpeed;
 	float         m_vRightHandSpeed;
-
-	float         m_fAdjustableFlameIntensity;
-
-	// serial code
-	CSerial       m_serial;
-	bool          m_bSerialPortOpen;
 	// /Bloom
 
 };
