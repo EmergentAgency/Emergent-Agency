@@ -111,15 +111,8 @@ private:
 
 	// Bloom - CTL
 	BloomSkeletonFrame m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
-	//BloomSkeletonData  m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
-
-	// still necessary ?
-	LARGE_INTEGER m_liLastTimeStamp;
-
-	D3DXVECTOR4   m_vPrevLeftHandPos;
-	D3DXVECTOR4   m_vPrevRightHandPos;
 
 	// hand info
 	bool          m_bLeftHandUp;
@@ -134,7 +127,6 @@ private:
 	float		  m_vRightHandSpeedY;
 	float         m_fSpeedRatio;
 	
-
 	// Bloom output variables
 	bool		  m_bMainEffectOn;
 	bool		  m_bRedOn;

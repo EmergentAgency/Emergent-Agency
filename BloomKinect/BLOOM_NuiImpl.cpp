@@ -670,7 +670,6 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 
 	// Get delta time in seconds (timestamps work now!)
 	float fDeltaSeconds = (iCurTimeStamp - iPastTimeStamp) * 0.001f; 
-	m_liLastTimeStamp = pSkelFrame->liTimeStamp;
 
 	// Get hand velocity (absolute)
 	D3DXVECTOR4 vDiff = vLeftHandPos - vLeftHandPosPast;
@@ -686,8 +685,11 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	{
 		m_fSpeedRatio = 1.f;
 	}
-	// co-opt FPS display for speed ratio (1-10)
-	SetDlgItemInt( m_hWnd, IDC_FPS, (int) (m_fSpeedRatio * 10.f),FALSE );
+	// co-opt FPS display for speed ratio (1-10) and also showing if the serial connection is active
+	int iDebugNumber = (int) (m_fSpeedRatio * 10.f);
+	if(m_bSerialPortOpen)
+		iDebugNumber += 1000;
+	SetDlgItemInt( m_hWnd, IDC_FPS, iDebugNumber,FALSE );
 
 	// Hand speed trigger on an off - we aren't using this for now
 
@@ -746,23 +748,6 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 		char iEffectState = ComputeEffectState(m_bMainEffectOn, m_bRedOn, m_bGreenOn, m_bYellowOn, m_fAdjustableFlameIntensity);
 		m_serial.SendData(&iEffectState, 1);
 	}
-
-	//// TEMP_CL - draw text?
-	//if(!g_pFont)
-	//{
-	//	HRESULT hr;
-	//	V_RETURN( D3DXCreateFont( pd3dDevice, 30, 0, FW_BOLD, 1, FALSE, DEFAULT_CHARSET,
-	//							  OUT_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-	//							  L"Arial", &g_pFont ) );
-	//	V_RETURN( D3DXCreateSprite( pd3dDevice, &g_pSprite ) );
-	//}
-
- //   CDXUTTextHelper txtHelper( g_pFont, g_pSprite, 25 );
- //   txtHelper.Begin();
- //   txtHelper.SetInsertionPos( DXUTGetD3D9BackBufferSurfaceDesc()->Width / 2 - 256,
- //                               DXUTGetD3D9BackBufferSurfaceDesc()->Height / 2 - 50 );
- //   txtHelper.SetForegroundColor( D3DXCOLOR( 1.0f, 1.0f, 1.0f, 1.0f ) );
- //   txtHelper.DrawTextLine( L"Testing..." );
 }
 
 RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
