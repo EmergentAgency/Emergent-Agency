@@ -1,12 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual C++ Express 2010
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SkeletalViewer", "SkeletalViewer.vcxproj", "{598188FB-FFFE-4D88-8A3A-8AF295DAD351}"
-	ProjectSection(ProjectDependencies) = postProject
-		{939C0F41-DA35-4F9F-BD82-87394C3810F9} = {939C0F41-DA35-4F9F-BD82-87394C3810F9}
-	EndProjectSection
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "XInputGame", "XInputGame_2010.vcxproj", "{939C0F41-DA35-4F9F-BD82-87394C3810F9}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BLOOM_XInputGame", "XInputGame_2010.vcxproj", "{939C0F41-DA35-4F9F-BD82-87394C3810F9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,12 +10,6 @@ Global
 		Release|Win32 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Debug|Win32.ActiveCfg = Debug|Win32
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Debug|Win32.Build.0 = Debug|Win32
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Profile|Win32.ActiveCfg = Release|Win32
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Profile|Win32.Build.0 = Release|Win32
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Release|Win32.ActiveCfg = Release|Win32
-		{598188FB-FFFE-4D88-8A3A-8AF295DAD351}.Release|Win32.Build.0 = Release|Win32
 		{939C0F41-DA35-4F9F-BD82-87394C3810F9}.Debug|Win32.ActiveCfg = Debug|Win32
 		{939C0F41-DA35-4F9F-BD82-87394C3810F9}.Debug|Win32.Build.0 = Debug|Win32
 		{939C0F41-DA35-4F9F-BD82-87394C3810F9}.Profile|Win32.ActiveCfg = Profile|Win32
