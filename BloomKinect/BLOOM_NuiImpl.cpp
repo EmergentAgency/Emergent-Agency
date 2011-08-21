@@ -618,12 +618,14 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
 	// Find the first valid skel
+	int skelIndex = -1;
 	NUI_SKELETON_DATA* pSkel = NULL;
     for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
     {
         if( pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
         {
 			pSkel = &(pSkelFrame->SkeletonData[i]);
+			skelIndex = i;
 			break;
         }
     }
@@ -639,22 +641,25 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	if(m_iCurSkelFrame >= NUM_SKELETON_HISTORY_FRAMES)
 		m_iCurSkelFrame = 0;
 	// REVISIT
-	// memcpy here requires NUI_SKELETON_DATA and SkeletonData to be EXACTLY the same in
-	// terms of size AND order of variables.  The assert below is a safegaurd against size
-	// mismatch but does not check for variable order.
-	assert(sizeof(SkeletonData) == sizeof(NUI_SKELETON_DATA));
-	memcpy(&m_aSkelHistory[m_iCurSkelFrame], pSkel, sizeof(NUI_SKELETON_DATA));
+	// memcpy here requires BOTH NUI_SKELETON_FRAME / BloomSkeletonFrame AND NUI_SKELETON_DATA / BloomSkeletonData 
+	// to be EXACTLY the same in size AND order of variables.  The asserts below are a safegaurd against size
+	// mismatch but do not check for variable order.
+	assert(sizeof(BloomSkeletonData) == sizeof(NUI_SKELETON_DATA));
+	assert(sizeof(BloomSkeletonFrame) == sizeof(NUI_SKELETON_FRAME));
+	memcpy(&m_aSkelHistory[m_iCurSkelFrame], pSkelFrame, sizeof(NUI_SKELETON_FRAME));
 
 	// Get joint positions this frame
 	int iCurIndex = GetPastHistoryIndex(0);
 	int iPastIndex = GetPastHistoryIndex(-1*numPastFrames); 
-	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
-	D3DXVECTOR4 vLeftHandPos       = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
-	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
-	D3DXVECTOR4 vLeftHandPosPast       = m_aSkelHistory[iPastIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
-	D3DXVECTOR4 vRightHandPosPast      = m_aSkelHistory[iPastIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
-	D3DXVECTOR4 vLeftElbowPos       = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_LEFT];
-	D3DXVECTOR4 vRightElbowPos      = m_aSkelHistory[iCurIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_RIGHT];
+	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
+	D3DXVECTOR4 vLeftHandPos       = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
+	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
+	D3DXVECTOR4 vLeftHandPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
+	D3DXVECTOR4 vRightHandPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
+	D3DXVECTOR4 vLeftElbowPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_LEFT];
+	D3DXVECTOR4 vRightElbowPos     = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_RIGHT];
+	int iCurTimeStamp              = m_aSkelHistory[iCurIndex].liTimeStamp.LowPart;
+	int iPastTimeStamp             = m_aSkelHistory[iPastIndex].liTimeStamp.LowPart;
 
 	// Check to see if hands are above and/or in front of shoulder center
 	m_bLeftHandUp  = vLeftHandPos.y  > vShoulderCenterPos.y + fHeightAboveShoulderForUpInMeters;
@@ -663,8 +668,8 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_bLeftHandForward = vLeftHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 	m_bRightHandForward = vRightHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 
-	// Get delta time in seconds
-	float fDeltaSeconds = numSecondsPerFrame * numPastFrames; // TEMP_CL - hack since we aren't storing all the time stamps back in time;
+	// Get delta time in seconds (timestamps work now!)
+	float fDeltaSeconds = (iCurTimeStamp - iPastTimeStamp) * 0.001f; 
 	m_liLastTimeStamp = pSkelFrame->liTimeStamp;
 
 	// Get hand velocity (absolute)
@@ -681,6 +686,8 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	{
 		m_fSpeedRatio = 1.f;
 	}
+	// co-opt FPS display for speed ratio (1-10)
+	SetDlgItemInt( m_hWnd, IDC_FPS, (int) (m_fSpeedRatio * 10.f),FALSE );
 
 	// Hand speed trigger on an off - we aren't using this for now
 
@@ -690,13 +697,14 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	//yDiff = vRightHandPos.y - vRightHandPosPast.y;	
 	//m_vRightHandSpeedY = yDiff / fDeltaSeconds;
 
-	//// log?
+	//// Charlotte's interactivity
 	//// display fastest Y-component of hand speed in numbers large enough to see variation
 	//// SetDlgItemInt cannot handle negative numbers: 4294967
 	//// add scaling by arm length to account for big and small people
 	//float fastestHandSpeedUp = max(m_vRightHandSpeedY, m_vLeftHandSpeedY) * 3.28f;
 	//float fastestHandSpeedDown = min(m_vRightHandSpeedY, m_vLeftHandSpeedY) * -3.28f;
 	//SetDlgItemInt( m_hWnd, IDC_FPS, (int)fastestHandSpeedUp,FALSE );
+
 	//// if either hand is up and moving up fast enough, trigger flame on
 	//if( (m_vRightHandSpeedY >= minUpSpeedForFlame && m_bRightHandUp) ||
 	//	(m_vLeftHandSpeedY  >= minUpSpeedForFlame && m_bLeftHandUp) )
@@ -709,12 +717,11 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	//{
 	//	m_bMainEffectOn = false;
 	//}
-
 	
 	// Turn main effect on if either hand is up
 	m_bMainEffectOn = m_bLeftHandUp || m_bRightHandUp;
 
-	// Turn colors on only if moving fast enough.  Colors coorespond to which hands up are
+	// Turn colors on only if moving fast enough.  Colors correspond to which hands are up.
 	m_bYellowOn = m_bRedOn = m_bGreenOn = false;
 	if(m_fSpeedRatio > fMinSpeedRatioForColor)
 	{
@@ -770,7 +777,6 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
     RGBQUAD q;
     q.rgbRed = q.rgbBlue = q.rgbGreen = 0;
 
-
 	// Bloom - Change color of the depth feed to show bloom's state
 
 	// show adjustable flame intensity with general brightness of the depth feed
@@ -788,7 +794,6 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 	// only render depth field if "flame" is on, otherwise use flat colors
 	if(Player != NUI_SKELETON_INVALID_TRACKING_ID && m_bMainEffectOn)
 	{
-		// both hands forward = yellow
 		if(m_bYellowOn)
 		{
 			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;

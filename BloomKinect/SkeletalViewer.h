@@ -34,7 +34,7 @@ typedef struct _SkeletonData
   D3DXVECTOR4 SkeletonPositions[NUI_SKELETON_POSITION_COUNT];
   NUI_SKELETON_POSITION_TRACKING_STATE eSkeletonPositionTrackingState[NUI_SKELETON_POSITION_COUNT];
   DWORD dwQualityFlags;
-} SkeletonData;
+} BloomSkeletonData;
 
 typedef struct _SkeletonFrame
 {
@@ -43,8 +43,8 @@ typedef struct _SkeletonFrame
   DWORD                 dwFlags;
   D3DXVECTOR4           vFloorClipPlane;
   D3DXVECTOR4           vNormalToGravity;
-  SkeletonData          SkeletonData[NUI_SKELETON_COUNT];
-} SkeletonFrame;
+  BloomSkeletonData          SkeletonData[NUI_SKELETON_COUNT];
+} BloomSkeletonFrame;
 // /Bloom
 
 class CSkeletalViewerApp
@@ -110,11 +110,12 @@ private:
     int           m_LastFramesTotal;
 
 	// Bloom - CTL
-	//SkeletonFrame m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
-	SkeletonData  m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
+	BloomSkeletonFrame m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
+	//BloomSkeletonData  m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
 
+	// still necessary ?
 	LARGE_INTEGER m_liLastTimeStamp;
 
 	D3DXVECTOR4   m_vPrevLeftHandPos;
