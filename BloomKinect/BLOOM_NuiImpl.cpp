@@ -16,16 +16,18 @@
 #include "resource.h"
 #include <mmsystem.h>
 
-//// BLOOM
+// BLOOM
 // Config vars
 static const float fHeightAboveShoulderForUpInMeters = -0.1f;	// 20cm below shoulder = less tiring
-static const float numSecondsPerFrame = 0.0333f;	//TEMP_CL: hack until we get proper timestamps working
-static const int numPastFrames = 4;		// go back this many frames in the past for velocity data, etc.
-static const float fHandVelocityFactor = 0.4f;  // scale down velocity for use in depth feed display
+static const float numSecondsPerFrame = 0.0333f;  //TEMP_CL: hack until we get proper timestamps working
+static const int   numPastFrames = 4;		      // go back this many frames in the past for velocity data, etc.
+static const float fHandVelocityFactor = 0.2f;    // scale down velocity for overall speed ratio
+static const float fSpeedSmoothing = 0.8f;        // The amount of smoothing we apply to overall speed ratio
 static const float fHandVelocityScaleLow = 0.2f;  // low threshold for scaling luminence
 static const float fHandVelocityScaleHigh = 1.0f; // high threshold for scaling luminence
 static const float minUpSpeedForFlame = 5.0;	  // min upward/downward speed to trigger flame on/off (meters/sec)
 static const float fBufferForwardInMeters = 0.2f; // distance to be in front of shoulder to be considered forward
+static const float fMinSpeedRatioForColor = 0.3f; // You need to have a speed ratio of at least this for color to happen
 
 #include <math.h>
 #include "DXUT.h"
@@ -97,7 +99,22 @@ void CSkeletalViewerApp::Nui_Zero()
     m_LastFramesTotal = 0;
 }
 
+// Bloom
+char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float iAdjustableFlameIntensity)
+{
+	char state = 0;
 
+	state |= bMainEffectOn ? 0x1 : 0;
+	state |= bRedOn        ? 0x2 : 0;
+	state |= bGreenOn      ? 0x4 : 0;
+	state |= bYellowOn     ? 0x8 : 0;
+
+	int iFlameIntensity = iAdjustableFlameIntensity * 0xF; // map 0.0-1.0 to 0-15
+	state |= iFlameIntensity << 4;
+
+	return state;
+}
+// /Bloom
 
 HRESULT CSkeletalViewerApp::Nui_Init()
 {
@@ -108,7 +125,8 @@ HRESULT CSkeletalViewerApp::Nui_Init()
 	else
 		_tprintf(_T("Serial Port Fail!\n"));
 	// /Bloom
-    HRESULT                hr;
+
+    HRESULT             hr;
     RECT                rc;
 
     m_hNextDepthFrameEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
@@ -306,7 +324,16 @@ DWORD WINAPI CSkeletalViewerApp::Nui_ProcessThread(LPVOID pParam)
             {
                 pthis->Nui_BlankSkeletonScreen( GetDlgItem( pthis->m_hWnd, IDC_SKELETALVIEW ) );
                 pthis->m_bScreenBlanked = true;
-            }
+ 
+				// Bloom
+				// Turn off effects if we don't have any skel
+				if(pthis->m_bSerialPortOpen)
+				{
+					char iEffectState = ComputeEffectState(false, false, false, false, 0);
+					pthis->m_serial.SendData(&iEffectState, 1);
+				}
+				// /Bloom 
+			}
         }
 
         // Process signal events
@@ -587,21 +614,6 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 	return iIndex;
 }
 
-char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float iAdjustableFlameIntensity)
-{
-	char state = 0;
-
-	state |= bMainEffectOn ? 0x1 : 0;
-	state |= bRedOn        ? 0x2 : 0;
-	state |= bGreenOn      ? 0x4 : 0;
-	state |= bYellowOn     ? 0x8 : 0;
-
-	int iFlameIntensity = iAdjustableFlameIntensity * 0xF; // map 0.0-1.0 to 0-15
-	state |= iFlameIntensity << 4;
-
-	return state;
-}
-
 // fixed all the 'Skelton's
 void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
@@ -661,57 +673,65 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	vDiff = vRightHandPos - vRightHandPosPast;
 	m_vRightHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
 
-	// Get hand velocity (Y-component only)
-	float yDiff = vLeftHandPos.y - vLeftHandPosPast.y;
-	m_vLeftHandSpeedY = yDiff / fDeltaSeconds;
-	yDiff = vRightHandPos.y - vRightHandPosPast.y;	
-	m_vRightHandSpeedY = yDiff / fDeltaSeconds;
-
-	// log?
-	// display fastest Y-component of hand speed in numbers large enough to see variation
-	// SetDlgItemInt cannot handle negative numbers: 4294967
-	// add scaling by arm length to account for big and small people
-	float fastestHandSpeedUp = max(m_vRightHandSpeedY, m_vLeftHandSpeedY) * 3.28f;
-	float fastestHandSpeedDown = min(m_vRightHandSpeedY, m_vLeftHandSpeedY) * -3.28f;
-	SetDlgItemInt( m_hWnd, IDC_FPS, (int)fastestHandSpeedUp,FALSE );
-
-	// if either hand is up and moving up fast enough, trigger flame on
-	if( (m_vRightHandSpeedY >= minUpSpeedForFlame && m_bRightHandUp) ||
-		(m_vLeftHandSpeedY  >= minUpSpeedForFlame && m_bLeftHandUp) )
+	// Calculte total speed ratio (0.0-1.0)
+	float fNewSpeedRatio = (m_vLeftHandSpeed + m_vRightHandSpeed) * fHandVelocityFactor;
+	m_fSpeedRatio = m_fSpeedRatio * fSpeedSmoothing +
+		            fNewSpeedRatio * (1.f - fSpeedSmoothing);
+	if(m_fSpeedRatio > 1.f)
 	{
-		m_bMainEffectOn = true;
+		m_fSpeedRatio = 1.f;
 	}
-	// if either hand is down and moving down fast enough, trigger flame off
-	else if( (m_vRightHandSpeedY <= -1.0f*minUpSpeedForFlame && !m_bRightHandUp) ||
-		     (m_vLeftHandSpeedY  <= -1.0f*minUpSpeedForFlame && !m_bLeftHandUp) )
-	{
-		m_bMainEffectOn = false;
-	}
+
+	// Hand speed trigger on an off - we aren't using this for now
+
+	//// Get hand velocity (Y-component only)
+	//float yDiff = vLeftHandPos.y - vLeftHandPosPast.y;
+	//m_vLeftHandSpeedY = yDiff / fDeltaSeconds;
+	//yDiff = vRightHandPos.y - vRightHandPosPast.y;	
+	//m_vRightHandSpeedY = yDiff / fDeltaSeconds;
+
+	//// log?
+	//// display fastest Y-component of hand speed in numbers large enough to see variation
+	//// SetDlgItemInt cannot handle negative numbers: 4294967
+	//// add scaling by arm length to account for big and small people
+	//float fastestHandSpeedUp = max(m_vRightHandSpeedY, m_vLeftHandSpeedY) * 3.28f;
+	//float fastestHandSpeedDown = min(m_vRightHandSpeedY, m_vLeftHandSpeedY) * -3.28f;
+	//SetDlgItemInt( m_hWnd, IDC_FPS, (int)fastestHandSpeedUp,FALSE );
+	//// if either hand is up and moving up fast enough, trigger flame on
+	//if( (m_vRightHandSpeedY >= minUpSpeedForFlame && m_bRightHandUp) ||
+	//	(m_vLeftHandSpeedY  >= minUpSpeedForFlame && m_bLeftHandUp) )
+	//{
+	//	m_bMainEffectOn = true;
+	//}
+	//// if either hand is down and moving down fast enough, trigger flame off
+	//else if( (m_vRightHandSpeedY <= -1.0f*minUpSpeedForFlame && !m_bRightHandUp) ||
+	//	     (m_vLeftHandSpeedY  <= -1.0f*minUpSpeedForFlame && !m_bLeftHandUp) )
+	//{
+	//	m_bMainEffectOn = false;
+	//}
+
 	
-	bool bMainEffectOn = false;
-	bool bRedOn = false;
-	bool bGreenOn = false;
-	bool bYellowOn = false;
-	float iNewAdjustableFlameIntensity = 0;
+	// Turn main effect on if either hand is up
+	m_bMainEffectOn = m_bLeftHandUp || m_bRightHandUp;
 
-	if(m_bLeftHandUp && m_bRightHandUp)
-		bYellowOn = true;
-	else if(m_bLeftHandUp)
-		bRedOn = true;
-	else if(m_bRightHandUp)
-		bGreenOn = true;
-
-	if(bYellowOn || bRedOn || bGreenOn)
-		bMainEffectOn = true;
-
-	iNewAdjustableFlameIntensity = (m_vLeftHandSpeed + m_vRightHandSpeed) * 0.2f;
-	float fFlameSmoothing = 0.8;
-	m_fAdjustableFlameIntensity = m_fAdjustableFlameIntensity * fFlameSmoothing +
-		                          iNewAdjustableFlameIntensity * (1.f - fFlameSmoothing);
-	if(m_fAdjustableFlameIntensity > 1.f)
+	// Turn colors on only if moving fast enough.  Colors coorespond to which hands up are
+	m_bYellowOn = m_bRedOn = m_bGreenOn = false;
+	if(m_fSpeedRatio > fMinSpeedRatioForColor)
 	{
-		m_fAdjustableFlameIntensity = 1.f;
+		if(m_bLeftHandUp && m_bRightHandUp)
+			m_bYellowOn = true;
+		else if(m_bLeftHandUp)
+			m_bRedOn = true;
+		else if(m_bRightHandUp)
+			m_bGreenOn = true;
 	}
+
+	// Set the adjustable effect to the speed ratio if the main effect isn't on
+	// otherwise, just run it full on
+	if(!m_bMainEffectOn)
+		m_fAdjustableFlameIntensity = m_fSpeedRatio;
+	else
+		m_fAdjustableFlameIntensity = 1.f;
 
 	// Serial out
 	if(m_bSerialPortOpen)
@@ -750,23 +770,26 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
     RGBQUAD q;
     q.rgbRed = q.rgbBlue = q.rgbGreen = 0;
 
-	// Bloom - CTL - Change color of the depth feed based on which hands are up
-	float fHandVelocityScale = (m_vLeftHandSpeed + m_vRightHandSpeed) * fHandVelocityFactor;
-	if(fHandVelocityScale < fHandVelocityScaleLow)
+
+	// Bloom - Change color of the depth feed to show bloom's state
+
+	// show adjustable flame intensity with general brightness of the depth feed
+	float fAdjustableEffectScale = m_fAdjustableFlameIntensity;
+	if(fAdjustableEffectScale < fHandVelocityScaleLow)
 	{
-		fHandVelocityScale = fHandVelocityScaleLow;
+		fAdjustableEffectScale = fHandVelocityScaleLow;
 	}
-	else if(fHandVelocityScale > fHandVelocityScaleHigh)
+	else if(fAdjustableEffectScale > fHandVelocityScaleHigh)
 	{
-		fHandVelocityScale = fHandVelocityScaleHigh;
+		fAdjustableEffectScale = fHandVelocityScaleHigh;
 	}
-	lumens = (BYTE)(lumens * fHandVelocityScale);
+	lumens = (BYTE)(lumens * fAdjustableEffectScale);
 
 	// only render depth field if "flame" is on, otherwise use flat colors
 	if(Player != NUI_SKELETON_INVALID_TRACKING_ID && m_bMainEffectOn)
 	{
 		// both hands forward = yellow
-		if(m_bLeftHandForward && m_bRightHandForward)
+		if(m_bYellowOn)
 		{
 			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
 			//q.rgbRed =   ((s >> 3) & 0x0ff);
@@ -774,14 +797,14 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 			q.rgbGreen = q.rgbRed;
 			return q;
 		}
-		else if(m_bLeftHandForward)
+		else if(m_bRedOn)
 		{
 			q.rgbRed =   ((s & 0x00f0) >> 4)  * 16;
 			q.rgbBlue =  0;
 			q.rgbGreen = 0;
 			return q;
 		}
-		else if(m_bRightHandForward)
+		else if(m_bGreenOn)
 		{
 			q.rgbRed =   0;
 			q.rgbBlue =  0;

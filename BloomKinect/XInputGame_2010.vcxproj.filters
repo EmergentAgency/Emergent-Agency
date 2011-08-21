@@ -22,7 +22,6 @@
     <ClCompile Include="BLOOM_NuiImpl.cpp">
       <Filter>BLOOM_SkelViewer</Filter>
     </ClCompile>
-    <ClCompile Include="Serial.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DXUT\Core\DXUT.h" />
@@ -49,7 +48,6 @@
     <ClInclude Include="Resource.h">
       <Filter>BLOOM_SkelViewer</Filter>
     </ClInclude>
-    <ClInclude Include="Serial.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="DXUT\Optional\directx.ico" />
