@@ -120,20 +120,25 @@ private:
 	D3DXVECTOR4   m_vPrevLeftHandPos;
 	D3DXVECTOR4   m_vPrevRightHandPos;
 
+	// hand info
 	bool          m_bLeftHandUp;
 	bool          m_bRightHandUp;
 	bool		  m_bLeftHandForward;
 	bool		  m_bRightHandForward;
-	bool		  m_bMainEffectOn;
-	bool		  m_bRedOn;
-	bool		  m_bYellowOn;
-	bool		  m_bGreenOn;
 
+	// speed info
 	float         m_vLeftHandSpeed;
 	float         m_vRightHandSpeed;
 	float		  m_vLeftHandSpeedY;
 	float		  m_vRightHandSpeedY;
+	float         m_fSpeedRatio;
 	
+
+	// Bloom output variables
+	bool		  m_bMainEffectOn;
+	bool		  m_bRedOn;
+	bool		  m_bYellowOn;
+	bool		  m_bGreenOn;
 	float         m_fAdjustableFlameIntensity;
 
 	// serial code
