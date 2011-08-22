@@ -18,16 +18,19 @@
 
 // BLOOM
 // Config vars
-static const float fHeightAboveShoulderForUpInMeters = -0.1f;	// 20cm below shoulder = less tiring
+static const float fHeightAboveShoulderForUpInMeters = -0.1f;	// 10cm below shoulder = less tiring
+static const float fHeightAboveOtherFootForUp = 0.25f; // Height one foot needs to be over the other for "up" detection
 static const float numSecondsPerFrame = 0.0333f;  //TEMP_CL: hack until we get proper timestamps working
 static const int   numPastFrames = 4;		      // go back this many frames in the past for velocity data, etc.
-static const float fHandVelocityFactor = 0.2f;    // scale down velocity for overall speed ratio
+static const float fHandVelocityFactor = 0.3f;    // scale down velocity for overall speed ratio
 static const float fSpeedSmoothing = 0.8f;        // The amount of smoothing we apply to overall speed ratio
 static const float fHandVelocityScaleLow = 0.2f;  // low threshold for scaling luminence
 static const float fHandVelocityScaleHigh = 1.0f; // high threshold for scaling luminence
 static const float minUpSpeedForFlame = 5.0;	  // min upward/downward speed to trigger flame on/off (meters/sec)
 static const float fBufferForwardInMeters = 0.2f; // distance to be in front of shoulder to be considered forward
 static const float fMinSpeedRatioForColor = 0.3f; // You need to have a speed ratio of at least this for color to happen
+static const int   iMaxSolenoidFrequency = 6;    // max rate we can turn the color solenoids on and off
+static const float fMinFootSpeedForColorFlash = 1.f; // must be moving your foot this fast for color cycles
 
 #include <math.h>
 #include "DXUT.h"
@@ -656,8 +659,10 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
 	D3DXVECTOR4 vLeftHandPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
 	D3DXVECTOR4 vRightHandPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
-	D3DXVECTOR4 vLeftElbowPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_LEFT];
-	D3DXVECTOR4 vRightElbowPos     = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_ELBOW_RIGHT];
+	D3DXVECTOR4 vLeftFootPos       = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
+	D3DXVECTOR4 vRightFootPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
+	D3DXVECTOR4 vLeftFootPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
+	D3DXVECTOR4 vRightFootPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
 	int iCurTimeStamp              = m_aSkelHistory[iCurIndex].liTimeStamp.LowPart;
 	int iPastTimeStamp             = m_aSkelHistory[iPastIndex].liTimeStamp.LowPart;
 
@@ -668,14 +673,22 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_bLeftHandForward = vLeftHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 	m_bRightHandForward = vRightHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 
+	// Check if feet are up by comparing on foot to the other
+	m_bLeftFootUp = vLeftFootPos.y > vRightFootPos.y + fHeightAboveOtherFootForUp;
+	m_bRightFootUp = vRightFootPos.y > vLeftFootPos.y + fHeightAboveOtherFootForUp;
+
 	// Get delta time in seconds (timestamps work now!)
 	float fDeltaSeconds = (iCurTimeStamp - iPastTimeStamp) * 0.001f; 
 
-	// Get hand velocity (absolute)
+	// Get hand and foot velocity (absolute)
 	D3DXVECTOR4 vDiff = vLeftHandPos - vLeftHandPosPast;
 	m_vLeftHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
 	vDiff = vRightHandPos - vRightHandPosPast;
 	m_vRightHandSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
+	vDiff = vLeftFootPos - vLeftFootPosPast;
+	m_vLeftFootSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
+	vDiff = vRightFootPos - vRightFootPosPast;
+	m_vRightFootSpeed = D3DXVec4Length(&vDiff) / fDeltaSeconds;
 
 	// Calculte total speed ratio (0.0-1.0)
 	float fNewSpeedRatio = (m_vLeftHandSpeed + m_vRightHandSpeed) * fHandVelocityFactor;
@@ -720,20 +733,90 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	//	m_bMainEffectOn = false;
 	//}
 	
-	// Turn main effect on if either hand is up
-	m_bMainEffectOn = m_bLeftHandUp || m_bRightHandUp;
-
-	// Turn colors on only if moving fast enough.  Colors correspond to which hands are up.
-	m_bYellowOn = m_bRedOn = m_bGreenOn = false;
-	if(m_fSpeedRatio > fMinSpeedRatioForColor)
+	// setup timer so if some code below want to cycle color as fast as the solenoids go (about 10hz)
+	// there is an easy hook for that
+	bool bCycleColorsNow(false);
+	static int iColorCycleTimer = 0;
+	iColorCycleTimer++;
+	if(iColorCycleTimer % (30 / iMaxSolenoidFrequency)) // assume we are running at 30 fps
 	{
-		if(m_bLeftHandUp && m_bRightHandUp)
-			m_bYellowOn = true;
-		else if(m_bLeftHandUp)
-			m_bRedOn = true;
-		else if(m_bRightHandUp)
-			m_bGreenOn = true;
+		iColorCycleTimer = 0;
+		bCycleColorsNow = true;
 	}
+
+	// Turn main effect on if either hand is up
+	m_bMainEffectOn = m_bLeftHandUp || m_bRightHandUp || m_bLeftFootUp || m_bRightFootUp;
+
+	// Only deal with colors if the main effect is on
+	m_bYellowOn = m_bRedOn = m_bGreenOn = false;
+	if(m_bMainEffectOn)
+	{
+		//// Turn colors on only if moving fast enough.  Colors correspond to which hands are up.
+		//if(m_fSpeedRatio > fMinSpeedRatioForColor)
+		//{
+		//	if(m_bLeftHandUp && m_bRightHandUp)
+		//		m_bYellowOn = true;
+		//	else if(m_bLeftHandUp)
+		//		m_bRedOn = true;
+		//	else if(m_bRightHandUp)
+		//		m_bGreenOn = true;
+		//}
+
+		// Turn colors on if hands are up and forward
+		if(m_bLeftHandUp && m_bRightHandUp && m_bLeftHandForward && m_bRightHandForward)
+			m_bYellowOn = true;
+		else if(m_bLeftHandUp && m_bLeftHandForward)
+			m_bRedOn = true;
+		else if(m_bRightHandUp && m_bRightHandForward)
+			m_bGreenOn = true;
+
+		// Turn on colors if feet are up (only one foot can be up at a time)
+		if(m_bLeftFootUp && m_vLeftFootSpeed > fMinFootSpeedForColorFlash)
+		{
+			if(bCycleColorsNow)
+			{
+				float fRand = (float)rand() / (float)RAND_MAX;
+				if(fRand < 0.333f)
+				{
+					m_bRedOn = false;
+					m_bYellowOn = false;
+				}
+				else if(fRand < 0.666f)
+				{
+					m_bRedOn = true;
+					m_bYellowOn = false;
+				}
+				else
+				{
+					m_bRedOn = false;
+					m_bYellowOn = true;
+				}
+			}
+		}
+		else if(m_bRightFootUp && m_vRightFootSpeed > fMinFootSpeedForColorFlash)
+		{
+			if(bCycleColorsNow)
+			{
+				float fRand = (float)rand() / (float)RAND_MAX;
+				if(fRand < 0.333f)
+				{
+					m_bGreenOn = false;
+					m_bYellowOn = false;
+				}
+				else if(fRand < 0.666f)
+				{
+					m_bGreenOn = true;
+					m_bYellowOn = false;
+				}
+				else
+				{
+					m_bGreenOn = false;
+					m_bYellowOn = true;
+				}
+			}
+		}
+	}
+
 
 	// Set the adjustable effect to the speed ratio if the main effect isn't on
 	// otherwise, just run it full on

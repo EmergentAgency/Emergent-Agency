@@ -114,19 +114,24 @@ private:
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
 
-	// hand info
+	// position info
 	bool          m_bLeftHandUp;
 	bool          m_bRightHandUp;
+	bool          m_bLeftFootUp;
+	bool          m_bRightFootUp;
 	bool		  m_bLeftHandForward;
 	bool		  m_bRightHandForward;
 
 	// speed info
 	float         m_vLeftHandSpeed;
 	float         m_vRightHandSpeed;
+	float         m_vLeftFootSpeed;
+	float         m_vRightFootSpeed;
 	float		  m_vLeftHandSpeedY;
 	float		  m_vRightHandSpeedY;
 	float         m_fSpeedRatio;
 	
+
 	// Bloom output variables
 	bool		  m_bMainEffectOn;
 	bool		  m_bRedOn;
