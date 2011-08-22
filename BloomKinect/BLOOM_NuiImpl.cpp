@@ -67,7 +67,8 @@ static const COLORREF g_JointColorTable[NUI_SKELETON_POSITION_COUNT] =
 // Bloom - CTL
 CSkeletalViewerApp::CSkeletalViewerApp()
 	// initialize useful variables
-	: m_bLeftHandUp(false)
+	: m_iCurSkelIndex(0)
+	, m_bLeftHandUp(false)
 	, m_bRightHandUp(false)
 	, m_bLeftHandForward(false)
 	, m_bRightHandForward(false)
@@ -620,18 +621,24 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 // fixed all the 'Skelton's
 void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
-	// Find the first valid skel
-	int skelIndex = -1;
+	// Use our current skel index if it is valid.  If not, pick the first valid one we find
 	NUI_SKELETON_DATA* pSkel = NULL;
-    for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
-    {
-        if( pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
-        {
-			pSkel = &(pSkelFrame->SkeletonData[i]);
-			skelIndex = i;
-			break;
-        }
-    }
+	if(pSkelFrame->SkeletonData[m_iCurSkelIndex].eTrackingState == NUI_SKELETON_TRACKED)
+	{
+		pSkel = &(pSkelFrame->SkeletonData[m_iCurSkelIndex]);
+	}
+	else
+	{
+		for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
+		{
+			if( pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
+			{
+				pSkel = &(pSkelFrame->SkeletonData[i]);
+				m_iCurSkelIndex = i;
+				break;
+			}
+		}
+	}
 
     // no skeletons!
     if( !pSkel )
@@ -654,15 +661,15 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	// Get joint positions this frame
 	int iCurIndex = GetPastHistoryIndex(0);
 	int iPastIndex = GetPastHistoryIndex(-1*numPastFrames); 
-	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
-	D3DXVECTOR4 vLeftHandPos       = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
-	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
-	D3DXVECTOR4 vLeftHandPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
-	D3DXVECTOR4 vRightHandPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
-	D3DXVECTOR4 vLeftFootPos       = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
-	D3DXVECTOR4 vRightFootPos      = m_aSkelHistory[iCurIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
-	D3DXVECTOR4 vLeftFootPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
-	D3DXVECTOR4 vRightFootPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[skelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
+	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
+	D3DXVECTOR4 vLeftHandPos       = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
+	D3DXVECTOR4 vRightHandPos      = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
+	D3DXVECTOR4 vLeftHandPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_LEFT];
+	D3DXVECTOR4 vRightHandPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
+	D3DXVECTOR4 vLeftFootPos       = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
+	D3DXVECTOR4 vRightFootPos      = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
+	D3DXVECTOR4 vLeftFootPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
+	D3DXVECTOR4 vRightFootPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
 	int iCurTimeStamp              = m_aSkelHistory[iCurIndex].liTimeStamp.LowPart;
 	int iPastTimeStamp             = m_aSkelHistory[iPastIndex].liTimeStamp.LowPart;
 

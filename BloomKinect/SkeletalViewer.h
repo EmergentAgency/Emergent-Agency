@@ -113,6 +113,7 @@ private:
 	BloomSkeletonFrame m_aSkelHistory[NUM_SKELETON_HISTORY_FRAMES];
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
+	int			  m_iCurSkelIndex;
 
 	// position info
 	bool          m_bLeftHandUp;
