@@ -27,28 +27,23 @@ bool effect2;
 bool effect3;
 byte adjustableFlame;
 
-bool bOutputPinsOn;
+bool bInNoInputMode;
 
 unsigned long lastSerialInputTime;
 
-void turnOutputPinsOn()
+void enterNoInputMode()
 {
-  pinMode(mainFlamePin, OUTPUT);
-  pinMode(effect1Pin, OUTPUT);
-  pinMode(effect2Pin, OUTPUT);
-  pinMode(effect3Pin, OUTPUT);
-  pinMode(adjustableFlamePin, OUTPUT);
-  bOutputPinsOn = true;
+  digitalWrite(mainFlamePin, LOW);
+  digitalWrite(effect1Pin,   LOW);
+  digitalWrite(effect2Pin,   LOW);
+  digitalWrite(effect3Pin,   LOW);
+  analogWrite(adjustableFlamePin, adjustableFlameMap[8]); // keep adjustable flame effects partly on to might main effect 
+  bInNoInputMode = true;
 }
 
-void turnOutputPinsOff()
+void exitNoInputMode()
 {
-  pinMode(mainFlamePin, INPUT);
-  pinMode(effect1Pin, INPUT);
-  pinMode(effect2Pin, INPUT);
-  pinMode(effect3Pin, INPUT);
-  pinMode(adjustableFlamePin, INPUT);
-  bOutputPinsOn = false;
+  bInNoInputMode = false;
 }
 
 void setup()
@@ -64,12 +59,12 @@ void loop()
   byte inStates;
   
   // check to see if we haven't gotten input in a while and if so turn off the output pins
-  if(bOutputPinsOn)
+  if(!bInNoInputMode)
   {
     unsigned long curTime = millis();
     if(curTime - lastSerialInputTime > timeInMillisBeforeTurnOffPins)
     {
-      turnOutputPinsOff();
+      enterNoInputMode();
     }
   }
 
@@ -80,9 +75,9 @@ void loop()
     lastSerialInputTime = millis();
     
     // if the output pins were off, turn them back on
-    if(!bOutputPinsOn)
+    if(bInNoInputMode)
     {
-      turnOutputPinsOn();
+      exitNoInputMode();
     }
 
     // read the most recent byte (which will be from 0 to 255):
