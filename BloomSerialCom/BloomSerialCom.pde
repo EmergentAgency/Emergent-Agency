@@ -51,7 +51,11 @@ void setup()
   // initialize the serial communication:
   Serial.begin(9600);
   // initialize the pins as an output:
-  turnOutputPinsOn();
+  pinMode(mainFlamePin, OUTPUT);
+  pinMode(effect1Pin, OUTPUT);
+  pinMode(effect2Pin, OUTPUT);
+  pinMode(effect3Pin, OUTPUT);
+  pinMode(adjustableFlamePin, OUTPUT);
 }
 
 void loop()
