@@ -67,7 +67,9 @@ static const COLORREF g_JointColorTable[NUI_SKELETON_POSITION_COUNT] =
 // Bloom - CTL
 CSkeletalViewerApp::CSkeletalViewerApp()
 	// initialize useful variables
-	: m_iCurSkelIndex(0)
+	: m_iCurSkelFrame(0)
+	, m_iCurSkelIndex(-1)
+	, m_iOtherSkelIndex(-1)
 	, m_bLeftHandUp(false)
 	, m_bRightHandUp(false)
 	, m_bLeftHandForward(false)
@@ -76,7 +78,6 @@ CSkeletalViewerApp::CSkeletalViewerApp()
 	, m_bRedOn(false)
 	, m_bYellowOn(false)
 	, m_bGreenOn(false)
-	, m_iCurSkelFrame(0)
 {
 }
 // /Bloom
@@ -618,32 +619,142 @@ int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 	return iIndex;
 }
 
-// fixed all the 'Skelton's
+float Clamp(float fInput, float fMin, float fMax)
+{
+	if(fInput < fMin)
+	{
+		return fMin;
+	}
+	else if(fInput > fMax)
+	{
+		return fMax;
+	}
+
+	return fInput;
+}
+
+void CSkeletalViewerApp::UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkelIndex)
+{
+	// General vars
+	int iCurIndex = GetPastHistoryIndex(0);
+
+	// Centeredness
+	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonData[iSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
+	static const D3DXVECTOR4 kvIdealCenter(0.0, 0.6, 2.5, 1.0);
+	D3DXVECTOR4 vDiff = vShoulderCenterPos - kvIdealCenter;
+	static const float kMaxDist = 4.f;
+	float fCurCenteredness = Clamp (1.f - D3DXVec4Length(&vDiff) / kMaxDist, 0.f, 1.f);
+
+	//_tprintf(_T("skel %d  vShoulderCenterPos=(%f,%f,%f)\n"),
+	//	iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z);
+	//printf("skel %d  vShoulderCenterPos=(%f,%f,%f)\n",
+	//	iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z);
+
+	static char buf[2048];
+	sprintf(buf,"skel %d  vShoulderCenterPos=(%f,%f,%f)  fCurCenteredness=%f\n",
+		iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z, fCurCenteredness);
+	OutputDebugStringA(buf);
+
+	m_afSkelCenteredness[iSkelIndex] = fCurCenteredness; // TEMP_CL - smooth this over time!
+
+	// TotalJointQuality
+	m_afTotalJointQuality[iSkelIndex] = 1.0; // TEMP_CL
+
+	// MovementAmount
+	m_afMovementAmount[iSkelIndex] = 1.0; // TEMP_CL
+}
+
+void CSkeletalViewerApp::ResetTrackingData(int iSkelIndex)
+{
+	m_afSkelCenteredness[iSkelIndex] = 0;
+	m_afTotalJointQuality[iSkelIndex] = 0;
+	m_afMovementAmount[iSkelIndex] = 0;
+}
+
 void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
-	// Use our current skel index if it is valid.  If not, pick the first valid one we find
-	NUI_SKELETON_DATA* pSkel = NULL;
-	if(pSkelFrame->SkeletonData[m_iCurSkelIndex].eTrackingState == NUI_SKELETON_TRACKED)
+
+	// TEMP_CL - all this skel stuff at the top is in the wrong place!  the skels data hasn't been copied from
+	// the kinect yet!
+
+	// Check to see if we have one or two tracked skels.  We know we have at least 
+	// one if we got to this point in the program
+
+	// First, check to see if our currently tracked skeleton is still tracked.
+	// If not, reset it.
+	if(m_iCurSkelIndex >= 0 && pSkelFrame->SkeletonData[m_iCurSkelIndex].eTrackingState != NUI_SKELETON_TRACKED)
 	{
-		pSkel = &(pSkelFrame->SkeletonData[m_iCurSkelIndex]);
+		m_iCurSkelIndex = -1;
 	}
-	else
-	{
-		for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
-		{
-			if( pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
+
+	// Iterate through the skeletons looking for valid ones.
+	int iOtherSkeleton = -1;
+    for(int i = 0 ; i < NUI_SKELETON_COUNT ; i++)
+    {
+        if(pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED)
+        {
+			// If we found something valid and the previously tracked skeleton was invalid
+			// make this the new valid skeleton.  We know this will be hit becacuse before
+			// getting to this function we know we had a least one valid skel.  Then keep looking
+			// to see if there are two.
+			if(m_iCurSkelIndex < 0)
 			{
-				pSkel = &(pSkelFrame->SkeletonData[i]);
 				m_iCurSkelIndex = i;
+				ResetTrackingData(m_iOtherSkelIndex);
+			}
+			else
+			{
+				iOtherSkeleton = i;
 				break;
 			}
+        }
+    }
+
+	// Now check to see if our other skeleton was the same other skel as before
+	if(iOtherSkeleton >= 0 && m_iOtherSkelIndex != iOtherSkeleton)
+	{
+		m_iOtherSkelIndex = iOtherSkeleton;
+		ResetTrackingData(m_iOtherSkelIndex);
+	}
+
+	// Total random safety check that shouldn't be needed but will help debugging if something
+	// goes wrong
+	if(m_iCurSkelIndex < 0)
+	{
+		_tprintf(_T("ERROR!  No valid skeleton in ProcessSkeletonForBloom.\n"));
+		return;
+	}
+
+	// Update tracking data like joint quality and how centered the skel is etc for the valid skeletons
+	UpdateTrackingData(pSkelFrame, m_iCurSkelIndex);
+
+	// If we have another tracked skelton, check out what that one is doing and maybe switch which one
+	// is active
+	if(m_iOtherSkelIndex >= 0)
+	{
+		UpdateTrackingData(pSkelFrame, m_iOtherSkelIndex);
+
+		static const float kBetterRatio = 1.2;
+		if( m_afSkelCenteredness[m_iOtherSkelIndex] > kBetterRatio * m_afSkelCenteredness[m_iCurSkelIndex] &&
+			m_afTotalJointQuality[m_iOtherSkelIndex] > kBetterRatio * m_afTotalJointQuality[m_iCurSkelIndex] &&
+			m_afMovementAmount[m_iOtherSkelIndex] > kBetterRatio * m_afMovementAmount[m_iCurSkelIndex] )
+		{
+			// Switch
+			int iOldSkel = m_iCurSkelIndex;
+			m_iCurSkelIndex = m_iOtherSkelIndex;
+			m_iOtherSkelIndex = iOldSkel;
 		}
 	}
+
+	// Use our current skel index if it is valid.  If not, pick the first valid one we find
+	NUI_SKELETON_DATA* pSkel = NULL;
+	pSkel = &(pSkelFrame->SkeletonData[m_iCurSkelIndex]);
 
     // no skeletons!
     if( !pSkel )
     {
-        return;
+		_tprintf(_T("ERROR!  pSkel is NULL.\n"));
+		return;
     }
 
 	// Increment skel history and save copy of newest data

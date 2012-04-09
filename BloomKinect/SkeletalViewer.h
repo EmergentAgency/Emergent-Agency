@@ -69,6 +69,8 @@ public:
 
 	// Bloom - CTL
 	void					ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkel);
+	void					UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkelIndex);
+	void                    ResetTrackingData(int iSkelIndex);
 
 	// Nui_ShortToQuad_Depth: overloaded to visually render interactivity
     RGBQUAD                 Nui_ShortToQuad_Depth( USHORT s );
@@ -114,6 +116,10 @@ private:
 	int 	      m_iCurSkelFrame;
 	int           GetPastHistoryIndex(int iHistoryIndex);
 	int			  m_iCurSkelIndex;
+	int			  m_iOtherSkelIndex;
+	float         m_afSkelCenteredness[NUI_SKELETON_COUNT];
+	float         m_afTotalJointQuality[NUI_SKELETON_COUNT];
+	float         m_afMovementAmount[NUI_SKELETON_COUNT];
 
 	// position info
 	bool          m_bLeftHandUp;
