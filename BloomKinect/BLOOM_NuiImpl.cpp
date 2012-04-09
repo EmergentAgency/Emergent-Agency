@@ -553,6 +553,9 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
 
     HRESULT hr = NuiSkeletonGetNextFrame( 0, &SkeletonFrame );
 
+    // smooth out the skeleton data
+    NuiTransformSmooth(&SkeletonFrame,NULL);
+
 	// Increment skel history and save copy of newest data
 	m_iCurSkelFrame++;
 	if(m_iCurSkelFrame >= NUM_SKELETON_HISTORY_FRAMES)
@@ -587,9 +590,6 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
         return;
     }
 
-    // smooth out the skeleton data
-    NuiTransformSmooth(&SkeletonFrame,NULL);
-
     // we found a skeleton, re-start the timer
     m_bScreenBlanked = false;
     m_LastSkeletonFoundTime = -1;
@@ -605,10 +605,11 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
         }
     }
 
+	// clear the drawing window
+    Nui_DoDoubleBuffer(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), m_SkeletonDC);
+
 	// do detections for Bloom
 	ProcessSkeletonForBloom(&SkeletonFrame);
-
-    Nui_DoDoubleBuffer(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), m_SkeletonDC);
 }
 
 int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
