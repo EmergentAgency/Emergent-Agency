@@ -532,9 +532,6 @@ void CSkeletalViewerApp::Nui_DrawSkeleton( bool bBlank, NUI_SKELETON_DATA * pSke
 
 }
 
-
-
-
 void CSkeletalViewerApp::Nui_DoDoubleBuffer(HWND hWnd,HDC hDC)
 {
     RECT rct;
@@ -556,6 +553,25 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
 
     HRESULT hr = NuiSkeletonGetNextFrame( 0, &SkeletonFrame );
 
+	// Increment skel history and save copy of newest data
+	m_iCurSkelFrame++;
+	if(m_iCurSkelFrame >= NUM_SKELETON_HISTORY_FRAMES)
+		m_iCurSkelFrame = 0;
+	// memcpy here requires BOTH NUI_SKELETON_FRAME / BloomSkeletonFrame AND NUI_SKELETON_DATA / BloomSkeletonData 
+	// to be EXACTLY the same in size AND order of variables.  The asserts below are a safegaurd against size
+	// mismatch but do not check for variable order.
+	assert(sizeof(BloomSkeletonData) == sizeof(NUI_SKELETON_DATA));
+	assert(sizeof(BloomSkeletonFrame) == sizeof(NUI_SKELETON_FRAME));
+	memcpy(&m_aSkelHistory[m_iCurSkelFrame], &SkeletonFrame, sizeof(NUI_SKELETON_FRAME));
+
+	// Update the tracking state of all the skeletons.  We want to do this
+	// even if we don't have any tracked skeletons because in that case we need to reset the state
+    for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
+    {
+		UpdateTrackingData(i);
+	}
+
+	// Check to see if we found any skeletons
     bool bFoundSkeleton = false;
     for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
     {
@@ -566,7 +582,6 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
     }
 
     // no skeletons!
-    //
     if( !bFoundSkeleton )
     {
         return;
@@ -580,7 +595,6 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
     m_LastSkeletonFoundTime = -1;
 
     // draw each skeleton color according to the slot within they are found.
-    //
     bool bBlank = true;
     for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
     {
@@ -591,24 +605,11 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
         }
     }
 
-	// Bloom - CTL
 	// do detections for Bloom
 	ProcessSkeletonForBloom(&SkeletonFrame);
-	// /Bloom
 
     Nui_DoDoubleBuffer(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), m_SkeletonDC);
 }
-// ^ calls ProcessSkeletonForBloom
-
-
-// TEMP_CL -- is this still necessary?
-inline D3DXVECTOR4 GetRealVect(Vector4 vInVect)
-{
-	return D3DXVECTOR4(vInVect.x, vInVect.y, vInVect.z, vInVect.w);
-}
-
-ID3DXFont*                  g_pFont = NULL;             // Font for drawing text
-ID3DXSprite*                g_pSprite = NULL;           // Sprite for batching draw text calls
 
 int CSkeletalViewerApp::GetPastHistoryIndex(int iHistoryIndex)
 {
@@ -633,10 +634,19 @@ float Clamp(float fInput, float fMin, float fMax)
 	return fInput;
 }
 
-void CSkeletalViewerApp::UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkelIndex)
+void CSkeletalViewerApp::UpdateTrackingData(int iSkelIndex)
 {
-	// General vars
+	// Get index into the history buffer for the current time
 	int iCurIndex = GetPastHistoryIndex(0);
+
+	// If this skel isn't tracked, reset its tracking vars and return
+	if( m_aSkelHistory[iCurIndex].SkeletonData[iSkelIndex].eTrackingState != NUI_SKELETON_TRACKED)
+	{
+		m_afSkelCenteredness[iSkelIndex] = 0;
+		m_afTotalJointQuality[iSkelIndex] = 0;
+		m_afMovementAmount[iSkelIndex] = 0;
+		return;
+	}
 
 	// Centeredness
 	D3DXVECTOR4 vShoulderCenterPos = m_aSkelHistory[iCurIndex].SkeletonData[iSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_SHOULDER_CENTER];
@@ -644,18 +654,13 @@ void CSkeletalViewerApp::UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkel
 	D3DXVECTOR4 vDiff = vShoulderCenterPos - kvIdealCenter;
 	static const float kMaxDist = 4.f;
 	float fCurCenteredness = Clamp (1.f - D3DXVec4Length(&vDiff) / kMaxDist, 0.f, 1.f);
+	m_afSkelCenteredness[iSkelIndex] = fCurCenteredness; // TEMP_CL - smooth this over time!
 
-	//_tprintf(_T("skel %d  vShoulderCenterPos=(%f,%f,%f)\n"),
-	//	iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z);
-	//printf("skel %d  vShoulderCenterPos=(%f,%f,%f)\n",
-	//	iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z);
-
+	// debug
 	static char buf[2048];
 	sprintf(buf,"skel %d  vShoulderCenterPos=(%f,%f,%f)  fCurCenteredness=%f\n",
 		iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z, fCurCenteredness);
 	OutputDebugStringA(buf);
-
-	m_afSkelCenteredness[iSkelIndex] = fCurCenteredness; // TEMP_CL - smooth this over time!
 
 	// TotalJointQuality
 	m_afTotalJointQuality[iSkelIndex] = 1.0; // TEMP_CL
@@ -664,110 +669,83 @@ void CSkeletalViewerApp::UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkel
 	m_afMovementAmount[iSkelIndex] = 1.0; // TEMP_CL
 }
 
-void CSkeletalViewerApp::ResetTrackingData(int iSkelIndex)
-{
-	m_afSkelCenteredness[iSkelIndex] = 0;
-	m_afTotalJointQuality[iSkelIndex] = 0;
-	m_afMovementAmount[iSkelIndex] = 0;
-}
-
 void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 {
-
-	// TEMP_CL - all this skel stuff at the top is in the wrong place!  the skels data hasn't been copied from
-	// the kinect yet!
-
-	// Check to see if we have one or two tracked skels.  We know we have at least 
-	// one if we got to this point in the program
-
-	// First, check to see if our currently tracked skeleton is still tracked.
-	// If not, reset it.
+	// Check to see if our currently tracked skeleton is still tracked.
+	// If not assign it to invalid
 	if(m_iCurSkelIndex >= 0 && pSkelFrame->SkeletonData[m_iCurSkelIndex].eTrackingState != NUI_SKELETON_TRACKED)
 	{
-		m_iCurSkelIndex = -1;
+		m_iCurSkelIndex =  -1;
 	}
 
-	// Iterate through the skeletons looking for valid ones.
-	int iOtherSkeleton = -1;
-    for(int i = 0 ; i < NUI_SKELETON_COUNT ; i++)
-    {
-        if(pSkelFrame->SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED)
-        {
-			// If we found something valid and the previously tracked skeleton was invalid
-			// make this the new valid skeleton.  We know this will be hit becacuse before
-			// getting to this function we know we had a least one valid skel.  Then keep looking
-			// to see if there are two.
-			if(m_iCurSkelIndex < 0)
-			{
-				m_iCurSkelIndex = i;
-				ResetTrackingData(m_iOtherSkelIndex);
-			}
-			else
-			{
-				iOtherSkeleton = i;
-				break;
-			}
-        }
-    }
-
-	// Now check to see if our other skeleton was the same other skel as before
-	if(iOtherSkeleton >= 0 && m_iOtherSkelIndex != iOtherSkeleton)
+	// If the current skel is tracked, see if anyone else is tracked and see if maybe they should take over
+	if(m_iCurSkelIndex >= 0)
 	{
-		m_iOtherSkelIndex = iOtherSkeleton;
-		ResetTrackingData(m_iOtherSkelIndex);
+		for(int i = 0 ; i < NUI_SKELETON_COUNT ; i++)
+		{
+			// don't compare m_iCurSkelIndex to itself
+			if(i == m_iCurSkelIndex)
+			{
+				continue;
+			}
+
+			// If if some other skel is reasonably better
+			static const float kBetterRatio = 1.05;
+			if( m_afSkelCenteredness[i] + m_afTotalJointQuality[i] + m_afMovementAmount[i] >
+				kBetterRatio * (m_afSkelCenteredness[m_iCurSkelIndex] + m_afTotalJointQuality[m_iCurSkelIndex] + m_afMovementAmount[m_iCurSkelIndex]) )
+			{
+				// Switch
+				m_iCurSkelIndex = i;
+			}
+		}
+	}
+	// If cur skel isn't tracked, pick the best skel
+	else
+	{
+		int iBestIndex = -1;
+		for(int i = 0 ; i < NUI_SKELETON_COUNT ; i++)
+		{
+			// if this skel isn't track, don't mess with it
+			if(pSkelFrame->SkeletonData[i].eTrackingState != NUI_SKELETON_TRACKED)
+			{
+				continue;
+			}
+
+			// If we find any tracked skeleton and we don't have a best index yet, pick that as the best
+			if(iBestIndex < 0)
+			{
+				iBestIndex = i;
+				continue;
+			}
+
+			// If if some other skel is better
+			if( m_afSkelCenteredness[i] + m_afTotalJointQuality[i] + m_afMovementAmount[i] >
+				m_afSkelCenteredness[iBestIndex] + m_afTotalJointQuality[iBestIndex] + m_afMovementAmount[iBestIndex] )
+			{
+				// Switch
+				iBestIndex = i;
+			}
+		}
+
+		// Set the current index to the best one found
+		m_iCurSkelIndex = iBestIndex;
 	}
 
 	// Total random safety check that shouldn't be needed but will help debugging if something
 	// goes wrong
 	if(m_iCurSkelIndex < 0)
 	{
-		_tprintf(_T("ERROR!  No valid skeleton in ProcessSkeletonForBloom.\n"));
+		OutputDebugStringA("ERROR!  No valid skeleton in ProcessSkeletonForBloom.\n");
 		return;
 	}
 
-	// Update tracking data like joint quality and how centered the skel is etc for the valid skeletons
-	UpdateTrackingData(pSkelFrame, m_iCurSkelIndex);
-
-	// If we have another tracked skelton, check out what that one is doing and maybe switch which one
-	// is active
-	if(m_iOtherSkelIndex >= 0)
-	{
-		UpdateTrackingData(pSkelFrame, m_iOtherSkelIndex);
-
-		static const float kBetterRatio = 1.2;
-		if( m_afSkelCenteredness[m_iOtherSkelIndex] > kBetterRatio * m_afSkelCenteredness[m_iCurSkelIndex] &&
-			m_afTotalJointQuality[m_iOtherSkelIndex] > kBetterRatio * m_afTotalJointQuality[m_iCurSkelIndex] &&
-			m_afMovementAmount[m_iOtherSkelIndex] > kBetterRatio * m_afMovementAmount[m_iCurSkelIndex] )
-		{
-			// Switch
-			int iOldSkel = m_iCurSkelIndex;
-			m_iCurSkelIndex = m_iOtherSkelIndex;
-			m_iOtherSkelIndex = iOldSkel;
-		}
-	}
-
-	// Use our current skel index if it is valid.  If not, pick the first valid one we find
-	NUI_SKELETON_DATA* pSkel = NULL;
-	pSkel = &(pSkelFrame->SkeletonData[m_iCurSkelIndex]);
-
-    // no skeletons!
+	// Get the skel data for the current index
+	NUI_SKELETON_DATA* pSkel = &(pSkelFrame->SkeletonData[m_iCurSkelIndex]);
     if( !pSkel )
     {
-		_tprintf(_T("ERROR!  pSkel is NULL.\n"));
+		OutputDebugStringA("ERROR!  pSkel is NULL.\n");
 		return;
     }
-
-	// Increment skel history and save copy of newest data
-	m_iCurSkelFrame++;
-	if(m_iCurSkelFrame >= NUM_SKELETON_HISTORY_FRAMES)
-		m_iCurSkelFrame = 0;
-	// REVISIT
-	// memcpy here requires BOTH NUI_SKELETON_FRAME / BloomSkeletonFrame AND NUI_SKELETON_DATA / BloomSkeletonData 
-	// to be EXACTLY the same in size AND order of variables.  The asserts below are a safegaurd against size
-	// mismatch but do not check for variable order.
-	assert(sizeof(BloomSkeletonData) == sizeof(NUI_SKELETON_DATA));
-	assert(sizeof(BloomSkeletonFrame) == sizeof(NUI_SKELETON_FRAME));
-	memcpy(&m_aSkelHistory[m_iCurSkelFrame], pSkelFrame, sizeof(NUI_SKELETON_FRAME));
 
 	// Get joint positions this frame
 	int iCurIndex = GetPastHistoryIndex(0);
@@ -795,7 +773,7 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_bLeftFootUp = vLeftFootPos.y > vRightFootPos.y + fHeightAboveOtherFootForUp;
 	m_bRightFootUp = vRightFootPos.y > vLeftFootPos.y + fHeightAboveOtherFootForUp;
 
-	// Get delta time in seconds (timestamps work now!)
+	// Get delta time in seconds (timestamps are in units of milliseconds)
 	float fDeltaSeconds = (iCurTimeStamp - iPastTimeStamp) * 0.001f; 
 
 	// Get hand and foot velocity (absolute)

@@ -69,8 +69,7 @@ public:
 
 	// Bloom - CTL
 	void					ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkel);
-	void					UpdateTrackingData(NUI_SKELETON_FRAME* pSkel, int iSkelIndex);
-	void                    ResetTrackingData(int iSkelIndex);
+	void					UpdateTrackingData(int iSkelIndex);
 
 	// Nui_ShortToQuad_Depth: overloaded to visually render interactivity
     RGBQUAD                 Nui_ShortToQuad_Depth( USHORT s );
