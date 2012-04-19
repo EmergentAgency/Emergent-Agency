@@ -8,17 +8,24 @@
  */
 
 // define output pins
-const int mainFlamePin       = 5;   
-const int effect1Pin         = 2;
-const int effect2Pin         = 3;
-const int effect3Pin         = 4;
+const int mainFlamePin       = 6;   
+const int effect1Pin         = 3;
+const int effect2Pin         = 4;
+const int effect3Pin         = 5;
 const int adjustableFlamePin = 10;
 
+// Not enough fire - goes otu
 // define map for 0-15 input values
-const int adjustableFlameMap[] = {180, 178, 175, 173, 170, 168, 165, 163,
-                                  150, 130, 110,  90,  70,  50,  25,   0};
+//const int adjustableFlameMap[] = {180, 178, 175, 173, 170, 168, 165, 163,
+//                                  150, 130, 110,  90,  70,  50,  25,   0};
+
+// define map for 0-15 input values
+const int adjustableFlameMap[] = {130, 120, 110, 100,  90,  80,  70,  60,
+                                   50,  40,  30,  20,  15,  10,   5,   0};
                                   
 const int timeInMillisBeforeTurnOffPins = 1000;
+
+const int noInputFlameValue = 15;
 
 // solenoid state
 bool mainFlame;
@@ -37,7 +44,7 @@ void enterNoInputMode()
   digitalWrite(effect1Pin,   LOW);
   digitalWrite(effect2Pin,   LOW);
   digitalWrite(effect3Pin,   LOW);
-  analogWrite(adjustableFlamePin, adjustableFlameMap[8]); // keep adjustable flame effects partly on to might main effect 
+  analogWrite(adjustableFlamePin, adjustableFlameMap[noInputFlameValue]); // keep adjustable flame effects partly on to might main effect 
   bInNoInputMode = true;
 }
 
@@ -94,6 +101,14 @@ void loop()
     effect3   = inStates & 0x08;
     byte adjustableFlameIn = inStates >> 4;
     adjustableFlame = adjustableFlameMap[adjustableFlameIn];
+ 
+    // TEMP_CL - debugging adjustable flame
+    //Serial.write(inStates);
+    //mainFlame = 0;
+    //effect1 = 0;
+    //effect2 = 0;
+    //effect3 = 0;
+    //adjustableFlame = inStates - 32;
     
     // set output pins based on state
     digitalWrite(mainFlamePin, mainFlame ? HIGH : LOW);
