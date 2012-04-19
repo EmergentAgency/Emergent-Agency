@@ -105,7 +105,7 @@ void CSkeletalViewerApp::Nui_Zero()
 }
 
 // Bloom
-char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float iAdjustableFlameIntensity)
+char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYellowOn, float fAdjustableFlameIntensity)
 {
 	char state = 0;
 
@@ -114,7 +114,7 @@ char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYe
 	state |= bGreenOn      ? 0x4 : 0;
 	state |= bYellowOn     ? 0x8 : 0;
 
-	int iFlameIntensity = iAdjustableFlameIntensity * 0xF; // map 0.0-1.0 to 0-15
+	int iFlameIntensity = (int)(fAdjustableFlameIntensity * 0xF); // map 0.0-1.0 to 0-15
 	state |= iFlameIntensity << 4;
 
 	return state;
@@ -124,7 +124,7 @@ char ComputeEffectState(bool bMainEffectOn, bool bRedOn, bool bGreenOn, bool bYe
 HRESULT CSkeletalViewerApp::Nui_Init()
 {
 	// Bloom - setup serial communication
-	m_bSerialPortOpen = m_serial.Open(0, 9600); // first param is ignored
+	m_bSerialPortOpen = m_serial.Open(0, 9600) ? true : false; // first param is ignored
 	if (m_bSerialPortOpen)	
 		_tprintf(_T("Serial Port Open!\n"));
 	else
@@ -314,7 +314,7 @@ DWORD WINAPI CSkeletalViewerApp::Nui_ProcessThread(LPVOID pParam)
         if( dt > 1000 )
         {
             pthis->m_LastFPStime = t;
-            int FrameDelta = pthis->m_FramesTotal - pthis->m_LastFramesTotal;
+            //int FrameDelta = pthis->m_FramesTotal - pthis->m_LastFramesTotal;
             pthis->m_LastFramesTotal = pthis->m_FramesTotal;
             //SetDlgItemInt( pthis->m_hWnd, IDC_FPS, FrameDelta,FALSE );
         }
@@ -552,6 +552,10 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
     NUI_SKELETON_FRAME SkeletonFrame;
 
     HRESULT hr = NuiSkeletonGetNextFrame( 0, &SkeletonFrame );
+    if( FAILED( hr ) )
+    {
+        return;
+    }
 
     // smooth out the skeleton data
     NuiTransformSmooth(&SkeletonFrame,NULL);
@@ -657,11 +661,11 @@ void CSkeletalViewerApp::UpdateTrackingData(int iSkelIndex)
 	float fCurCenteredness = Clamp (1.f - D3DXVec4Length(&vDiff) / kMaxDist, 0.f, 1.f);
 	m_afSkelCenteredness[iSkelIndex] = fCurCenteredness; // TEMP_CL - smooth this over time!
 
-	// debug
-	static char buf[2048];
-	sprintf(buf,"skel %d  vShoulderCenterPos=(%f,%f,%f)  fCurCenteredness=%f\n",
-		iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z, fCurCenteredness);
-	OutputDebugStringA(buf);
+	//// debug
+	//static char buf[2048];
+	//sprintf(buf,"skel %d  vShoulderCenterPos=(%f,%f,%f)  fCurCenteredness=%f\n",
+	//	iSkelIndex, vShoulderCenterPos.x, vShoulderCenterPos.y, vShoulderCenterPos.z, fCurCenteredness);
+	//OutputDebugStringA(buf);
 
 	// TotalJointQuality
 	m_afTotalJointQuality[iSkelIndex] = 1.0; // TEMP_CL
@@ -770,9 +774,16 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	m_bLeftHandForward = vLeftHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 	m_bRightHandForward = vRightHandPos.z < vShoulderCenterPos.z - fBufferForwardInMeters;
 
-	// Check if feet are up by comparing on foot to the other
-	m_bLeftFootUp = vLeftFootPos.y > vRightFootPos.y + fHeightAboveOtherFootForUp;
-	m_bRightFootUp = vRightFootPos.y > vLeftFootPos.y + fHeightAboveOtherFootForUp;
+	// Check if feet are up by comparing on foot to the other - but only if the signal is good
+	bool bLeftFootGood  = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].eSkeletonPositionTrackingState[NUI_SKELETON_POSITION_FOOT_LEFT] == NUI_SKELETON_POSITION_TRACKED;
+	bool bRightFootGood = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].eSkeletonPositionTrackingState[NUI_SKELETON_POSITION_FOOT_RIGHT] == NUI_SKELETON_POSITION_TRACKED;
+	m_bLeftFootUp  = bLeftFootGood  ? (vLeftFootPos.y > vRightFootPos.y + fHeightAboveOtherFootForUp) : false;
+	m_bRightFootUp = bRightFootGood ? (vRightFootPos.y > vLeftFootPos.y + fHeightAboveOtherFootForUp) : false;
+
+	//// debug
+	//static char buf[2048];
+	//sprintf(buf,"bLeftFootGood:%d  bRightFootGood:%d\n", bLeftFootGood, bRightFootGood);
+	//OutputDebugStringA(buf);
 
 	// Get delta time in seconds (timestamps are in units of milliseconds)
 	float fDeltaSeconds = (iCurTimeStamp - iPastTimeStamp) * 0.001f; 
