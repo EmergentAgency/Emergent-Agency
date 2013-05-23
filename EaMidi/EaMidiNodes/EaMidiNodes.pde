@@ -1,211 +1,258 @@
-#include <Tone.h>
-Tone tone1;
-
-int NUM_LEDS_PER_NODE = 5;
-int NUM_NODES = 8;
-int NUM_LEDS = NUM_LEDS_PER_NODE * NUM_NODES;
-int SOUND_PIN = 18;
-
-int bounceNode;      // stuff needed by Uart parsers
-boolean rotation;
-char bounceChar;
-int lociIdxMsg;
-char lociCharEncodingOffset = 'i' - 'a';
-boolean newBounce;
-
-HardwareSerial Uart = HardwareSerial();
-
-// tone functions use to abstract tone implementations being different between
-// arduino and processing
-void playTone(int nodeIndex, int freq)
-{
-    tone1.play(freq);
-}
-void stopTone(int nodeIndex)
-{
-    tone1.stop();
-}
-
-// communication functions to abstract differences between arduino and processing
-void sendMessage(int nodeIndex, int lociIdx, boolean CW) 
-{
-    parse_outgoing(nodeIndex, lociIdx, CW);    // sets global var bounceChar with appropriate character
-    Uart.print(bounceChar);
-}
-
-void parse_outgoing(int node, int lociIdx, boolean rotation)
-{
-    // set capitals or lower case based on rotation
-    bounceChar = rotation ? 'a' : 'A';
-
-    // add in node
-    bounceChar += node;
-
-    // add in loci index
-    bounceChar += lociIdx * lociCharEncodingOffset;
-}
-
-void parse_incoming(char x)
-{
-    lociIdxMsg = 0;
-    if(x > 'h' || (x < 'a' && x > 'H'))
-    {
-        lociIdxMsg = 1;
-        x -= lociCharEncodingOffset;
-    }
-
-    switch (x) {
-      case 'a':
-        bounceNode = 0;
-        //This means CW
-        rotation = 1;
-        break;
-      case 'b':
-        bounceNode = 1;
-        rotation = 1;
-        break;
-      case 'c':
-        bounceNode = 2;
-        rotation = 1;
-        break;
-      case 'd':
-        bounceNode = 3;
-        rotation = 1;
-        break;
-      case 'e':
-        bounceNode = 4;
-        rotation = 1;
-        break;
-      case 'f':
-        bounceNode = 5;
-        rotation = 1;
-        break;
-      case 'g':
-        bounceNode = 6;
-        rotation = 1;
-        break;
-      case 'h':
-        bounceNode = 7;
-        rotation = 1;
-        break;
-      case 'A':
-        bounceNode = 0;
-        rotation = 0;
-        break;
-      case 'B':
-        bounceNode = 1;
-        rotation = 0;
-        break;
-      case 'C':
-        bounceNode = 2;
-        rotation = 0;
-        break;
-      case 'D':
-        bounceNode = 3;
-        rotation = 0;
-        break;
-      case 'E':
-        bounceNode = 4;
-        rotation = 0;
-        break;
-      case 'F':
-        bounceNode = 5;
-        rotation = 0;
-        break;
-      case 'G':
-        bounceNode = 6;
-        rotation = 0;
-        break;
-      case 'H':
-        bounceNode = 7;
-        rotation = 0;
-        break;
-    }
-}
-
-
-
-/* 
-   This section contains the function check_motion_state(), which is used for will-o'-the-wisps.  
-   The void loop is just a demomstration of how it is to be used.  You must include all indicated global 
-   variables to get check_motion_state() to run.  Nothing should be passed to the function.  It will 
-   return a boolean true or false if there has been movement and the movement decay timer has not 
-   run out.  Paramaters that can be adjusted are the motion_persistance_global, which will keep the 
-   node hot for longer and motion_filter_global, which will require more movement events to turn
-   a node hot.  The integration window is maniputated in the check_motion_state() function so if 
-   one wants to manipulate that it needs to be changed in the check_motion_state() as well.
+/**
+ * File: EaMidiNodes.pde
+ *
+ * Description: Arduino program for each node that collects motion signals and transmits them to the PC.
+ *
+ * Copyright: 2013 Chris Linder
  */
 
+// The index for this node.
+static const int NODE_INDEX = 1;
 
-//>>>>>>>>>>>>>>These are the global variables that are needed to run check_motion_state()<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+// If this is true, we are a remote node only communicating via the XBee.
+// If false, we are attached to a laptop via USB and are listening for all the other
+// remote XBee signals and the sending those signals to the laptop via USB serial
+static const bool IS_REMOTE = true;
 
-const int sensor_pin_global = 38; //The pin that reads the motion sensor.
+// The numbers of LEDs this node has
+static const int NUM_LEDS_PER_NODE = 5;
 
-int motion_persistance_global = 3000;  //The time that a node stays "hot" if motion was detected.
-int integration_window_length_global = 500;  //The lenght of time that motion is integrated over. This variable is dynaimcally changed depending on the state.
-int motion_filter_global = 3; //The number of motion events required in the time window for motion to be registered.
-int sensor_threshold_global = 100; //The sensor is read from 0 to 1024.  To filter noise a minimum reading of 100 is required.
+// Output pin mapping
+static const int pins[NUM_LEDS_PER_NODE] = {16, 15, 14, 26, 25};
 
-unsigned long window_start_time_global = 0; //The time when the window of integration starts.
-unsigned long motion_start_time_global = 0; //The time when the last motion event happened.
-unsigned long motion_count_global = 0; //The number of motion events.
-unsigned long old_motion_count_global = 0; //The number of motion events when the last window ended.
+// Interupt pin
+static const int INT_PIN = 19; // INT7
 
-boolean motion_happened_global = false; //True if there were enough motion events in the specified integration window.
-boolean keep_alive_global = false; //True when the decay timer has not yet expired.
+// This is the amount of time to delay (in ms) after each loop.
+// This value is helpful for not sending data constantly and filling
+// up the recieve buffer on the PC.
+static const int LOOP_DELAY_MS = 5;
 
-boolean check_motion_state() {
-  
-    boolean boolean_out;  // This is a local variable that is returned true if there is movement.
+// This is the number of init loops to code does to test LEDs
+static const int NUM_INIT_LOOPS = 2;
 
- // if (analogRead(sensor_pin_global) > sensor_threshold_global ) {  //Read the sensor and see if it crosses threashold.
- //   motion_count_global ++;   //Increment the motion count.
- //   //    digitalWrite(ledpin, HIGH);  //Uncomment to see movement events on ledpin
- //   if (keep_alive_global == true) {    //If the node is hot, then keep the node hot for a single movement instead of requiring multiple.                            
- //     motion_start_time_global = millis();
- //   }
- // }
- // else {
- //   //    digitalWrite(ledpin, LOW);  //Uncomment to see movement events on ledpin
- // }
+// Lookup map used to linearize LED brightness
+static const unsigned char exp_map[256]={
+  0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,
+  3,3,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4,5,5,5,
+  5,5,5,5,5,6,6,6,6,6,6,6,7,7,7,7,7,7,8,8,8,8,8,8,9,9,
+  9,9,10,10,10,10,10,11,11,11,11,12,12,12,13,13,13,13,
+  14,14,14,15,15,15,16,16,16,17,17,18,18,18,19,19,20,
+  20,20,21,21,22,22,23,23,24,24,25,26,26,27,27,28,29,
+  29,30,31,31,32,33,33,34,35,36,36,37,38,39,40,41,42,
+  42,43,44,45,46,47,48,50,51,52,53,54,55,57,58,59,60,
+  62,63,64,66,67,69,70,72,74,75,77,79,80,82,84,86,88,
+  90,91,94,96,98,100,102,104,107,109,111,114,116,119,
+  122,124,127,130,133,136,139,142,145,148,151,155,158,
+  161,165,169,172,176,180,184,188,192,196,201,205,210,
+  214,219,224,229,234,239,244,250,255
+};
 
- // 
- // if ((millis() - window_start_time_global) > integration_window_length_global) {  //Check the window timer and then look at movement counts over the last window.
- //   window_start_time_global = millis();  // restart window timer
- //   
- //   if ((motion_count_global - old_motion_count_global) > motion_filter_global) {  //If enough motion has happend then go hot.
- //     motion_happened_global = true;
- //     motion_start_time_global = millis();
- //     integration_window_length_global = 1500;   //Set the integration window to much longer (3x) so it's easier to keep the node hot after you've activated it.
- //     sensor_threshold_global = 10;   //Decrease the sensor threashold when someone is present to make it easy to keep the node hot.
- //     keep_alive_global = true;  
- //   }
- //   else {
- //     motion_happened_global = false;  //If movement criteria was not met in the last integration window then set motion happened to false.
- //   }
- //   motion_count_global = old_motion_count_global;  //reset the old motion count to the new motion count so the math works for the next loop.
- // }
- // 
- //   if (motion_happened_global == 1) {  //If there was motion then set that here.
- //   boolean_out = true;
- //   keep_alive_global = true;
- //     }
- //   else {
- //     if ((millis() - motion_start_time_global) > motion_persistance_global) {  //If there was no motion then see if the decay timer has run out.
- //       if (keep_alive_global == true) {                                              //If it has then report no movement and reset the sensitivity of the node.
- //         boolean_out = false;
- //         keep_alive_global = false;
- //         integration_window_length_global = 500;
- //         sensor_threshold_global = 100;  //Turn the sensor filter back up when someone leaves the node.
- //       }
- //     }
- //}
-  return boolean_out;
-}
+// The hardware serial port used for XBee communication
+HardwareSerial Uart = HardwareSerial();
 
-int get_raw_motion_state()
+// The motion sensor indicates the speed of the motion detected by oscillating its output pin.
+// The faster the pulses, the faster the motion.  The detect the speed, we are counting the
+// number of microseconds between rising pulses using a hardware interupt pin.  The interupt
+// is called each time a rising pulse is detect and we save off the between the new pulse and
+// the last pulse.  All the other code for calculating speed is done outside of teh interupt
+// because the interupt code needs to be as light weight at possible so it returns execution
+// to the main code as quickly as possible.
+
+// This is the last period detected
+volatile unsigned long g_iLastPeriodMicro = 0;
+
+// This is the last time the interupt was called
+volatile unsigned long g_iLastTimeMicro = 0;
+
+// The min speed in meters per second to respond to.  Any motion at or below this will be 
+// considered no motion at all.
+static float fMinSpeed = 0.02;
+
+// The max speed in meters per second.  All motion above this speed will be treated like this speed
+static float fMaxSpeed = 0.5;
+
+// This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
+// no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
+// the amount of smoothing will change (see LOOP_DELAY_MS).
+static float fNewSpeedWeight = 0.15;
+
+// This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
+// and fMinSpeed, fMaxSpeed, fNewSpeedWeight.
+float g_fSpeedRatio;
+
+
+void setup()
 {
-	//return analogRead(sensor_pin_global);
+    // setup debugging serial port (over USB cable) at 9600 bps
+    Serial.begin(9600);
+    Serial.println("EAMidiNodes - Setup");
+
+	// setup Uart at 
+    Uart.begin(9600);
+
+    // setup LED pins for output
+    for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
+    {
+        // turn on pins for output to test an LED
+        pinMode(pins[i], OUTPUT);   
+    }
+
+ 	// Do a simple startup sequence to test LEDs
+	for(int nTest = 0; nTest < NUM_INIT_LOOPS; nTest++)
+	{
+		for(int nLED = 0; nLED < NUM_LEDS_PER_NODE; nLED++)
+		{
+			for(int brightness = 0; brightness < 256; brightness++)
+			{
+				analogWrite(pins[nLED], exp_map[brightness]); // set the LED brightness
+				delay(10);
+			}
+			analogWrite(pins[nLED], exp_map[0]); // Turn off LED
+		}
+	}
+
+	// Setup interupt
+	pinMode(INT_PIN, INPUT);
+	attachInterrupt(INT_PIN, MotionDetectorPulse, RISING);   // Attach an Interupt to INT_PIN for timing period of motion detector input
 }
 
 
+
+// Interupt called to get time between pulses
+void MotionDetectorPulse()
+{
+	unsigned long iCurTimeMicro = micros();
+	//unsigned long iCurTimeMicro = millis();
+	g_iLastPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
+	g_iLastTimeMicro = iCurTimeMicro;
+}
+
+
+
+// Returns the number of micro seconds for the last period (time between pulses)
+// for the motion sensor.  If the time between this call and
+// the last inpterupt call is greater than the last period , we return the time
+// between this call and the the last interupt.  This is to ensure that if we
+// abruptly go from fast motion to slow motion, that this function will not smoothly
+// transition to slow motion.
+unsigned long GetLastPeriodMicro()
+{
+	unsigned long iCurTimeMicro = micros();
+	//unsigned long iCurTimeMicro = millis();
+	unsigned long iThisPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
+	if(iThisPeriodMicro < g_iLastPeriodMicro)
+		return g_iLastPeriodMicro;
+	else
+		return iThisPeriodMicro;
+}
+
+
+
+// Returns the current speed of the detected motion in meters per second.
+// It is calculated with the following formula (pulled from the X-Band website)
+// http://www.parallax.com/Portals/0/Downloads/docs/prod/sens/32213-X-BandMotionDetector-v1.1.pdf
+//
+// Resulting frequency for speed detection:
+//
+// Fd = 2V(Ft/c)cos(theta)
+//
+// Where: 
+// Fd = Difference frequency (sometimes referred to as Doppler frequency) 
+// V = Velocity of the target 
+// Ft = Transmit frequency (10.525 GHz)
+// c = Speed of light at 3 x 10^8 m/s
+// theta = Motion direction angle deviation from perpendicular to the antenna PCB (Figure 1)
+//
+// Thus and object moving at 0.2 ms/2 =
+// 2*0.2*(10.525*10^9/(3*10^8)) = 14.0333
+float GetCurSpeed()
+{
+	float iLastPeriod = GetLastPeriodMicro();
+	float fFreq = 1.0 / (iLastPeriod / 1000000.0);
+	//float fFreq = 1.0 / (iLastPeriod / 1000.0);
+	float fSpeed = fFreq / 70.1666; // 70.1666 = (2 * Ft/c) - Ignore angle (cos(theta)) because we have no way of knowing it
+	return fSpeed;
+}
+
+
+
+void loop()
+{
+	// Get the cur
+	float fCurSpeed = GetCurSpeed();
+
+	// Debug the speed returned
+	//delay(50);
+	//Serial.print(" Current speed = ");
+	//Serial.println(fCurSpeed);
+
+	// Clamp the range of the speed
+	if(fCurSpeed < fMinSpeed)
+	{
+		fCurSpeed = fMinSpeed;
+	}
+	else if(fCurSpeed > fMaxSpeed)
+	{
+		fCurSpeed = fMaxSpeed;
+	}
+
+	// Calculate the new speed ratio
+	float fNewSpeedRatio = (fCurSpeed - fMinSpeed) / (fMaxSpeed - fMinSpeed);
+
+	// Calculate the smoothed speed ratio
+	g_fSpeedRatio = fNewSpeedRatio * fNewSpeedWeight + g_fSpeedRatio * (1.0 - fNewSpeedWeight);
+
+	// Use the speed ratio to set the brightness of the LEDs
+	// TEMP_CL - we are just using one LED right now
+    int iLEDbrightness = g_fSpeedRatio * 255;
+    if(iLEDbrightness > 0)
+    {
+        analogWrite(pins[0], exp_map[iLEDbrightness]);   // set the LED brightness
+    }
+    else
+    {
+        digitalWrite(pins[0], LOW);   // set the LED off
+    }
+
+	// Construct the byte to send that contains our node ID
+	// and the current speed.  We are compressing our speed ratio
+	// to 5 bits (32 values) so that it fits in a single byte.
+	byte sendByte = NODE_INDEX << 5;
+	sendByte = sendByte | (int(g_fSpeedRatio * 255) >> 3);
+
+	// if we are a remote sensor...
+	if(IS_REMOTE)
+	{
+		// Listen for any requests for this node
+		while(Uart.available() > 0)
+		{
+			// read byte and then parse out node ID
+			int iReadByte = Uart.read();
+			int iNodeIndex = iReadByte >> 5;
+
+			// If this message is for us, send back our current motion value
+			if(iNodeIndex == NODE_INDEX)
+			{
+				Uart.write(sendByte);
+				break;
+			}
+		}
+	}
+	else
+	{
+		// write our our local value
+		Serial.write(sendByte);
+
+		// Listen for other values on the XBee and then send them along
+        while (Uart.available() > 0)
+		{
+            byte incomingByte = Uart.read();
+			Serial.write(incomingByte);
+		}
+	}
+
+	// Delay a bit to avoid filling the recieve buffer on the PC
+	delay(LOOP_DELAY_MS);
+}
