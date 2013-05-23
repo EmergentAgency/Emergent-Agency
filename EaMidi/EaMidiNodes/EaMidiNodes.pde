@@ -109,8 +109,19 @@ void setup()
 				analogWrite(pins[nLED], exp_map[brightness]); // set the LED brightness
 				delay(10);
 			}
-			analogWrite(pins[nLED], exp_map[0]); // Turn off LED
 		}
+
+		// I have no idea why this won't compile but it won't...
+		//for(int nLEDOff = 0; nLEDOff < NUM_LEDS_PER_NODE; nLEDOff++)
+		//{
+		//	digitalWrite(pins[nLEDOff], LOW); // Turn off LED
+		//}
+
+		digitalWrite(pins[0], LOW); // Turn off LED
+		digitalWrite(pins[1], LOW); // Turn off LED
+		digitalWrite(pins[2], LOW); // Turn off LED
+		digitalWrite(pins[3], LOW); // Turn off LED
+		digitalWrite(pins[4], LOW); // Turn off LED
 	}
 
 	// Setup interupt
