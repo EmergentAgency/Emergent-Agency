@@ -4,10 +4,10 @@ Node logicNode;
 // If this is true, we are a remote node only communicating via the XBee.
 // If false, we are attached to a laptop via USB and are listening for all the other
 // remote XBee signals and the sending those signals to the laptop via USB serial
-static bool bRemote = false;
+static bool bRemote = true;
 
 // The index for this node.  Started setup for dip switches.
-int NODE_INDEX = 0;
+int NODE_INDEX = 1;
 
 // Dip switches
 int NODE_PIN_0 = 5;		// Note: dip switch numbers start from 1, 
@@ -151,7 +151,6 @@ void setup()
 	// Setup interupt
 	pinMode(INT_PIN, INPUT);
 	attachInterrupt(INT_PIN, MotionDetectorPulse, RISING);   // Attach an Interupt to INT_PIN for timing period of motion detector input
-
 }
 
 // Interupt called to get time between pulses
@@ -234,28 +233,42 @@ void loop()
 	byte sendByte = NODE_INDEX << 5;
 	sendByte = sendByte | (iLEDbrightness >> 3);
 
-	// if we are a remote sensor, just sent ourbrightness of the XBee
+	// if we are a remote sensor...
 	if(bRemote)
 	{
-		Uart.write(sendByte);
-		//Uart.print(sendByte);
+		// Listen for any requests for this node
+		//if(Uart.available() > 0)
+		while(Uart.available() > 0)
+		{
+			// read byte and then parse out node and motion value
+			int iReadByte = Uart.read();
+			int iNodeIndex = iReadByte >> 5;
+
+			// If this message is for us, send back our current motion value
+			if(iNodeIndex == NODE_INDEX)
+			{
+				Uart.write(sendByte);
+				break;
+			}
+		}
 	}
 	else
 	{
 		// write our our local value
 		Serial.write(sendByte);
 
-		//// Listen for other values on the XBee and then send them along
-  //      //if (Uart.available() > 0)
-  //      while (Uart.available() > 0)
-		//{
-  //          byte incomingByte = Uart.read();
-		//	Serial.write(incomingByte);
-		//}
+		// Listen for other values on the XBee and then send them along
+        //if (Uart.available() > 0)
+        while (Uart.available() > 0)
+		{
+            byte incomingByte = Uart.read();
+			Serial.write(incomingByte);
+		}
 	}
 
 	// TEMP_CL - try a bit of delay to avoid filling the recieve buffer
-	delay(10);
+	//delay(5); // ok, response time... PC sometimes times out with a timeout of 8ms
+	delay(3);
 
 	return;
 

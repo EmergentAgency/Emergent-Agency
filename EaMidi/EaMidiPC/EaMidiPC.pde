@@ -12,6 +12,7 @@ import processing.serial.*;
 
 // Constants
 static int NUM_NODES = 8;
+static int NODE_RESPONSE_TIMEOUT_MS = 5;
 
 // The serial port used to talk to node connected directly to the PC
 Serial g_port;
@@ -53,7 +54,7 @@ void setup()
 	g_midiOut = RWMidi.getOutputDevices()[3].createOutput();
  
 	// List available serial ports
-	println("Available serial ports:");
+	println("Available serial ports: " + Serial.list().length);
 	println(Serial.list());
 
 	// Bail if there aren't any serial ports
@@ -89,23 +90,72 @@ void draw()
 	//g_midiOut.sendController(0, 10, controlOutX);
 	//g_midiOut.sendController(0, 11, controlOutY);
 
-	// Read all the incoming messages and save them off into g_aiLastestMotion.
-	// It is important to read all the messages or else the buffer of backlog message
-	// will grow they will be lag between the new signal and it getting sent to MIDI
-	while(g_port.available() > 0)
+	// Loop through all the nodes and send a request for info and then wait for an answer.
+	// If now answer comes in a certain period of time, just go to the next node.
+	// TEMP_CL for(int nNode = 0; nNode < NUM_NODES; nNode++)
+	for(int nNode = 0; nNode < 2; nNode++)
 	{
-		// read byte and then parse out node and motion value
-		int iReadByte = g_port.read();
-		int iNodeIndex = iReadByte >> 5;
-		int iMotion = (iReadByte & 31) << 3;
+		// Create request for data message.  It is just a byte that has the 3 highest bits
+		// set to the node number.  The idea is that no node but itself will ever send a byte
+		// like that so if it hears it, it must be from the PC
+		int iSendByte = nNode << 5;
+		g_port.write(iSendByte);
 
-		println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion);
+		// Wait for the response.
+		int iStartWaitTimeMS = millis();
+		int iDebugLoopCount = 0; // TEMP_CL
+		while(millis() - iStartWaitTimeMS < NODE_RESPONSE_TIMEOUT_MS)
+		{
+			// Wait a little just to give the node time to respond
+			delay(1);
 
-		g_abNewMotionData[iNodeIndex] = g_aiLastestMotion[iNodeIndex] != iMotion;
-		g_aiLastestMotion[iNodeIndex] = iMotion;
+			// Check for responses.  There is a chance there will be more than one
+			// if something gets out of sync so read and process all returned values
+			// to keep things as up to date as possible.
+			boolean bGotResponse = false;
+			while(g_port.available() > 0)
+			{
+				// read byte and then parse out node and motion value
+				int iReadByte = g_port.read();
+				int iNodeIndex = iReadByte >> 5;
+				int iMotion = (iReadByte & 31) << 3;
+
+				println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion);
+
+				g_abNewMotionData[iNodeIndex] = g_aiLastestMotion[iNodeIndex] != iMotion;
+				g_aiLastestMotion[iNodeIndex] = iMotion;
+
+				bGotResponse = true;
+			}
+
+			// Bail out of our timeout loop if we got a response
+			if(bGotResponse)
+			{
+				println("TEMP_CL - got response iDebugLoopCount=" + iDebugLoopCount);
+				break;
+			}
+
+			iDebugLoopCount++; // TEMP_CL
+		}
 	}
+		
+	//// Read all the incoming messages and save them off into g_aiLastestMotion.
+	//// It is important to read all the messages or else the buffer of backlog message
+	//// will grow they will be lag between the new signal and it getting sent to MIDI
+	//while(g_port.available() > 0)
+	//{
+	//	// read byte and then parse out node and motion value
+	//	int iReadByte = g_port.read();
+	//	int iNodeIndex = iReadByte >> 5;
+	//	int iMotion = (iReadByte & 31) << 3;
 
-	// Go through all the nodes
+	//	println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion);
+
+	//	g_abNewMotionData[iNodeIndex] = g_aiLastestMotion[iNodeIndex] != iMotion;
+	//	g_aiLastestMotion[iNodeIndex] = iMotion;
+	//}
+
+	// Go through all the motion values and if we got a new one, send it as MIDI
 	for(int i = 0; i < NUM_NODES; i++)
 	{
 		// If we have a new motion value, send it to MIDI.
