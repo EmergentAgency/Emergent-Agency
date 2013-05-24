@@ -18,7 +18,8 @@ static const bool IS_REMOTE = true;
 static const int NUM_LEDS_PER_NODE = 5;
 
 // Output pin mapping
-static const int pins[NUM_LEDS_PER_NODE] = {16, 15, 14, 26, 25};
+//static const int pins[NUM_LEDS_PER_NODE] = {16, 15, 14, 26, 25};
+static const int pins[NUM_LEDS_PER_NODE] = {14, 15, 26, 25, 16};
 
 // Interupt pin
 static const int INT_PIN = 19; // INT7
@@ -29,7 +30,7 @@ static const int INT_PIN = 19; // INT7
 static const int LOOP_DELAY_MS = 5;
 
 // This is the number of init loops to code does to test LEDs
-static const int NUM_INIT_LOOPS = 2;
+static const int NUM_INIT_LOOPS = 0;
 
 // Lookup map used to linearize LED brightness
 static const unsigned char exp_map[256]={
@@ -71,12 +72,13 @@ volatile unsigned long g_iLastTimeMicro = 0;
 static float fMinSpeed = 0.02;
 
 // The max speed in meters per second.  All motion above this speed will be treated like this speed
-static float fMaxSpeed = 0.5;
+static float fMaxSpeed = 0.3;
 
 // This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
-static float fNewSpeedWeight = 0.15;
+//static float fNewSpeedWeight = 0.15;
+static float fNewSpeedWeight = 0.02;
 
 // This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and fMinSpeed, fMaxSpeed, fNewSpeedWeight.
@@ -189,6 +191,23 @@ float GetCurSpeed()
 
 
 
+// Clamp function
+float Clamp(float fVal, float fMin, float fMax)
+{
+	if(fVal < fMin)
+	{
+		fVal = fMin;
+	}
+	else if(fVal > fMax)
+	{
+		fVal = fMax;
+	}
+
+	return fVal;
+}
+
+
+
 void loop()
 {
 	// Get the cur
@@ -200,14 +219,7 @@ void loop()
 	//Serial.println(fCurSpeed);
 
 	// Clamp the range of the speed
-	if(fCurSpeed < fMinSpeed)
-	{
-		fCurSpeed = fMinSpeed;
-	}
-	else if(fCurSpeed > fMaxSpeed)
-	{
-		fCurSpeed = fMaxSpeed;
-	}
+	fCurSpeed = Clamp(fCurSpeed, fMinSpeed, fMaxSpeed);
 
 	// Calculate the new speed ratio
 	float fNewSpeedRatio = (fCurSpeed - fMinSpeed) / (fMaxSpeed - fMinSpeed);
@@ -216,15 +228,25 @@ void loop()
 	g_fSpeedRatio = fNewSpeedRatio * fNewSpeedWeight + g_fSpeedRatio * (1.0 - fNewSpeedWeight);
 
 	// Use the speed ratio to set the brightness of the LEDs
-	// TEMP_CL - we are just using one LED right now
-    int iLEDbrightness = g_fSpeedRatio * 255;
-    if(iLEDbrightness > 0)
+    if(g_fSpeedRatio > 0)
     {
-        analogWrite(pins[0], exp_map[iLEDbrightness]);   // set the LED brightness
-    }
+		for(int nLED = 0; nLED < NUM_LEDS_PER_NODE; nLED++)
+		{
+			float fSubRangeMin = nLED / 5.0;
+			float fSubRangeMax = (nLED + 1.0) / 5.0;
+			float fSubRangeRatio = (g_fSpeedRatio - fSubRangeMin) / (fSubRangeMax - fSubRangeMin);
+			fSubRangeRatio = Clamp(fSubRangeRatio, 0.0, 1.0);
+			int iLEDbrightness = fSubRangeRatio * 255;
+
+			analogWrite(pins[nLED], exp_map[iLEDbrightness]);   // set the LED brightness
+		}
+     }
     else
     {
-        digitalWrite(pins[0], LOW);   // set the LED off
+		for(int nLEDOff = 0; nLEDOff < NUM_LEDS_PER_NODE; nLEDOff++)
+		{
+			digitalWrite(pins[nLEDOff], LOW); // Turn off LED
+		}
     }
 
 	// Construct the byte to send that contains our node ID
