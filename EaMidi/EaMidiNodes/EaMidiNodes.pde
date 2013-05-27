@@ -7,7 +7,7 @@
  */
 
 // The index for this node.
-static const int NODE_INDEX = 1;
+static const int NODE_INDEX = 2;
 
 // If this is true, we are a remote node only communicating via the XBee.
 // If false, we are attached to a laptop via USB and are listening for all the other
@@ -24,13 +24,26 @@ static const int pins[NUM_LEDS_PER_NODE] = {14, 15, 26, 25, 16};
 // Interupt pin
 static const int INT_PIN = 19; // INT7
 
-// This is the amount of time to delay (in ms) after each loop.
+// This is the base amount of time to delay (in ms) after each loop.
 // This value is helpful for not sending data constantly and filling
 // up the recieve buffer on the PC.
-static const int LOOP_DELAY_MS = 5;
+// See 
+static const int LOOP_DELAY_BASE_MS = 12;
+
+// An additional delay is added to the base delay to ensure that all the
+// nodes don't end up repeatedy sending at the same time.  The XBee can
+// handle packet collisions but this trys to avoid it in the first place.
+static const int LOOP_DELAY_MAX_EXTRA_MS = 3;
 
 // This is the number of init loops to code does to test LEDs
-static const int NUM_INIT_LOOPS = 0;
+static const int NUM_INIT_LOOPS = 5;
+
+// Recieve data start byte and end byte
+static const int START_RCV_BYTE = 240; // Binary = 11110000 (this also translates to node 7 sending 16 (out of 32) as a motion value).
+static const int END_RCV_BYTE = 4; // Binary = 00000100 (this also translates to node 0 sending 4 (out of 32) as a motion value).
+
+// Recieve data timeout counter.  Use this to avoid getting stuck waiting for data.
+static const int RCV_TIMEOUT_MAX_COUNT = 1000;
 
 // Lookup map used to linearize LED brightness
 static const unsigned char exp_map[256]={
@@ -84,6 +97,9 @@ static float fNewSpeedWeight = 0.02;
 // and fMinSpeed, fMaxSpeed, fNewSpeedWeight.
 float g_fSpeedRatio;
 
+// The last sent byte of data
+byte g_yLastSentByte = 0;
+
 
 void setup()
 {
@@ -104,26 +120,33 @@ void setup()
  	// Do a simple startup sequence to test LEDs
 	for(int nTest = 0; nTest < NUM_INIT_LOOPS; nTest++)
 	{
-		for(int nLED = 0; nLED < NUM_LEDS_PER_NODE; nLED++)
-		{
-			for(int brightness = 0; brightness < 256; brightness++)
-			{
-				analogWrite(pins[nLED], exp_map[brightness]); // set the LED brightness
-				delay(10);
-			}
-		}
+		// Blink binary value of node index.
+		// For some reason "for" loops here weren't compiling so I just wrote it all out...
 
-		// I have no idea why this won't compile but it won't...
-		//for(int nLEDOff = 0; nLEDOff < NUM_LEDS_PER_NODE; nLEDOff++)
-		//{
-		//	digitalWrite(pins[nLEDOff], LOW); // Turn off LED
-		//}
+		digitalWrite(pins[0], HIGH); 
+		digitalWrite(pins[1], HIGH); 
+		digitalWrite(pins[2], HIGH); 
+		digitalWrite(pins[3], HIGH); 
+		digitalWrite(pins[4], HIGH);
+		delay(500);
 
-		digitalWrite(pins[0], LOW); // Turn off LED
-		digitalWrite(pins[1], LOW); // Turn off LED
-		digitalWrite(pins[2], LOW); // Turn off LED
-		digitalWrite(pins[3], LOW); // Turn off LED
-		digitalWrite(pins[4], LOW); // Turn off LED
+		bool bPin0 = (NODE_INDEX >> 0) & 1;
+		bool bPin1 = (NODE_INDEX >> 1) & 1;
+		bool bPin2 = (NODE_INDEX >> 2) & 1;
+		bool bPin3 = (NODE_INDEX >> 3) & 1;
+		bool bPin4 = (NODE_INDEX >> 4) & 1;
+		digitalWrite(pins[0], bPin0 ? HIGH : LOW);
+		digitalWrite(pins[1], bPin1 ? HIGH : LOW);
+		digitalWrite(pins[2], bPin2 ? HIGH : LOW);
+		digitalWrite(pins[3], bPin3 ? HIGH : LOW);
+		digitalWrite(pins[4], bPin4 ? HIGH : LOW);
+		delay(1500);
+
+		digitalWrite(pins[0], LOW); 
+		digitalWrite(pins[1], LOW); 
+		digitalWrite(pins[2], LOW); 
+		digitalWrite(pins[3], LOW); 
+		digitalWrite(pins[4], LOW); 
 	}
 
 	// Setup interupt
@@ -252,40 +275,103 @@ void loop()
 	// Construct the byte to send that contains our node ID
 	// and the current speed.  We are compressing our speed ratio
 	// to 5 bits (32 values) so that it fits in a single byte.
-	byte sendByte = NODE_INDEX << 5;
-	sendByte = sendByte | (int(g_fSpeedRatio * 255) >> 3);
+	byte ySendByte = NODE_INDEX << 5;
+	ySendByte = ySendByte | (int(g_fSpeedRatio * 255) >> 3);
+
+	// Make sure send byte isn't one of our signal chars
+	if(ySendByte == START_RCV_BYTE || ySendByte == END_RCV_BYTE)
+	{
+		ySendByte++;
+	}
 
 	// if we are a remote sensor...
 	if(IS_REMOTE)
 	{
-		// Listen for any requests for this node
+		// Send out byte if it is different from last time
+		// Also, resend randomly in case the last value got lost (which totally happens).
+		// Resending is most important when the last value sent was 0. 
+		if(ySendByte != g_yLastSentByte || random(50) == 0)
+		{
+			Uart.write(ySendByte);
+			g_yLastSentByte = ySendByte;
+		}
+
+		// Look for updates from the host
 		while(Uart.available() > 0)
 		{
-			// read byte and then parse out node ID
 			int iReadByte = Uart.read();
-			int iNodeIndex = iReadByte >> 5;
 
-			// If this message is for us, send back our current motion value
-			if(iNodeIndex == NODE_INDEX)
+			// If we got a new start signal, start trying to read the packet
+			if(iReadByte == START_RCV_BYTE)
 			{
-				Uart.write(sendByte);
-				break;
+				// Once we have the start of a message, delay until we have it all
+				int iTimeoutCounter = 0;
+				while(Uart.available() < 7 && iTimeoutCounter < RCV_TIMEOUT_MAX_COUNT)
+				{
+					iTimeoutCounter++;
+					delay(1);
+				}
+
+				// bail if we hit the timeout max
+				if(iTimeoutCounter >= RCV_TIMEOUT_MAX_COUNT)
+				{
+					break;
+				}
+
+				// Read data
+				int iNewMinSpeedU = Uart.read();
+				int iNewMinSpeedL = Uart.read();
+				int iNewMaxSpeedU = Uart.read();
+				int iNewMaxSpeedL = Uart.read();
+				int iNewWeightU = Uart.read();
+				int iNewWeightL = Uart.read();
+				int iEndByte = Uart.read();
+
+				if(iEndByte != END_RCV_BYTE)
+				{
+					break;
+				}
+
+				// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+				int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
+				fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
+
+				// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+				int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
+				fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
+
+				// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+				int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
+				fNewSpeedWeight = iNewWeight / 65535.0;
+
+				// TEMP_CL - debug saying we got a valid message
+				for(int i = 0; i < 4; i++)
+				{
+					analogWrite(pins[4], 255);
+					delay(500);
+					digitalWrite(pins[4], LOW);
+					delay(500);
+				}
 			}
 		}
-	}
+    }
 	else
 	{
 		// write our our local value
-		Serial.write(sendByte);
+		if(ySendByte != g_yLastSentByte)
+		{
+			Serial.write(ySendByte);
+			g_yLastSentByte = ySendByte;
+		}
 
 		// Listen for other values on the XBee and then send them along
         while (Uart.available() > 0)
 		{
-            byte incomingByte = Uart.read();
-			Serial.write(incomingByte);
+            byte yIncomingByte = Uart.read();
+			Serial.write(yIncomingByte);
 		}
 	}
 
 	// Delay a bit to avoid filling the recieve buffer on the PC
-	delay(LOOP_DELAY_MS);
+	delay(LOOP_DELAY_BASE_MS + random(LOOP_DELAY_MAX_EXTRA_MS));
 }
