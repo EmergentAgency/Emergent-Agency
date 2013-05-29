@@ -13,6 +13,7 @@ import processing.serial.*;
 // Constants
 static int NUM_NODES = 8;
 static int NODE_RESPONSE_TIMEOUT_MS = 5;
+static int NODE_UPDATE_TIMEOUT_MS = 2000;
 
 // The serial port used to talk to node connected directly to the PC
 Serial g_port;
@@ -25,6 +26,9 @@ int[] g_aiLastestMotion = new int[NUM_NODES];
 
 // True if we got different motion reading for this node
 boolean[] g_abNewMotionData = new boolean[NUM_NODES];
+
+// The last time in MS that we got a new value.  Used to zero out nodes that have stopped communicating.
+int[] g_aiLastMotionUpdateTime = new int[NUM_NODES];
 
 // Send data start byte
 static int START_SEND_BYTE = 240; // Binary = 11110000 (this also translates to node 7 sending 16 (out of 32) as a motion value).
@@ -142,6 +146,9 @@ void draw()
 		g_abNewMotionData[i] = false;
 	}
 
+	// Get current time.  Used for checking if nodes haven't updated a value in a while
+	int iCurTimeMS = millis();
+
 	// Read all the incoming messages and save them off into g_aiLastestMotion.
 	// It is important to read all the messages or else the buffer of backlog message
 	// will grow they will be lag between the new signal and it getting sent to MIDI
@@ -158,6 +165,18 @@ void draw()
 		// to remember if any of the values are new, not just the last one.
 		g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
 		g_aiLastestMotion[iNodeIndex] = iMotion;
+		g_aiLastMotionUpdateTime[iNodeIndex] = iCurTimeMS;
+	}
+
+	// Check for nodes timing out
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		if(g_aiLastestMotion[i] > 0 && iCurTimeMS - g_aiLastMotionUpdateTime[i] > NODE_UPDATE_TIMEOUT_MS)
+		{
+			println("Node " + i + " timed out.");
+			g_abNewMotionData[i] = true;
+			g_aiLastestMotion[i] = 0;
+		}
 	}
 
 	// Go through all the motion values and if we got a new one, send it as MIDI
