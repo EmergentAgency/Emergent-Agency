@@ -12,7 +12,6 @@ import processing.serial.*;
 
 // Constants
 static int NUM_NODES = 8;
-static int NODE_RESPONSE_TIMEOUT_MS = 5;
 static int NODE_UPDATE_TIMEOUT_MS = 2000;
 
 // The serial port used to talk to node connected directly to the PC

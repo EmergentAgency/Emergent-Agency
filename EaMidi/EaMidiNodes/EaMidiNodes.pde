@@ -6,8 +6,14 @@
  * Copyright: 2013 Chris Linder
  */
 
-// The index for this node.
-static const int NODE_INDEX = 2;
+#include <EEPROM.h>
+
+// The index for this node.  If it is < 0, use the node index stored in
+// EEPROM.  If >= 0, store that node index in the EEPROM of this node.
+int iNodeIndex = -1;
+
+// The address in EEPROM for iNodeIndex
+static const int NODE_INDEX_EEPROM_ADDR = 0;
 
 // If this is true, we are a remote node only communicating via the XBee.
 // If false, we are attached to a laptop via USB and are listening for all the other
@@ -34,6 +40,13 @@ static const int LOOP_DELAY_BASE_MS = 12;
 // nodes don't end up repeatedy sending at the same time.  The XBee can
 // handle packet collisions but this trys to avoid it in the first place.
 static const int LOOP_DELAY_MAX_EXTRA_MS = 3;
+
+// Because packets sometimes get dropped, we should periodically resend out current value
+// even if it didn't charge.  This is the time for that forced resend.
+static int NODE_FORCE_UPDATE_TIME_MS = 1000;
+
+// This is the last time data was sent in ms.
+unsigned long iLastUpdateTime = 0;
 
 // This is the number of init loops to code does to test LEDs
 static const int NUM_INIT_LOOPS = 5;
@@ -110,6 +123,23 @@ void setup()
 	// setup Uart at 
     Uart.begin(9600);
 
+	// Deal with the index for this node.
+	// If iNodeIndex is < 0, use the node index stored in
+	// EEPROM.  If >= 0, store that node index in the EEPROM of this node.
+	if(iNodeIndex < 0)
+	{
+		iNodeIndex = EEPROM.read(NODE_INDEX_EEPROM_ADDR);
+		if(iNodeIndex == 255)
+		{
+			Serial.println("EAMidiNodes - tried to read node index from EEPROM but failed to get valid value.  Using 0.");
+			iNodeIndex = 0;
+		}
+	}
+	else
+	{
+		EEPROM.write(NODE_INDEX_EEPROM_ADDR, iNodeIndex);
+	}
+
     // setup LED pins for output
     for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
     {
@@ -130,11 +160,11 @@ void setup()
 		digitalWrite(pins[4], HIGH);
 		delay(500);
 
-		bool bPin0 = (NODE_INDEX >> 0) & 1;
-		bool bPin1 = (NODE_INDEX >> 1) & 1;
-		bool bPin2 = (NODE_INDEX >> 2) & 1;
-		bool bPin3 = (NODE_INDEX >> 3) & 1;
-		bool bPin4 = (NODE_INDEX >> 4) & 1;
+		bool bPin0 = (iNodeIndex >> 0) & 1;
+		bool bPin1 = (iNodeIndex >> 1) & 1;
+		bool bPin2 = (iNodeIndex >> 2) & 1;
+		bool bPin3 = (iNodeIndex >> 3) & 1;
+		bool bPin4 = (iNodeIndex >> 4) & 1;
 		digitalWrite(pins[0], bPin0 ? HIGH : LOW);
 		digitalWrite(pins[1], bPin1 ? HIGH : LOW);
 		digitalWrite(pins[2], bPin2 ? HIGH : LOW);
@@ -275,7 +305,7 @@ void loop()
 	// Construct the byte to send that contains our node ID
 	// and the current speed.  We are compressing our speed ratio
 	// to 5 bits (32 values) so that it fits in a single byte.
-	byte ySendByte = NODE_INDEX << 5;
+	byte ySendByte = iNodeIndex << 5;
 	ySendByte = ySendByte | (int(g_fSpeedRatio * 255) >> 3);
 
 	// Make sure send byte isn't one of our signal chars
@@ -288,12 +318,14 @@ void loop()
 	if(IS_REMOTE)
 	{
 		// Send out byte if it is different from last time
-		// Also, resend randomly in case the last value got lost (which totally happens).
+		// Also, resend in case the last value got lost (which totally happens).
 		// Resending is most important when the last value sent was 0. 
-		if(ySendByte != g_yLastSentByte || random(50) == 0)
+		unsigned long iCurTime = millis();
+		if(ySendByte != g_yLastSentByte || iCurTime - iLastUpdateTime > NODE_FORCE_UPDATE_TIME_MS)
 		{
 			Uart.write(ySendByte);
 			g_yLastSentByte = ySendByte;
+			iLastUpdateTime = iCurTime;
 		}
 
 		// Look for updates from the host
