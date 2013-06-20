@@ -43,12 +43,12 @@ static int END_SEND_BYTE = 4; // Binary = 00000100 (this also translates to node
 static float fMinSpeed = 0.02;
 
 // The max speed in meters per second.  All motion above this speed will be treated like this speed
-static float fMaxSpeed = 0.3;
+static float fMaxSpeed = 0.2;
 
 // This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
-static float fNewSpeedWeight = 0.04;
+static float fNewSpeedWeight = 0.06;
 
 // Setup function for processing
 void setup()
@@ -188,15 +188,7 @@ void draw()
 		if(g_abNewMotionData[i])
 		{
 			int iMidiValue = g_aiLastestMotion[i] / 2;
-
-			// TEMP_CL - clamp values to 100 right now just to avoid clipping since we're mapping to volume as a test
-			if(iMidiValue > 100)
-			{
-				iMidiValue = 100;
-			}
-
 			println("Write MIDI i=" + i + " iMidiValue=" + iMidiValue);
-
 			g_midiOut.sendController(0, 10 + i, iMidiValue);
 		}
 	}
