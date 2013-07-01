@@ -98,13 +98,13 @@ volatile unsigned long g_iLastTimeMicro = 0;
 static float fMinSpeed = 0.02;
 
 // The max speed in meters per second.  All motion above this speed will be treated like this speed
-static float fMaxSpeed = 0.3;
+static float fMaxSpeed = 0.22;
 
 // This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
-static float fNewSpeedWeight = 0.02;
+static float fNewSpeedWeight = 0.05;
 
 // This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and fMinSpeed, fMaxSpeed, fNewSpeedWeight.

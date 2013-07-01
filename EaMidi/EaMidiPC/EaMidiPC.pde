@@ -10,8 +10,10 @@
 import rwmidi.*;
 import processing.serial.*;
 
-// Constants
-static int NUM_NODES = 8;
+// Number of nodes
+static int NUM_NODES = 7;
+
+// If this much time passes, without hearing from a node, we assume it is broken and set its output to 0
 static int NODE_UPDATE_TIMEOUT_MS = 2000;
 
 // The serial port used to talk to node connected directly to the PC
@@ -19,6 +21,18 @@ Serial g_port;
  
 // MIDI output object
 MidiOutput g_midiOut;
+
+// The midi controller number used to set master volume to make the piece silent if no one has used it for a while
+static int MASTER_VOLUME_MIDI = 20;
+
+// If this number time passes, the piece goes silent (aka standby mode)
+static int NO_MOTION_STANDBY_TIME_MS = 20000;
+
+// If too much time passes, the piece goes silent (aka standby mode)
+boolean bStandbyMode = false;
+
+// The last time motion was detected
+int g_aiLastMotionTime = 0;
 
 // The lastest motion reading from the nodes
 int[] g_aiLastestMotion = new int[NUM_NODES];
@@ -28,6 +42,9 @@ boolean[] g_abNewMotionData = new boolean[NUM_NODES];
 
 // The last time in MS that we got a new value.  Used to zero out nodes that have stopped communicating.
 int[] g_aiLastMotionUpdateTime = new int[NUM_NODES];
+
+// This is used for testing and lets the PC override the latest motion data
+int[] g_aiPCOverrideMotion = new int[NUM_NODES];
 
 // Send data start byte
 static int START_SEND_BYTE = 240; // Binary = 11110000 (this also translates to node 7 sending 16 (out of 32) as a motion value).
@@ -43,12 +60,12 @@ static int END_SEND_BYTE = 4; // Binary = 00000100 (this also translates to node
 static float fMinSpeed = 0.02;
 
 // The max speed in meters per second.  All motion above this speed will be treated like this speed
-static float fMaxSpeed = 0.2;
+static float fMaxSpeed = 0.22;
 
 // This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
-static float fNewSpeedWeight = 0.06;
+static float fNewSpeedWeight = 0.05;
 
 // Setup function for processing
 void setup()
@@ -56,7 +73,8 @@ void setup()
 	// Draw a 400x400 blank rectangle
 	size(400, 400); 
 	noStroke();
-	rectMode(CENTER);
+	//rectMode(CENTER);
+	rectMode(CORNER);
 
 	// List valid MIDI output devices.
 	println("Available MIDI ouput devices:");
@@ -122,22 +140,8 @@ void setup()
 // Unless there is too much going on this runs at 60 FPS (about 16 or 17 ms).
 void draw()
 {
-	// Draw some partial alpha squares just to have something visually entertaining
-	// and to tell if the app becomes unresponsive.
-	background(51); 
-	fill(255, 204);
-	rect(mouseX, height/2, mouseY/2+10, mouseY/2+10);
-	fill(255, 204);
-	int inverseX = width-mouseX;
-	int inverseY = height-mouseY;
-	rect(inverseX, height/2, (inverseY/2)+10, (inverseY/2)+10);
-  
-	// DEBUG - Keep this code around to test MIDI output without the nodes
-	//int controlOutX = int((float)mouseX / width * 127);
-	//int controlOutY = int((float)mouseY / width * 127);
-	//println("Controllers controlOutX=" + controlOutX + " controlOutY=" + controlOutY);
-	//g_midiOut.sendController(0, 10, controlOutX);
-	//g_midiOut.sendController(0, 11, controlOutY);
+	// Get current time.  Used for checking if nodes haven't updated a value in a while
+	int iCurTimeMS = millis();
 
 	// Reset g_abNewMotionData before we read new values
 	for(int i = 0; i < NUM_NODES; i++)
@@ -145,8 +149,51 @@ void draw()
 		g_abNewMotionData[i] = false;
 	}
 
-	// Get current time.  Used for checking if nodes haven't updated a value in a while
-	int iCurTimeMS = millis();
+	// Draw midi input from mouse (and also from sensors if pc override input is 0)
+	background(51); 
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		// Get left and right bounds of this vertical rect
+		int iLeft = i * width/NUM_NODES;
+		int iRight = (i+1) * width/NUM_NODES;
+
+		// If the mouse is down, update the pc override values
+		if(mousePressed && mouseX >= iLeft && mouseX < iRight)
+		{
+			g_aiPCOverrideMotion[i] = 255 - mouseY;
+			if(g_aiPCOverrideMotion[i] < 0)
+			{
+				g_aiPCOverrideMotion[i] = 0;
+			}
+			else if(g_aiPCOverrideMotion[i] > 255)
+			{
+				g_aiPCOverrideMotion[i] = 255;
+			}
+		}
+
+		// If we have overriden to a non-zero value, force that value into the motion data.
+		if(g_aiPCOverrideMotion[i] > 0)
+		{
+			g_abNewMotionData[i] = g_abNewMotionData[i] || g_aiLastestMotion[i] != g_aiPCOverrideMotion[i];
+			g_aiLastestMotion[i] = g_aiPCOverrideMotion[i];
+			g_aiLastMotionUpdateTime[i] = iCurTimeMS;
+		}
+
+		fill(g_aiLastestMotion[i], 255);
+		rect(iLeft, 0, width/NUM_NODES - 2, height);
+	}
+	if(bStandbyMode)
+	{
+		fill(125, 255);
+		rect(0, 0, width, height/4);
+	}
+  
+	// DEBUG - Keep this code around to test MIDI output without the nodes
+	//int controlOutX = int((float)mouseX / width * 127);
+	//int controlOutY = int((float)mouseY / width * 127);
+	//println("Controllers controlOutX=" + controlOutX + " controlOutY=" + controlOutY);
+	//g_midiOut.sendController(0, 10, controlOutX);
+	//g_midiOut.sendController(0, 11, controlOutY);
 
 	// Read all the incoming messages and save them off into g_aiLastestMotion.
 	// It is important to read all the messages or else the buffer of backlog message
@@ -176,6 +223,32 @@ void draw()
 			g_abNewMotionData[i] = true;
 			g_aiLastestMotion[i] = 0;
 		}
+	}
+
+	// Calc max motion and use it to kill master volume (standby mode) if all nodes read 0 for too long
+	int iMaxMotion = 0;
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		if(g_aiLastestMotion[i] > iMaxMotion)
+		{
+			iMaxMotion = g_aiLastestMotion[i];
+		}
+	}
+	if(iMaxMotion > 0)
+	{
+		g_aiLastMotionTime = iCurTimeMS;
+		if(bStandbyMode)
+		{
+			println("Write MIDI i=" + MASTER_VOLUME_MIDI + " iMidiValue=127");
+			g_midiOut.sendController(0, MASTER_VOLUME_MIDI, 127);
+			bStandbyMode = false;
+		}
+	}
+	else if(!bStandbyMode && iCurTimeMS - g_aiLastMotionTime > NO_MOTION_STANDBY_TIME_MS)
+	{
+		println("Write MIDI i=" + MASTER_VOLUME_MIDI + " iMidiValue=0");
+		g_midiOut.sendController(0, MASTER_VOLUME_MIDI, 0);
+		bStandbyMode = true;
 	}
 
 	// Go through all the motion values and if we got a new one, send it as MIDI
