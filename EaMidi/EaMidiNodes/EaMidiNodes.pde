@@ -7,6 +7,10 @@
  */
 
 #include <EEPROM.h>
+#include <Wire.h>
+
+// Number of nodes
+static int NUM_NODES = 7;
 
 // The index for this node.  If it is < 0, use the node index stored in
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
@@ -15,10 +19,13 @@ int iNodeIndex = -1;
 // The address in EEPROM for iNodeIndex
 static const int NODE_INDEX_EEPROM_ADDR = 0;
 
-// If this is true, we are a remote node only communicating via the XBee.
+// If this is true, we use Xbee to send signals.  If false, we use I2C (2-Wire using the Wire API)
+static const bool USE_XBEE = false;
+
+// If this is true, we are a remote node only communicating via the XBee ir I2C.
 // If false, we are attached to a laptop via USB and are listening for all the other
-// remote XBee signals and the sending those signals to the laptop via USB serial
-static const bool IS_REMOTE = true;
+// remote signals and the sending those signals to the laptop via USB serial
+static const bool IS_REMOTE = false;
 
 // The numbers of LEDs this node has
 static const int NUM_LEDS_PER_NODE = 5;
@@ -33,7 +40,6 @@ static const int INT_PIN = 19; // INT7
 // This is the base amount of time to delay (in ms) after each loop.
 // This value is helpful for not sending data constantly and filling
 // up the recieve buffer on the PC.
-// See 
 static const int LOOP_DELAY_BASE_MS = 12;
 
 // An additional delay is added to the base delay to ensure that all the
@@ -79,6 +85,9 @@ static const unsigned char exp_map[256]={
 // The hardware serial port used for XBee communication
 HardwareSerial Uart = HardwareSerial();
 
+// This is the offset for the IC2 (Wire) address which will be combined with the node index.
+static const int WIRE_NODE_ADDR_OFFSET = 2;
+
 // The motion sensor indicates the speed of the motion detected by oscillating its output pin.
 // The faster the pulses, the faster the motion.  The detect the speed, we are counting the
 // number of microseconds between rising pulses using a hardware interupt pin.  The interupt
@@ -113,15 +122,19 @@ float g_fSpeedRatio;
 // The last sent byte of data
 byte g_yLastSentByte = 0;
 
+byte g_ySendByte = 0; // TEMP_CL - I2C
 
 void setup()
 {
-    // setup debugging serial port (over USB cable) at 9600 bps
+	// setup debugging serial port (over USB cable) at 9600 bps
     Serial.begin(9600);
     Serial.println("EAMidiNodes - Setup");
 
-	// setup Uart at 
-    Uart.begin(9600);
+	if(USE_XBEE)
+	{
+		// setup Uart for XBee
+		Uart.begin(9600);
+	}
 
 	// Deal with the index for this node.
 	// If iNodeIndex is < 0, use the node index stored in
@@ -182,6 +195,20 @@ void setup()
 	// Setup interupt
 	pinMode(INT_PIN, INPUT);
 	attachInterrupt(INT_PIN, MotionDetectorPulse, RISING);   // Attach an Interupt to INT_PIN for timing period of motion detector input
+
+	// Setup the I2C bus if we aren't using XBee
+	if(!USE_XBEE)
+	{
+		if(!IS_REMOTE)
+		{
+			Wire.begin(); // join I2C bus as master
+		}
+		else
+		{
+			Wire.begin(iNodeIndex + WIRE_NODE_ADDR_OFFSET); // join I2C bus with address iNodeIndex + WIRE_NODE_ADDR_OFFSET
+			Wire.onRequest(RequestEvent); // register event 
+		}
+	}
 }
 
 
@@ -314,75 +341,84 @@ void loop()
 		ySendByte++;
 	}
 
-	// if we are a remote sensor...
+	// TEMP_CL
+	g_ySendByte = ySendByte;
+
+
+	// if we are a remote node...
 	if(IS_REMOTE)
 	{
-		// Send out byte if it is different from last time
-		// Also, resend in case the last value got lost (which totally happens).
-		// Resending is most important when the last value sent was 0. 
-		unsigned long iCurTime = millis();
-		if(ySendByte != g_yLastSentByte || iCurTime - iLastUpdateTime > NODE_FORCE_UPDATE_TIME_MS)
+		// If we're a remove sensor, we only do logic here if we use XBee.
+		// I2C is all event based on the remote nodes.
+		if(USE_XBEE)
 		{
-			Uart.write(ySendByte);
-			g_yLastSentByte = ySendByte;
-			iLastUpdateTime = iCurTime;
-		}
-
-		// Look for updates from the host
-		while(Uart.available() > 0)
-		{
-			int iReadByte = Uart.read();
-
-			// If we got a new start signal, start trying to read the packet
-			if(iReadByte == START_RCV_BYTE)
+			// Send out byte if it is different from last time
+			// Also, resend in case the last value got lost (which totally happens).
+			// Resending is most important when the last value sent was 0. 
+			unsigned long iCurTime = millis();
+			if(ySendByte != g_yLastSentByte || iCurTime - iLastUpdateTime > NODE_FORCE_UPDATE_TIME_MS)
 			{
-				// Once we have the start of a message, delay until we have it all
-				int iTimeoutCounter = 0;
-				while(Uart.available() < 7 && iTimeoutCounter < RCV_TIMEOUT_MAX_COUNT)
+				Uart.write(ySendByte);
+				g_yLastSentByte = ySendByte;
+				iLastUpdateTime = iCurTime;
+			}
+
+			// Look for updates from the host
+			while(Uart.available() > 0)
+			{
+				int iReadByte = Uart.read();
+
+				// If we got a new start signal, start trying to read the packet
+				if(iReadByte == START_RCV_BYTE)
 				{
-					iTimeoutCounter++;
-					delay(1);
-				}
+					// Once we have the start of a message, delay until we have it all
+					int iTimeoutCounter = 0;
+					while(Uart.available() < 7 && iTimeoutCounter < RCV_TIMEOUT_MAX_COUNT)
+					{
+						iTimeoutCounter++;
+						delay(1);
+					}
 
-				// bail if we hit the timeout max
-				if(iTimeoutCounter >= RCV_TIMEOUT_MAX_COUNT)
-				{
-					break;
-				}
+					// bail if we hit the timeout max
+					if(iTimeoutCounter >= RCV_TIMEOUT_MAX_COUNT)
+					{
+						break;
+					}
 
-				// Read data
-				int iNewMinSpeedU = Uart.read();
-				int iNewMinSpeedL = Uart.read();
-				int iNewMaxSpeedU = Uart.read();
-				int iNewMaxSpeedL = Uart.read();
-				int iNewWeightU = Uart.read();
-				int iNewWeightL = Uart.read();
-				int iEndByte = Uart.read();
+					// Read data
+					int iNewMinSpeedU = Uart.read();
+					int iNewMinSpeedL = Uart.read();
+					int iNewMaxSpeedU = Uart.read();
+					int iNewMaxSpeedL = Uart.read();
+					int iNewWeightU = Uart.read();
+					int iNewWeightL = Uart.read();
+					int iEndByte = Uart.read();
 
-				if(iEndByte != END_RCV_BYTE)
-				{
-					break;
-				}
+					if(iEndByte != END_RCV_BYTE)
+					{
+						break;
+					}
 
-				// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-				int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
-				fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
+					// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+					int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
+					fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
 
-				// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-				int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
-				fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
+					// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+					int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
+					fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
 
-				// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-				int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
-				fNewSpeedWeight = iNewWeight / 65535.0;
+					// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+					int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
+					fNewSpeedWeight = iNewWeight / 65535.0;
 
-				// TEMP_CL - debug saying we got a valid message
-				for(int i = 0; i < 4; i++)
-				{
-					analogWrite(pins[4], 255);
-					delay(500);
-					digitalWrite(pins[4], LOW);
-					delay(500);
+					// TEMP_CL - debug saying we got a valid message
+					for(int i = 0; i < 4; i++)
+					{
+						analogWrite(pins[4], 255);
+						delay(500);
+						digitalWrite(pins[4], LOW);
+						delay(500);
+					}
 				}
 			}
 		}
@@ -396,14 +432,56 @@ void loop()
 			g_yLastSentByte = ySendByte;
 		}
 
-		// Listen for other values on the XBee and then send them along
-        while (Uart.available() > 0)
+
+		if(USE_XBEE)
 		{
-            byte yIncomingByte = Uart.read();
-			Serial.write(yIncomingByte);
+			// Listen for other values on the XBee and then send them along
+			while (Uart.available() > 0)
+			{
+				byte yIncomingByte = Uart.read();
+				Serial.write(yIncomingByte);
+			}
+		}
+		else
+		{
+			// Iterate through all nodes and try to get data from them
+			for(int nNode = 0; nNode < NUM_NODES; nNode++)
+			{
+				//Serial.print("TEMP_CL - pre request for node ");
+				//Serial.println(nNode);
+
+				// Request data from the given node
+				Wire.requestFrom(nNode + WIRE_NODE_ADDR_OFFSET, 1);    // request 1 byte from slave device nNode + WIRE_NODE_ADDR_OFFSET
+
+				//Serial.println("TEMP_CL - post request");
+
+				// If there isn't a node at the index we are checking this will return false.
+				while(Wire.available()) 
+				{ 
+					//Serial.println("TEMP_CL - pre read");
+
+					byte yIncomingByte = Wire.read(); // receive a byte
+
+					//Serial.println("TEMP_CL - post read");
+					//Serial.print("Got byte from I2C bus:");
+					//Serial.println(yIncomingByte);
+
+					// Send the byte to the PC via USB serial
+					Serial.write(yIncomingByte);
+				}
+			}
 		}
 	}
 
 	// Delay a bit to avoid filling the recieve buffer on the PC
 	delay(LOOP_DELAY_BASE_MS + random(LOOP_DELAY_MAX_EXTRA_MS));
 }
+
+
+
+// TEMP_CL - I2C
+void RequestEvent()
+{
+	Wire.write(g_ySendByte);
+}
+

@@ -124,14 +124,15 @@ void setup()
 	int iNewWeightU = iNewWeight >> 8;
 	int nNewWeightL = iNewWeight & 255;
 
-	g_port.write(START_SEND_BYTE);
-	g_port.write(iNewMinSpeedU);
-	g_port.write(iNewMinSpeedL);
-	g_port.write(iNewMaxSpeedU);
-	g_port.write(iNewMaxSpeedL);
-	g_port.write(iNewWeightU);
-	g_port.write(nNewWeightL);
-	g_port.write(END_SEND_BYTE);
+	// TEMP_CL - removing for I2C test
+	//g_port.write(START_SEND_BYTE);
+	//g_port.write(iNewMinSpeedU);
+	//g_port.write(iNewMinSpeedL);
+	//g_port.write(iNewMaxSpeedU);
+	//g_port.write(iNewMaxSpeedL);
+	//g_port.write(iNewWeightU);
+	//g_port.write(nNewWeightL);
+	//g_port.write(END_SEND_BYTE);
 }
 
 
