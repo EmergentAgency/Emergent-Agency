@@ -8,6 +8,7 @@
 
 #include <EEPROM.h>
 #include <Wire.h>
+#include <I2C.h>
 
 // Number of nodes
 static int NUM_NODES = 7;
@@ -55,7 +56,7 @@ static int NODE_FORCE_UPDATE_TIME_MS = 1000;
 unsigned long iLastUpdateTime = 0;
 
 // This is the number of init loops to code does to test LEDs
-static const int NUM_INIT_LOOPS = 5;
+static const int NUM_INIT_LOOPS = 1; // TEMP_CL - 5
 
 // Recieve data start byte and end byte
 static const int START_RCV_BYTE = 240; // Binary = 11110000 (this also translates to node 7 sending 16 (out of 32) as a motion value).
@@ -201,7 +202,10 @@ void setup()
 	{
 		if(!IS_REMOTE)
 		{
-			Wire.begin(); // join I2C bus as master
+			 // TEMP_CL - trying new lib Wire.begin(); // join I2C bus as master
+			I2c.begin();
+			I2c.setSpeed(false); // set the system to slow mode
+			I2c.timeOut(500); // 0.5 second time out
 		}
 		else
 		{
@@ -447,28 +451,46 @@ void loop()
 			// Iterate through all nodes and try to get data from them
 			for(int nNode = 0; nNode < NUM_NODES; nNode++)
 			{
+				// don't bother looking for ourself
+				if(nNode == iNodeIndex)
+				{
+					continue;
+				}
+
 				//Serial.print("TEMP_CL - pre request for node ");
 				//Serial.println(nNode);
 
-				// Request data from the given node
-				Wire.requestFrom(nNode + WIRE_NODE_ADDR_OFFSET, 1);    // request 1 byte from slave device nNode + WIRE_NODE_ADDR_OFFSET
+				// TEMP_CL - trying new lib
+				//// Request data from the given node
+				//Wire.requestFrom(nNode + WIRE_NODE_ADDR_OFFSET, 1);    // request 1 byte from slave device nNode + WIRE_NODE_ADDR_OFFSET
 
-				//Serial.println("TEMP_CL - post request");
+				////Serial.println("TEMP_CL - post request");
 
-				// If there isn't a node at the index we are checking this will return false.
-				while(Wire.available()) 
-				{ 
-					//Serial.println("TEMP_CL - pre read");
+				//// If there isn't a node at the index we are checking this will return false.
+				//while(Wire.available()) 
+				//{ 
+				//	//Serial.println("TEMP_CL - pre read");
 
-					byte yIncomingByte = Wire.read(); // receive a byte
+				//	byte yIncomingByte = Wire.read(); // receive a byte
 
-					//Serial.println("TEMP_CL - post read");
-					//Serial.print("Got byte from I2C bus:");
-					//Serial.println(yIncomingByte);
+				//	//Serial.println("TEMP_CL - post read");
+				//	//Serial.print("Got byte from I2C bus:");
+				//	//Serial.println(yIncomingByte);
 
-					// Send the byte to the PC via USB serial
-					Serial.write(yIncomingByte);
-				}
+				//	// Send the byte to the PC via USB serial
+				//	Serial.write(yIncomingByte);
+				//}
+
+
+				//Serial.print("TEMP_CL - pre read for node ");
+				//Serial.println(nNode);
+
+				byte yIncomingByte = 0;
+				I2c.read(nNode + WIRE_NODE_ADDR_OFFSET, 1, &yIncomingByte);
+				Serial.write(yIncomingByte);
+
+				//Serial.println("Post read");
+
 			}
 		}
 	}
