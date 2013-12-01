@@ -11,6 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <None Include="EaMidiNodesRS485\EaMidiNodesRS485.pde" />
     <None Include="EaMidiNodes\EaMidiNodes.pde" />
     <None Include="EaMidiNodes\EANode.pde" />
     <None Include="EaMidiNodes\Main.pde" />
