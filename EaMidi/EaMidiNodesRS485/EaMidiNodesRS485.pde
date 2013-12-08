@@ -3,28 +3,38 @@
  *
  * Description: Arduino program for each node that collects motion signals and transmits them to the PC.
  * This version is focused on using the RS485 protocol to communicate along a shared pair of wires.
- * In theory the same logic can also be used for the XBees.
+ * The same logic can also be used for the XBees.
  *
  * Copyright: 2013 Chris Linder
  */
 
 #include <EEPROM.h>
 
+// Use Serial to print out debug statements
+static bool USE_SERIAL_FOR_DEBUGGING = false;
+
 // Number of nodes
-static int NUM_NODES = 7;
+static int NUM_NODES = 3;
 
 // The index for this node.  If it is < 0, use the node index stored in
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
 int iNodeIndex = -1;
 
-// The address in EEPROM for iNodeIndex
-static const int NODE_INDEX_EEPROM_ADDR = 0;
+// The address in EEPROM for various saved values
+static const int EEPROM_ADDR_NODE_INDEX = 0;
+static const int EEPROM_ADDR_DATA_VERSION = 1;
+static const int EEPROM_ADDR_MIN_SPEED = 2;
+static const int EEPROM_ADDR_MAX_SPEED = 4;
+static const int EEPROM_ADDR_NEW_SPEED_WEIGHT = 6;
+
+// The current data version of the EPROM data.  Each time the format changes, increment this
+static const int CUR_EPROM_DATA_VERSION = 1;
 
 // If this is true, we use Xbee to send signals.
-static const bool USE_XBEE = false;
+static const bool USE_XBEE = true;
 
 // If this is true, we use RS-485 to send signals.
-static const bool USE_RS485 = true;
+static const bool USE_RS485 = false;
 
 // If this is true, we are a remote node only communicating to send its current sensor
 // reading along.
@@ -60,7 +70,7 @@ static int NODE_FORCE_UPDATE_TIME_MS = 1000;
 unsigned long iLastUpdateTime = 0;
 
 // This is the number of init loops to code does to test LEDs
-static const int NUM_INIT_LOOPS = 1; // TEMP_CL - 5
+static const int NUM_INIT_LOOPS = 2;
 
 // Recieve data start byte and end byte
 static const int START_RCV_BYTE = 240; // Binary = 11110000 (this also translates to node 7 sending 16 (out of 32) as a motion value).
@@ -87,14 +97,14 @@ static const unsigned char exp_map[256]={
   214,219,224,229,234,239,244,250,255
 };
 
-// The hardware serial port used for XBee communication
+// The hardware serial port used for communication (either RS-485 or XBee)
 HardwareSerial Uart = HardwareSerial();
-//Stream Uart = HardwareSerial();
-//Stream Uart2 = SoftwareSerial();
-Stream* pSerial = &Uart;
 
-// TEMP_CL
+// Hardware serial settings
 static const int COM_BAUD_RATE = 9600;
+//static const int COM_BAUD_RATE = 28800; // Didn't seem to work but didn't test a ton
+
+// RS-485 specific settings
 static const int MICRO_SECOND_DELAY_POST_WRITE_RS485 = 1000000 * 1 / (COM_BAUD_RATE/10) * 2; // formula from http://www.gammon.com.au/forum/?id=11428
 static const int RS485_ENABLE_WRITE_PIN = 5; // TEMP_CL - actually make this a real value
 
@@ -132,43 +142,87 @@ static float fNewSpeedWeight = 0.05;
 // and fMinSpeed, fMaxSpeed, fNewSpeedWeight.
 float g_fSpeedRatio;
 
-// The last sent byte of data
-byte g_yLastSentByte = 0;
-
-byte g_ySendByte = 0; // TEMP_CL - I2C
-
-// TEMP_CL
-static const int NODE_COM_TIMEOUT_MS = 2000; // This is much too large but it should be a good test
+// Settings needed for timing out nodes in case some disconnect, break, or a signal is lost.
+static const int NODE_COM_TIMEOUT_MS = 30;
 int g_iNextNodeIndex = 0;
-int g_iLastReceiveTime = 0;
+unsigned long g_iLastReceiveTime = 0;
+
+
 
 void setup()
 {
-	// setup debugging serial port (over USB cable) at 9600 bps
-    Serial.begin(9600);
-    Serial.println("EAMidiNodes - Setup");
-
-	if(USE_XBEE)
+	if(USE_SERIAL_FOR_DEBUGGING)
 	{
-		// setup Uart
-		Uart.begin(COM_BAUD_RATE);
+		// setup debugging serial port (over USB cable) at 9600 bps
+		Serial.begin(9600);
+		Serial.println("EAMidiNodes - Setup");
 	}
+
+	// setup Uart
+	Uart.begin(COM_BAUD_RATE);
 
 	// Deal with the index for this node.
 	// If iNodeIndex is < 0, use the node index stored in
 	// EEPROM.  If >= 0, store that node index in the EEPROM of this node.
 	if(iNodeIndex < 0)
 	{
-		iNodeIndex = EEPROM.read(NODE_INDEX_EEPROM_ADDR);
+		iNodeIndex = EEPROM.read(EEPROM_ADDR_NODE_INDEX);
 		if(iNodeIndex == 255)
 		{
-			Serial.println("EAMidiNodes - tried to read node index from EEPROM but failed to get valid value.  Using 0.");
+			if(USE_SERIAL_FOR_DEBUGGING)
+			{
+				Serial.println("EAMidiNodes - tried to read node index from EEPROM but failed to get valid value.  Using 0.");
+			}
 			iNodeIndex = 0;
 		}
 	}
 	else
 	{
-		EEPROM.write(NODE_INDEX_EEPROM_ADDR, iNodeIndex);
+		EEPROM.write(EEPROM_ADDR_NODE_INDEX, iNodeIndex);
+	}
+
+	// Read in settings from EPROM
+	int ySavedDataVersion = EEPROM.read(EEPROM_ADDR_DATA_VERSION);
+	int ySavedMinSpeedU = EEPROM.read(EEPROM_ADDR_MIN_SPEED);
+	int ySavedMinSpeedL = EEPROM.read(EEPROM_ADDR_MIN_SPEED+1);
+	int ySavedMaxSpeedU = EEPROM.read(EEPROM_ADDR_MAX_SPEED);
+	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
+	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
+	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
+	if( ySavedDataVersion != CUR_EPROM_DATA_VERSION )
+	{
+		// Invalid saved settings
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - tried to read settings from EEPROM but failed.  Read in data version ");
+			Serial.println(ySavedDataVersion);
+		}
+	}
+	else
+	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - Read in data version ");
+			Serial.println(ySavedDataVersion);
+			Serial.println(ySavedMinSpeedU);
+			Serial.println(ySavedMinSpeedL);
+			Serial.println(ySavedMaxSpeedU);
+			Serial.println(ySavedMaxSpeedL);
+			Serial.println(ySavedNewSpeedWeightU);
+			Serial.println(ySavedNewSpeedWeightL);
+		}
+
+		// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+		int iNewMinSpeed = (ySavedMinSpeedU << 8) + ySavedMinSpeedL;
+		fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
+
+		// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+		int iNewMaxSpeed = (ySavedMaxSpeedU << 8) + ySavedMaxSpeedL;
+		fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
+
+		// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+		int iNewWeight = (ySavedNewSpeedWeightU << 8) + ySavedNewSpeedWeightL;
+		fNewSpeedWeight = iNewWeight / 65535.0;
 	}
 
     // setup LED pins for output
@@ -213,23 +267,6 @@ void setup()
 	// Setup interupt
 	pinMode(INT_PIN, INPUT);
 	attachInterrupt(INT_PIN, MotionDetectorPulse, RISING);   // Attach an Interupt to INT_PIN for timing period of motion detector input
-
-	// Setup the I2C bus if we aren't using XBee
-	if(!USE_XBEE)
-	{
-		if(!IS_REMOTE)
-		{
-			 // TEMP_CL - trying new lib Wire.begin(); // join I2C bus as master
-			I2c.begin();
-			I2c.setSpeed(false); // set the system to slow mode
-			I2c.timeOut(500); // 0.5 second time out
-		}
-		else
-		{
-			Wire.begin(iNodeIndex + WIRE_NODE_ADDR_OFFSET); // join I2C bus with address iNodeIndex + WIRE_NODE_ADDR_OFFSET
-			Wire.onRequest(RequestEvent); // register event 
-		}
-	}
 }
 
 
@@ -376,13 +413,45 @@ bool ReceiveTuningMessage()
 	int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
 	fNewSpeedWeight = iNewWeight / 65535.0;
 
-	// TEMP_CL - debug saying we got a valid message
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print("TEMP_CL Got new settings");
+		Serial.print(" fMinSpeed=");
+		Serial.print(fMinSpeed);
+		Serial.print(" fMaxSpeed=");
+		Serial.print(fMaxSpeed);
+		Serial.print(" fNewSpeedWeight*10=");
+		Serial.print(fNewSpeedWeight*10);
+		Serial.println("");
+	}
+
+	// Save out settings to EPROM
+	EEPROM.write(EEPROM_ADDR_DATA_VERSION, CUR_EPROM_DATA_VERSION);
+	EEPROM.write(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
+	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
+	EEPROM.write(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
+	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMaxSpeedL);
+	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
+	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
+
+	// Debug saying we got a valid message
 	for(int i = 0; i < 4; i++)
 	{
 		analogWrite(pins[4], 255);
 		delay(100);
 		digitalWrite(pins[4], LOW);
 		delay(200);
+	}
+
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print("TEMP_CL Got new remote values! fMinSpeed=");
+		Serial.print(fMinSpeed);
+		Serial.print(" fMaxSpeed=");
+		Serial.print(fMaxSpeed);
+		Serial.print(" fNewSpeedWeight=");
+		Serial.print(fNewSpeedWeight);
+		Serial.println("");
 	}
 
 	return true;
@@ -396,7 +465,7 @@ void loop()
 
 	// Debug the speed returned
 	//delay(50);
-	//Serial.print(" Current speed = ");
+	//Serial.print("TEMP_CL Current speed = ");
 	//Serial.println(fCurSpeed);
 
 	// Clamp the range of the speed
@@ -459,8 +528,11 @@ void loop()
 		// Really, I don't think we should be reading more than one each loop... but maybe not?
 		if(iNumReadBytes > 1)
 		{
-			Serial.print("Got more more than a single byte in a loop:");
-			Serial.println(iNumReadBytes);
+			if(USE_SERIAL_FOR_DEBUGGING)
+			{
+				Serial.print("TEMP_CL Got more more than a single byte in a loop:");
+				Serial.println(iNumReadBytes);
+			}
 		}
 
 		// If we got a new start signal, start trying to read the packet
@@ -477,7 +549,10 @@ void loop()
 			if( iIncomingNodeIndex == iNodeIndex ||
 				iIncomingNodeIndex >= NUM_NODES )
 			{
-				// TEMP_CL - do some error thing
+				if(USE_SERIAL_FOR_DEBUGGING)
+				{
+					Serial.println("TEMP_CL Got invlaid node index!");
+				}
 			}
 
 			// Save the next node index
@@ -485,6 +560,13 @@ void loop()
 		
 			// Save off the time we got this message so we can time out if a node isn't sending.
 			g_iLastReceiveTime = iCurTime;
+
+			if(USE_SERIAL_FOR_DEBUGGING)
+			{
+				Serial.print(iCurTime);
+				Serial.print(" TEMP_CL - Got data from node ");
+				Serial.println(iIncomingNodeIndex);
+			}
 		}
 	}
 
@@ -493,6 +575,17 @@ void loop()
 		// Check for a timeout.
 		if(iCurTime - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 		{
+			if(USE_SERIAL_FOR_DEBUGGING)
+			{
+				Serial.print("TEMP_CL - Timeout! g_iNextNodeIndex=");
+				Serial.print(g_iNextNodeIndex);
+				Serial.print(" iCurTime=");
+				Serial.print(iCurTime);
+				Serial.print(" g_iLastReceiveTime=");
+				Serial.print(g_iLastReceiveTime);
+				Serial.println("");
+			}
+
 			g_iNextNodeIndex = (g_iNextNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 			g_iLastReceiveTime = iCurTime;
 		}
@@ -501,6 +594,13 @@ void loop()
 	// If we are supposed to send next, do that
 	if(iNodeIndex == g_iNextNodeIndex)
 	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print(iCurTime);
+			Serial.print(" TEMP_CL - about to write data iNodeIndex=");
+			Serial.println(iNodeIndex);
+		}
+
 		if(USE_RS485)
 		{
 			digitalWrite (RS485_ENABLE_WRITE_PIN, HIGH);  // enable sending
@@ -514,177 +614,13 @@ void loop()
 
 		// Update next node now that we have sent
 		g_iNextNodeIndex = (g_iNextNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
-	}
-		
-	// TEMP_CL - return with no delay.  Test this and make sure we don't fill up the PC receive buffer or the MIDI buffer
-	return;
 
-
-
-
-
-	// TEMP_CL
-	g_ySendByte = ySendByte;
-
-
-	// if we are a remote node...
-	if(IS_REMOTE)
-	{
-		// If we're a remove sensor, we only do logic here if we use XBee.
-		// I2C is all event based on the remote nodes.
-		if(USE_XBEE)
+		if(USE_SERIAL_FOR_DEBUGGING)
 		{
-			// Send out byte if it is different from last time
-			// Also, resend in case the last value got lost (which totally happens).
-			// Resending is most important when the last value sent was 0. 
-			if(ySendByte != g_yLastSentByte || iCurTime - iLastUpdateTime > NODE_FORCE_UPDATE_TIME_MS)
-			{
-				Uart.write(ySendByte);
-				g_yLastSentByte = ySendByte;
-				iLastUpdateTime = iCurTime;
-			}
-
-			// Look for updates from the host
-			// TEMP_CL - trying to swap out different serial types
-			//while(Uart.available() > 0)
-			while(pSerial->available() > 0)
-			{
-				// TEMP_CL - trying to swap out different serial types
-				//int iReadByte = Uart.read();
-				int iReadByte = pSerial->read();
-
-				// If we got a new start signal, start trying to read the packet
-				if(iReadByte == START_RCV_BYTE)
-				{
-					// Once we have the start of a message, delay until we have it all
-					int iTimeoutCounter = 0;
-					while(Uart.available() < 7 && iTimeoutCounter < RCV_TIMEOUT_MAX_COUNT)
-					{
-						iTimeoutCounter++;
-						delay(1);
-					}
-
-					// bail if we hit the timeout max
-					if(iTimeoutCounter >= RCV_TIMEOUT_MAX_COUNT)
-					{
-						break;
-					}
-
-					// Read data
-					int iNewMinSpeedU = Uart.read();
-					int iNewMinSpeedL = Uart.read();
-					int iNewMaxSpeedU = Uart.read();
-					int iNewMaxSpeedL = Uart.read();
-					int iNewWeightU = Uart.read();
-					int iNewWeightL = Uart.read();
-					int iEndByte = Uart.read();
-
-					if(iEndByte != END_RCV_BYTE)
-					{
-						break;
-					}
-
-					// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-					int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
-					fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
-
-					// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-					int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
-					fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
-
-					// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-					int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
-					fNewSpeedWeight = iNewWeight / 65535.0;
-
-					// TEMP_CL - debug saying we got a valid message
-					for(int i = 0; i < 4; i++)
-					{
-						analogWrite(pins[4], 255);
-						delay(500);
-						digitalWrite(pins[4], LOW);
-						delay(500);
-					}
-				}
-			}
-		}
-    }
-	else
-	{
-		// write our our local value
-		if(ySendByte != g_yLastSentByte)
-		{
-			Serial.write(ySendByte);
-			g_yLastSentByte = ySendByte;
-		}
-
-
-		if(USE_XBEE)
-		{
-			// Listen for other values on the XBee and then send them along
-			while (Uart.available() > 0)
-			{
-				byte yIncomingByte = Uart.read();
-				Serial.write(yIncomingByte);
-			}
-		}
-		else
-		{
-			// Iterate through all nodes and try to get data from them
-			for(int nNode = 0; nNode < NUM_NODES; nNode++)
-			{
-				// don't bother looking for ourself
-				if(nNode == iNodeIndex)
-				{
-					continue;
-				}
-
-				//Serial.print("TEMP_CL - pre request for node ");
-				//Serial.println(nNode);
-
-				// TEMP_CL - trying new lib
-				//// Request data from the given node
-				//Wire.requestFrom(nNode + WIRE_NODE_ADDR_OFFSET, 1);    // request 1 byte from slave device nNode + WIRE_NODE_ADDR_OFFSET
-
-				////Serial.println("TEMP_CL - post request");
-
-				//// If there isn't a node at the index we are checking this will return false.
-				//while(Wire.available()) 
-				//{ 
-				//	//Serial.println("TEMP_CL - pre read");
-
-				//	byte yIncomingByte = Wire.read(); // receive a byte
-
-				//	//Serial.println("TEMP_CL - post read");
-				//	//Serial.print("Got byte from I2C bus:");
-				//	//Serial.println(yIncomingByte);
-
-				//	// Send the byte to the PC via USB serial
-				//	Serial.write(yIncomingByte);
-				//}
-
-
-				//Serial.print("TEMP_CL - pre read for node ");
-				//Serial.println(nNode);
-
-				byte yIncomingByte = 0;
-				I2c.read(nNode + WIRE_NODE_ADDR_OFFSET, 1, &yIncomingByte);
-				Serial.write(yIncomingByte);
-
-				//Serial.println("Post read");
-
-			}
+			Serial.print(iCurTime);
+			Serial.print(" TEMP_CL - just wrote data iNodeIndex=");
+			Serial.println(iNodeIndex);
 		}
 	}
-
-	// Delay a bit to avoid filling the recieve buffer on the PC
-	delay(LOOP_DELAY_BASE_MS + random(LOOP_DELAY_MAX_EXTRA_MS));
-}
-
-
-
-// TEMP_CL - I2C
-void RequestEvent()
-{
-	Wire.write(g_ySendByte);
 }
 
