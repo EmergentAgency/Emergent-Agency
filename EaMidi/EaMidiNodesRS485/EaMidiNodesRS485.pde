@@ -11,7 +11,7 @@
 #include <EEPROM.h>
 
 // Use Serial to print out debug statements
-static bool USE_SERIAL_FOR_DEBUGGING = false;
+static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 // Number of nodes
 static int NUM_NODES = 3;
@@ -30,44 +30,20 @@ static const int EEPROM_ADDR_NEW_SPEED_WEIGHT = 6;
 // The current data version of the EPROM data.  Each time the format changes, increment this
 static const int CUR_EPROM_DATA_VERSION = 1;
 
-// If this is true, we use Xbee to send signals.
-static const bool USE_XBEE = true;
+// If this is true, we use Xbee to send signals.  Right now, these doesn't turn on anything special but it might at some point.
+static const bool USE_XBEE = false;
 
 // If this is true, we use RS-485 to send signals.
-static const bool USE_RS485 = false;
-
-// If this is true, we are a remote node only communicating to send its current sensor
-// reading along.
-// If false, we are attached to a laptop via USB and are listening for all the other
-// remote signals and the sending those signals to the laptop via USB serial
-static const bool IS_REMOTE = true;
+static const bool USE_RS485 = true;
 
 // The numbers of LEDs this node has
 static const int NUM_LEDS_PER_NODE = 5;
 
 // Output pin mapping
-//static const int pins[NUM_LEDS_PER_NODE] = {16, 15, 14, 26, 25};
 static const int pins[NUM_LEDS_PER_NODE] = {14, 15, 26, 25, 16};
 
 // Interupt pin for motion sensor
-static const int INT_PIN = 19; // INT7
-
-// This is the base amount of time to delay (in ms) after each loop.
-// This value is helpful for not sending data constantly and filling
-// up the recieve buffer on the PC.
-static const int LOOP_DELAY_BASE_MS = 12;
-
-// An additional delay is added to the base delay to ensure that all the
-// nodes don't end up repeatedy sending at the same time.  The XBee can
-// handle packet collisions but this trys to avoid it in the first place.
-static const int LOOP_DELAY_MAX_EXTRA_MS = 3;
-
-// Because packets sometimes get dropped, we should periodically resend out current value
-// even if it didn't charge.  This is the time for that forced resend.
-static int NODE_FORCE_UPDATE_TIME_MS = 1000;
-
-// This is the last time data was sent in ms.
-unsigned long iLastUpdateTime = 0;
+static const int INT_PIN = 19; // INT7 (interupt 7)
 
 // This is the number of init loops to code does to test LEDs
 static const int NUM_INIT_LOOPS = 2;
@@ -102,14 +78,10 @@ HardwareSerial Uart = HardwareSerial();
 
 // Hardware serial settings
 static const int COM_BAUD_RATE = 9600;
-//static const int COM_BAUD_RATE = 28800; // Didn't seem to work but didn't test a ton
 
 // RS-485 specific settings
 static const int MICRO_SECOND_DELAY_POST_WRITE_RS485 = 1000000 * 1 / (COM_BAUD_RATE/10) * 2; // formula from http://www.gammon.com.au/forum/?id=11428
-static const int RS485_ENABLE_WRITE_PIN = 5; // TEMP_CL - actually make this a real value
-
-// This is the offset for the IC2 (Wire) address which will be combined with the node index.
-static const int WIRE_NODE_ADDR_OFFSET = 2;
+static const int RS485_ENABLE_WRITE_PIN = 22;
 
 // The motion sensor indicates the speed of the motion detected by oscillating its output pin.
 // The faster the pulses, the faster the motion.  The detect the speed, we are counting the
@@ -160,6 +132,11 @@ void setup()
 
 	// setup Uart
 	Uart.begin(COM_BAUD_RATE);
+	if(USE_RS485)
+	{
+		pinMode(RS485_ENABLE_WRITE_PIN, OUTPUT);
+		digitalWrite(RS485_ENABLE_WRITE_PIN, LOW); 
+	}
 
 	// Deal with the index for this node.
 	// If iNodeIndex is < 0, use the node index stored in
@@ -275,7 +252,6 @@ void setup()
 void MotionDetectorPulse()
 {
 	unsigned long iCurTimeMicro = micros();
-	//unsigned long iCurTimeMicro = millis();
 	g_iLastPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
 	g_iLastTimeMicro = iCurTimeMicro;
 }
@@ -291,7 +267,6 @@ void MotionDetectorPulse()
 unsigned long GetLastPeriodMicro()
 {
 	unsigned long iCurTimeMicro = micros();
-	//unsigned long iCurTimeMicro = millis();
 	unsigned long iThisPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
 	if(iThisPeriodMicro < g_iLastPeriodMicro)
 		return g_iLastPeriodMicro;
@@ -322,7 +297,6 @@ float GetCurSpeed()
 {
 	float iLastPeriod = GetLastPeriodMicro();
 	float fFreq = 1.0 / (iLastPeriod / 1000000.0);
-	//float fFreq = 1.0 / (iLastPeriod / 1000.0);
 	float fSpeed = fFreq / 70.1666; // 70.1666 = (2 * Ft/c) - Ignore angle (cos(theta)) because we have no way of knowing it
 	return fSpeed;
 }
@@ -463,10 +437,13 @@ void loop()
 	// Get the cur
 	float fCurSpeed = GetCurSpeed();
 
-	// Debug the speed returned
-	//delay(50);
-	//Serial.print("TEMP_CL Current speed = ");
-	//Serial.println(fCurSpeed);
+	// DEBUG
+	//// Print the speed returned
+	//if(USE_SERIAL_FOR_DEBUGGING)
+	//{
+	//	Serial.print("Current speed = ");
+	//	Serial.println(fCurSpeed);
+	//}
 
 	// Clamp the range of the speed
 	fCurSpeed = Clamp(fCurSpeed, fMinSpeed, fMaxSpeed);
@@ -502,9 +479,11 @@ void loop()
 	// Construct the byte to send that contains our node ID
 	// and the current speed.  We are compressing our speed ratio
 	// to 5 bits (32 values) so that it fits in a single byte.
+	// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
 	byte ySendByte = iNodeIndex << 5;
-	ySendByte = ySendByte | (int(g_fSpeedRatio * 255) >> 3);
+	ySendByte = ySendByte | (int(g_fSpeedRatio * 30 + 0.5) + 1);
 
+	// DEBUG
 	// We don't do this check anymore because we only have 7 nodes 
 	// and the node index of the START_RCV_BYTE and END_RCV_BYTE
 	// refer to the 8th node so they will never get sent.
@@ -516,6 +495,15 @@ void loop()
 
 	// Get the current time (after all the sensor and LED stuff)
 	unsigned long iCurTime = millis();
+
+	// DEBUG
+	// Send non-sensor data.  Just send the last 5 bits of the time for now.
+	//int iTestSendValue = iCurTime & 31;
+	//if(iTestSendValue == 0)
+	//{
+	//	iTestSendValue++;
+	//}
+	//ySendByte = (iNodeIndex << 5) | iTestSendValue;
 
 	// Listen for other nodes talking
 	int iNumReadBytes = 0;
@@ -545,28 +533,45 @@ void loop()
 			// Get the node index of the sender
 			int iIncomingNodeIndex = iReadByte >> 5;
 
+			if(USE_SERIAL_FOR_DEBUGGING)
+			{
+				Serial.print(iCurTime);
+				Serial.print(" Got data ");
+				Serial.print(iReadByte);
+				Serial.print(" from node ");
+				Serial.print(iIncomingNodeIndex);
+
+				int iMotion = (iReadByte & 31) << 3;
+				Serial.print(" with value ");
+				Serial.println(iMotion);
+			}
+
+			// Throw out 0 bytes TEMP_CL
+			if(iReadByte == 0)
+			{
+				Serial.print(iCurTime);
+				Serial.println(" ############# Ignoring 0 byte!");
+				continue;
+			}
+
 			// Do some error checking that can likely be commented out in a final version
 			if( iIncomingNodeIndex == iNodeIndex ||
 				iIncomingNodeIndex >= NUM_NODES )
 			{
 				if(USE_SERIAL_FOR_DEBUGGING)
 				{
-					Serial.println("TEMP_CL Got invlaid node index!");
+					Serial.print(iCurTime);
+					Serial.println(" ############# Got invlaid node index!");
 				}
 			}
-
-			// Save the next node index
-			g_iNextNodeIndex = (iIncomingNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
+			else
+			{
+				// Save the next node index
+				g_iNextNodeIndex = (iIncomingNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
+			}
 		
 			// Save off the time we got this message so we can time out if a node isn't sending.
 			g_iLastReceiveTime = iCurTime;
-
-			if(USE_SERIAL_FOR_DEBUGGING)
-			{
-				Serial.print(iCurTime);
-				Serial.print(" TEMP_CL - Got data from node ");
-				Serial.println(iIncomingNodeIndex);
-			}
 		}
 	}
 
@@ -577,10 +582,9 @@ void loop()
 		{
 			if(USE_SERIAL_FOR_DEBUGGING)
 			{
-				Serial.print("TEMP_CL - Timeout! g_iNextNodeIndex=");
-				Serial.print(g_iNextNodeIndex);
-				Serial.print(" iCurTime=");
 				Serial.print(iCurTime);
+				Serial.print(" Timeout! g_iNextNodeIndex=");
+				Serial.print(g_iNextNodeIndex);
 				Serial.print(" g_iLastReceiveTime=");
 				Serial.print(g_iLastReceiveTime);
 				Serial.println("");
@@ -597,28 +601,40 @@ void loop()
 		if(USE_SERIAL_FOR_DEBUGGING)
 		{
 			Serial.print(iCurTime);
-			Serial.print(" TEMP_CL - about to write data iNodeIndex=");
-			Serial.println(iNodeIndex);
+			Serial.print(" About to write data iNodeIndex=");
+			Serial.print(iNodeIndex);
+			Serial.print(" value=");
+			Serial.print(ySendByte & 31);
+			Serial.println("");
 		}
 
 		if(USE_RS485)
 		{
+			// TEMP_CL - try delay in front too...
+			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
+			delay(10); // TEMP_CL
+
 			digitalWrite (RS485_ENABLE_WRITE_PIN, HIGH);  // enable sending
 		}
 		Uart.write(ySendByte);
 		if(USE_RS485)
 		{
-			delayMicroseconds (MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
+			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
+			delay(10); // TEMP_CL
 			digitalWrite (RS485_ENABLE_WRITE_PIN, LOW);  // disable sending  
+
 		}
 
 		// Update next node now that we have sent
 		g_iNextNodeIndex = (g_iNextNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 
+		// Also reset the time or else we will timeout too early
+		g_iLastReceiveTime = iCurTime;
+
 		if(USE_SERIAL_FOR_DEBUGGING)
 		{
 			Serial.print(iCurTime);
-			Serial.print(" TEMP_CL - just wrote data iNodeIndex=");
+			Serial.print(" Just wrote data iNodeIndex=");
 			Serial.println(iNodeIndex);
 		}
 	}

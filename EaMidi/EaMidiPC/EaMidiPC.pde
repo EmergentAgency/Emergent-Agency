@@ -22,6 +22,7 @@ Serial g_port;
 
 // Baud rate of g_port
 static int COM_BAUD_RATE = 9600;
+//static int COM_BAUD_RATE = 4800;
 //static int COM_BAUD_RATE = 28800; // Didn't seem to work but didn't test a ton
 
 // Sometimes, we want to test with just the PC and not read from the sensors.
@@ -293,6 +294,8 @@ void draw()
   // Get current time.  Used for checking if nodes haven't updated a value in a while
   int iCurTimeMS = millis();
 
+  println(iCurTimeMS + " TEMP_CL - draw");
+
   // Reset g_abNewMotionData before we read new values
   for(int i = 0; i < NUM_NODES; i++)
   {
@@ -356,8 +359,19 @@ void draw()
   {
     // read byte and then parse out node and motion value
     int iReadByte = g_port.read();
+	if(iReadByte == 0)
+	{
+		println("Got 0 byte!  Invalid! #########################################");
+		continue;
+	}
+
+	// Get node index
     int iNodeIndex = iReadByte >> 5;
-    int iMotion = (iReadByte & 31) << 3;
+
+	// We are compressing our speed ratio
+	// to 5 bits (32 values) so that it fits in a single byte.
+	// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
+    int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
 
     println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + iCurTimeMS);
 
@@ -385,7 +399,7 @@ void draw()
   // that needs to be zeroed out.
   if(iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
   {
-    println("Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+    println(iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
 
     g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
     g_iLastReceiveTime = iCurTimeMS;
