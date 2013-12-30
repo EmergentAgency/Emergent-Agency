@@ -35,11 +35,30 @@ BOOL CSerial::Open( int nPort, int nBaud )
 	//wsprintf( szPort, "COM%d", nPort );
 	//sprintf( szPort, "COM%d", nPort );
 
-
-	// TEMP_CL - Hard coding COM number!
-	//m_hIDComDev = CreateFile( szPort, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	// Find COM port
+	m_hIDComDev = NULL;
+	m_hIDComDev = CreateFile( L"COM3", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
 	m_hIDComDev = CreateFile( L"COM4", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
-	if( m_hIDComDev == NULL ) return( FALSE );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM5", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM6", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM7", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM8", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM9", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+	m_hIDComDev = CreateFile( L"COM10", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL );
+	if( m_hIDComDev != NULL && m_hIDComDev != INVALID_HANDLE_VALUE ) goto found_com;
+
+	// We didn't find any com ports, bail
+	return( FALSE );
+
+	// Found COM!
+	found_com:
 
 	memset( &m_OverlappedRead, 0, sizeof( OVERLAPPED ) );
  	memset( &m_OverlappedWrite, 0, sizeof( OVERLAPPED ) );

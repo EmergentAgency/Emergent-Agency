@@ -64,7 +64,7 @@ public:
     void                    Nui_Zero();
     void                    Nui_BlankSkeletonScreen( HWND hWnd );
     void                    Nui_DoDoubleBuffer(HWND hWnd,HDC hDC);
-    void                    Nui_DrawSkeleton( bool bBlank, NUI_SKELETON_DATA * pSkel, HWND hWnd, int WhichSkeletonColor );
+    void                    Nui_DrawSkeleton(NUI_SKELETON_DATA * pSkel, HWND hWnd, int WhichSkeletonColor );
     void                    Nui_DrawSkeletonSegment( NUI_SKELETON_DATA * pSkel, int numJoints, ... );
 
 	// Bloom - CTL
@@ -97,7 +97,7 @@ private:
     HANDLE        m_pDepthStreamHandle;
     HANDLE        m_pVideoStreamHandle;
     HFONT         m_hFontFPS;
-    HPEN          m_Pen[6];
+    HPEN          m_Pen[6*2];
     HDC           m_SkeletonDC;
     HBITMAP       m_SkeletonBMP;
     HGDIOBJ       m_SkeletonOldObj;
@@ -105,7 +105,7 @@ private:
     POINT         m_Points[NUI_SKELETON_POSITION_COUNT];
     RGBQUAD       m_rgbWk[640*480];
     int           m_LastSkeletonFoundTime;
-    bool          m_bScreenBlanked;
+    bool          m_bNoSkeleton;
     int           m_FramesTotal;
     int           m_LastFPStime;
     int           m_LastFramesTotal;
@@ -119,6 +119,8 @@ private:
 	float         m_afSkelCenteredness[NUI_SKELETON_COUNT];
 	float         m_afTotalJointQuality[NUI_SKELETON_COUNT];
 	float         m_afMovementAmount[NUI_SKELETON_COUNT];
+	bool          m_bGotNewDepthFrame;
+	bool          m_bGotNewSkelFrame;
 
 	// position info
 	bool          m_bLeftHandUp;

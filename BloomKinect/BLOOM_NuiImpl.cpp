@@ -24,6 +24,7 @@ static const float numSecondsPerFrame = 0.0333f;  //TEMP_CL: hack until we get p
 static const int   numPastFrames = 4;		      // go back this many frames in the past for velocity data, etc.
 static const float fHandVelocityFactor = 0.3f;    // scale down velocity for overall speed ratio
 static const float fSpeedSmoothing = 0.8f;        // The amount of smoothing we apply to overall speed ratio
+static const float fMinSpeedRatio = 1.0f;         // The min speed ratio.  0.0 - 1.0.
 static const float fHandVelocityScaleLow = 0.2f;  // low threshold for scaling luminence
 static const float fHandVelocityScaleHigh = 1.0f; // high threshold for scaling luminence
 static const float minUpSpeedForFlame = 5.0;	  // min upward/downward speed to trigger flame on/off (meters/sec)
@@ -38,7 +39,11 @@ static const float fMinFootSpeedForColorFlash = 1.f; // must be moving your foot
 #include "SDKmisc.h"
 #include "resource.h"
 #include <XInput.h>
+
+// Hack to pass SkeletonFrame between functions
+NUI_SKELETON_FRAME SkeletonFrame;
 // /Bloom
+
 
 static const COLORREF g_JointColorTable[NUI_SKELETON_POSITION_COUNT] = 
 {
@@ -70,14 +75,24 @@ CSkeletalViewerApp::CSkeletalViewerApp()
 	: m_iCurSkelFrame(0)
 	, m_iCurSkelIndex(-1)
 	, m_iOtherSkelIndex(-1)
+	, m_bGotNewDepthFrame(false)
+	, m_bGotNewSkelFrame(false)
 	, m_bLeftHandUp(false)
 	, m_bRightHandUp(false)
 	, m_bLeftHandForward(false)
 	, m_bRightHandForward(false)
+	, m_vLeftHandSpeed(0.f)
+	, m_vRightHandSpeed(0.f)
+	, m_vLeftFootSpeed(0.f)
+	, m_vRightFootSpeed(0.f)
+	, m_vLeftHandSpeedY(0.f)
+	, m_vRightHandSpeedY(0.f)
+	, m_fSpeedRatio(fMinSpeedRatio)
 	, m_bMainEffectOn(false)
 	, m_bRedOn(false)
 	, m_bYellowOn(false)
 	, m_bGreenOn(false)
+	, m_fAdjustableFlameIntensity(fMinSpeedRatio)
 {
 }
 // /Bloom
@@ -95,10 +110,10 @@ void CSkeletalViewerApp::Nui_Zero()
     m_SkeletonDC = NULL;
     m_SkeletonBMP = NULL;
     m_SkeletonOldObj = NULL;
-    m_PensTotal = 6;
+    m_PensTotal = 6*2;
     ZeroMemory(m_Points,sizeof(m_Points));
     m_LastSkeletonFoundTime = -1;
-    m_bScreenBlanked = false;
+    m_bNoSkeleton = false;
     m_FramesTotal = 0;
     m_LastFPStime = -1;
     m_LastFramesTotal = 0;
@@ -138,17 +153,16 @@ HRESULT CSkeletalViewerApp::Nui_Init()
     m_hNextVideoFrameEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
     m_hNextSkeletonEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
 
-    GetWindowRect(GetDlgItem( m_hWnd, IDC_SKELETALVIEW ), &rc );
+    GetWindowRect(GetDlgItem( m_hWnd, IDC_DEPTHVIEWER ), &rc );
     int width = rc.right - rc.left;
     int height = rc.bottom - rc.top;
-    HDC hdc = GetDC(GetDlgItem( m_hWnd, IDC_SKELETALVIEW));
+    HDC hdc = GetDC(GetDlgItem( m_hWnd, IDC_DEPTHVIEWER));
     m_SkeletonBMP = CreateCompatibleBitmap( hdc, width, height );
-    m_SkeletonDC = CreateCompatibleDC( hdc );
-    ::ReleaseDC(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), hdc );
+    m_SkeletonDC = hdc;
+    ::ReleaseDC(GetDlgItem(m_hWnd,IDC_DEPTHVIEWER), hdc );
     m_SkeletonOldObj = SelectObject( m_SkeletonDC, m_SkeletonBMP );
 
-    // TEMP_CL hr = m_DrawDepth.CreateDevice( GetDlgItem( m_hWnd, IDC_DEPTHVIEWER ) );
-    hr = m_DrawDepth.CreateDevice( GetDlgItem( m_hWnd, IDC_VIDEOVIEW ) );
+    hr = m_DrawDepth.CreateDevice( GetDlgItem( m_hWnd, IDC_DEPTHVIEWER ) );
     if( FAILED( hr ) )
     {
         MessageBoxResource( m_hWnd,IDS_ERROR_D3DCREATE,MB_OK | MB_ICONHAND);
@@ -156,21 +170,6 @@ HRESULT CSkeletalViewerApp::Nui_Init()
     }
 
     hr = m_DrawDepth.SetVideoType( 320, 240, 320 * 4 );
-    if( FAILED( hr ) )
-    {
-        MessageBoxResource( m_hWnd,IDS_ERROR_D3DVIDEOTYPE,MB_OK | MB_ICONHAND);
-        return hr;
-    }
-
-    // TEMP_CL hr = m_DrawVideo.CreateDevice( GetDlgItem( m_hWnd, IDC_VIDEOVIEW ) );
-    hr = m_DrawVideo.CreateDevice( GetDlgItem( m_hWnd, IDC_DEPTHVIEWER ) );
-    if( FAILED( hr ) )
-    {
-        MessageBoxResource( m_hWnd,IDS_ERROR_D3DCREATE,MB_OK | MB_ICONHAND);
-        return hr;
-    }
-
-    hr = m_DrawVideo.SetVideoType( 640, 480, 640 * 4 );
     if( FAILED( hr ) )
     {
         MessageBoxResource( m_hWnd,IDS_ERROR_D3DVIDEOTYPE,MB_OK | MB_ICONHAND);
@@ -241,6 +240,12 @@ void CSkeletalViewerApp::Nui_UnInit( )
         DeleteObject(m_Pen[3]);
         DeleteObject(m_Pen[4]);
         DeleteObject(m_Pen[5]);
+        DeleteObject(m_Pen[6]);
+        DeleteObject(m_Pen[7]);
+        DeleteObject(m_Pen[8]);
+        DeleteObject(m_Pen[9]);
+        DeleteObject(m_Pen[10]);
+        DeleteObject(m_Pen[11]);
         ZeroMemory(m_Pen,sizeof(m_Pen));
     }
 
@@ -325,10 +330,9 @@ DWORD WINAPI CSkeletalViewerApp::Nui_ProcessThread(LPVOID pParam)
         dt = t - pthis->m_LastSkeletonFoundTime;
         if( dt > 250 )
         {
-            if( !pthis->m_bScreenBlanked )
+            if( !pthis->m_bNoSkeleton )
             {
-                pthis->Nui_BlankSkeletonScreen( GetDlgItem( pthis->m_hWnd, IDC_SKELETALVIEW ) );
-                pthis->m_bScreenBlanked = true;
+                pthis->m_bNoSkeleton = true;
  
 				// Bloom
 				// Turn off effects if we don't have any skel
@@ -340,6 +344,35 @@ DWORD WINAPI CSkeletalViewerApp::Nui_ProcessThread(LPVOID pParam)
 				// /Bloom 
 			}
         }
+
+		// Draw the depth feed and the skeletons if there are any
+		if(pthis->m_bGotNewSkelFrame || pthis->m_bNoSkeleton)
+		{
+			pthis->m_DrawDepth.DrawFrame( (BYTE*) pthis->m_rgbWk );
+
+			if(!pthis->m_bNoSkeleton)
+			{
+				HDC hdc = GetDC(GetDlgItem( pthis->m_hWnd, IDC_DEPTHVIEWER));
+				pthis->m_SkeletonDC = hdc;
+
+				// draw each skeleton color according to the slot within they are found.
+				for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
+				{
+					if( SkeletonFrame.SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
+					{
+						pthis->Nui_DrawSkeleton(&SkeletonFrame.SkeletonData[i], GetDlgItem( pthis->m_hWnd, IDC_DEPTHVIEWER ), i );
+					}
+				}
+
+				// clear the drawing window
+				pthis->Nui_DoDoubleBuffer(GetDlgItem(pthis->m_hWnd,IDC_DEPTHVIEWER), pthis->m_SkeletonDC);
+
+				::ReleaseDC(GetDlgItem(pthis->m_hWnd,IDC_DEPTHVIEWER), hdc );
+			}
+
+			pthis->m_bGotNewDepthFrame = false;
+			pthis->m_bGotNewSkelFrame = false;
+		}
 
         // Process signal events
         switch(nEventIdx)
@@ -428,13 +461,13 @@ void CSkeletalViewerApp::Nui_GotDepthAlert( )
                 rgbrun++;
             }
         }
-
-        m_DrawDepth.DrawFrame( (BYTE*) m_rgbWk );
     }
     else
     {
         OutputDebugString( L"Buffer length of received texture is bogus\r\n" );
     }
+
+	m_bGotNewDepthFrame = true;
 
     NuiImageStreamReleaseFrame( m_pDepthStreamHandle, pImageFrame );
 }
@@ -470,9 +503,14 @@ void CSkeletalViewerApp::Nui_DrawSkeletonSegment( NUI_SKELETON_DATA * pSkel, int
     va_end(vl);
 }
 
-void CSkeletalViewerApp::Nui_DrawSkeleton( bool bBlank, NUI_SKELETON_DATA * pSkel, HWND hWnd, int WhichSkeletonColor )
+void CSkeletalViewerApp::Nui_DrawSkeleton(NUI_SKELETON_DATA * pSkel, HWND hWnd, int WhichSkeletonColor )
 {
-    HGDIOBJ hOldObj = SelectObject(m_SkeletonDC,m_Pen[WhichSkeletonColor % m_PensTotal]);
+	int iPenIndex = WhichSkeletonColor % m_PensTotal;
+	if(WhichSkeletonColor != m_iCurSkelIndex)
+	{
+		iPenIndex += 6;
+	}
+    HGDIOBJ hOldObj = SelectObject(m_SkeletonDC,m_Pen[iPenIndex]);
     
     RECT rct;
     GetClientRect(hWnd, &rct);
@@ -481,17 +519,21 @@ void CSkeletalViewerApp::Nui_DrawSkeleton( bool bBlank, NUI_SKELETON_DATA * pSke
 
     if( m_Pen[0] == NULL )
     {
-        m_Pen[0] = CreatePen( PS_SOLID, width / 80, RGB(255, 0, 0) );
-        m_Pen[1] = CreatePen( PS_SOLID, width / 80, RGB( 0, 255, 0 ) );
-        m_Pen[2] = CreatePen( PS_SOLID, width / 80, RGB( 64, 255, 255 ) );
-        m_Pen[3] = CreatePen( PS_SOLID, width / 80, RGB(255, 255, 64 ) );
-        m_Pen[4] = CreatePen( PS_SOLID, width / 80, RGB( 255, 64, 255 ) );
-        m_Pen[5] = CreatePen( PS_SOLID, width / 80, RGB( 128, 128, 255 ) );
-    }
+		// Skel controlling effect
+        m_Pen[0] = CreatePen( PS_SOLID, width / 40, RGB(255, 0, 0) );
+        m_Pen[1] = CreatePen( PS_SOLID, width / 40, RGB( 0, 255, 0 ) );
+        m_Pen[2] = CreatePen( PS_SOLID, width / 40, RGB( 64, 255, 255 ) );
+        m_Pen[3] = CreatePen( PS_SOLID, width / 40, RGB(255, 255, 64 ) );
+        m_Pen[4] = CreatePen( PS_SOLID, width / 40, RGB( 255, 64, 255 ) );
+        m_Pen[5] = CreatePen( PS_SOLID, width / 40, RGB( 128, 128, 255 ) );
 
-    if( bBlank )
-    {
-        PatBlt( m_SkeletonDC, 0, 0, width, height, BLACKNESS );
+		// Skel not controlling effect
+        m_Pen[6]  = CreatePen( PS_SOLID, width / 120, RGB(255, 0, 0) );
+        m_Pen[7]  = CreatePen( PS_SOLID, width / 120, RGB( 0, 255, 0 ) );
+        m_Pen[8]  = CreatePen( PS_SOLID, width / 120, RGB( 64, 255, 255 ) );
+        m_Pen[9]  = CreatePen( PS_SOLID, width / 120, RGB(255, 255, 64 ) );
+        m_Pen[10] = CreatePen( PS_SOLID, width / 120, RGB( 255, 64, 255 ) );
+        m_Pen[11] = CreatePen( PS_SOLID, width / 120, RGB( 128, 128, 255 ) );
     }
 
     int scaleX = width; //scaling up to image coordinates
@@ -503,9 +545,15 @@ void CSkeletalViewerApp::Nui_DrawSkeleton( bool bBlank, NUI_SKELETON_DATA * pSke
         NuiTransformSkeletonToDepthImageF( pSkel->SkeletonPositions[i], &fx, &fy );
         m_Points[i].x = (int) ( fx * scaleX + 0.5f );
         m_Points[i].y = (int) ( fy * scaleY + 0.5f );
+
+		// Range check
+		if(m_Points[i].x < 0) m_Points[i].x = 0;
+		if(m_Points[i].y < 0) m_Points[i].y = 0;
+		if(m_Points[i].x > width)  m_Points[i].x = width;
+		if(m_Points[i].y > height) m_Points[i].y = height;
     }
 
-    SelectObject(m_SkeletonDC,m_Pen[WhichSkeletonColor%m_PensTotal]);
+    SelectObject(m_SkeletonDC,m_Pen[iPenIndex]);
     
     Nui_DrawSkeletonSegment(pSkel,4,NUI_SKELETON_POSITION_HIP_CENTER, NUI_SKELETON_POSITION_SPINE, NUI_SKELETON_POSITION_SHOULDER_CENTER, NUI_SKELETON_POSITION_HEAD);
     Nui_DrawSkeletonSegment(pSkel,5,NUI_SKELETON_POSITION_SHOULDER_CENTER, NUI_SKELETON_POSITION_SHOULDER_LEFT, NUI_SKELETON_POSITION_ELBOW_LEFT, NUI_SKELETON_POSITION_WRIST_LEFT, NUI_SKELETON_POSITION_HAND_LEFT);
@@ -549,8 +597,6 @@ void CSkeletalViewerApp::Nui_DoDoubleBuffer(HWND hWnd,HDC hDC)
 
 void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
 {
-    NUI_SKELETON_FRAME SkeletonFrame;
-
     HRESULT hr = NuiSkeletonGetNextFrame( 0, &SkeletonFrame );
     if( FAILED( hr ) )
     {
@@ -595,22 +641,11 @@ void CSkeletalViewerApp::Nui_GotSkeletonAlert( )
     }
 
     // we found a skeleton, re-start the timer
-    m_bScreenBlanked = false;
+    m_bNoSkeleton = false;
     m_LastSkeletonFoundTime = -1;
 
-    // draw each skeleton color according to the slot within they are found.
-    bool bBlank = true;
-    for( int i = 0 ; i < NUI_SKELETON_COUNT ; i++ )
-    {
-        if( SkeletonFrame.SkeletonData[i].eTrackingState == NUI_SKELETON_TRACKED )
-        {
-            Nui_DrawSkeleton( bBlank, &SkeletonFrame.SkeletonData[i], GetDlgItem( m_hWnd, IDC_SKELETALVIEW ), i );
-            bBlank = false;
-        }
-    }
-
-	// clear the drawing window
-    Nui_DoDoubleBuffer(GetDlgItem(m_hWnd,IDC_SKELETALVIEW), m_SkeletonDC);
+	// Signal that we got new skel data so we can draw it in the main loop
+	m_bGotNewSkelFrame = true;
 
 	// do detections for Bloom
 	ProcessSkeletonForBloom(&SkeletonFrame);
@@ -806,11 +841,10 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	{
 		m_fSpeedRatio = 1.f;
 	}
-	// co-opt FPS display for speed ratio (1-10) and also showing if the serial connection is active
-	int iDebugNumber = (int) (m_fSpeedRatio * 10.f);
-	if(m_bSerialPortOpen)
-		iDebugNumber += 1000;
-	SetDlgItemInt( m_hWnd, IDC_FPS, iDebugNumber,FALSE );
+	else if(m_fSpeedRatio < fMinSpeedRatio)
+	{
+		m_fSpeedRatio = fMinSpeedRatio;
+	}
 
 	// Hand speed trigger on an off - we aren't using this for now
 
@@ -953,7 +987,7 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
     RGBQUAD q;
     q.rgbRed = q.rgbBlue = q.rgbGreen = 0;
 
-	// Bloom - Change color of the depth feed to show bloom's state
+	// Change color of the depth feed to show bloom's state
 
 	// show adjustable flame intensity with general brightness of the depth feed
 	float fAdjustableEffectScale = m_fAdjustableFlameIntensity;
@@ -967,8 +1001,8 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 	}
 	lumens = (BYTE)(lumens * fAdjustableEffectScale);
 
-	// only render depth field if "flame" is on, otherwise use flat colors
-	if(Player != NUI_SKELETON_INVALID_TRACKING_ID && m_bMainEffectOn)
+	// only render depth field for person controlling the effect, otherwise use flat colors
+	if(Player == (m_iCurSkelIndex + 1) && m_bMainEffectOn)
 	{
 		if(m_bYellowOn)
 		{
@@ -1002,24 +1036,22 @@ RGBQUAD CSkeletalViewerApp::Nui_ShortToQuad_Depth( USHORT s )
 		}
 	}
 
-
-	//// TEMP_CL
-	//if(Player != NUI_SKELETON_INVALID_TRACKING_ID)
-	//{
- //       q.rgbRed =   ((s & 0xf000) >> 12) * 16;
- //       q.rgbBlue =  ((s & 0x0f00) >> 8)  * 16;
- //       q.rgbGreen = ((s & 0x00f0) >> 4)  * 16;
-	//	return q;
-	//}
-	// /Bloom
-
 	// non-flame color to identify players, intensity still driven by velocity
 	switch( Player )
     {
     case 0:
-        q.rgbRed = lumens / 2;
-        q.rgbBlue = lumens / 2;
-        q.rgbGreen = lumens / 2;
+		if(m_bSerialPortOpen)
+		{
+			q.rgbRed = lumens / 2;
+			q.rgbBlue = lumens / 2;
+			q.rgbGreen = lumens / 2;
+		}
+		else
+		{
+			q.rgbRed = lumens / 2;
+			q.rgbBlue = 0;
+			q.rgbGreen = 0;
+		}
         break;
     case 1:
         q.rgbRed = lumens;
