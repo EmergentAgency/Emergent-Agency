@@ -14,7 +14,7 @@
 static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 // Number of nodes
-static int NUM_NODES = 3;
+static int NUM_NODES = 5;
 
 // The index for this node.  If it is < 0, use the node index stored in
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
@@ -22,13 +22,14 @@ int iNodeIndex = -1;
 
 // The address in EEPROM for various saved values
 static const int EEPROM_ADDR_NODE_INDEX = 0;
-static const int EEPROM_ADDR_DATA_VERSION = 1;
-static const int EEPROM_ADDR_MIN_SPEED = 2;
-static const int EEPROM_ADDR_MAX_SPEED = 4;
-static const int EEPROM_ADDR_NEW_SPEED_WEIGHT = 6;
+static const int EEPROM_ADDR_DATA_VERSION = 21;
+static const int EEPROM_ADDR_MIN_SPEED = 22;
+static const int EEPROM_ADDR_MAX_SPEED = 24;
+static const int EEPROM_ADDR_NEW_SPEED_WEIGHT = 26;
+static const int EEPROM_ADDR_INPUT_EXPONENT = 28;
 
 // The current data version of the EPROM data.  Each time the format changes, increment this
-static const int CUR_EPROM_DATA_VERSION = 1;
+static const int CUR_EPROM_DATA_VERSION = 2;
 
 // If this is true, we use Xbee to send signals.  Right now, these doesn't turn on anything special but it might at some point.
 static const bool USE_XBEE = false;
@@ -97,18 +98,25 @@ volatile unsigned long g_iLastPeriodMicro = 0;
 // This is the last time the interupt was called
 volatile unsigned long g_iLastTimeMicro = 0;
 
-// The min speed in meters per second to respond to.  Any motion at or below this will be 
+// The number of tuning vars there are per node.  These are sent from the PC program.
+static int NUM_TUNING_VARS = 4;
+
+// Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
-static float fMinSpeed = 0.02;
+float fMinSpeed = 0.02;
 
-// The max speed in meters per second.  All motion above this speed will be treated like this speed
-static float fMaxSpeed = 0.22;
+// Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
+float fMaxSpeed = 0.22;
 
-// This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
+// Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
-static float fNewSpeedWeight = 0.05;
+float fNewSpeedWeight = 0.05;
+
+// Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
+// to be adjusted in a non-linear fashion.
+float fInputExponent = 1.0;
 
 // This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and fMinSpeed, fMaxSpeed, fNewSpeedWeight.
@@ -166,6 +174,8 @@ void setup()
 	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
 	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
 	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
+	int ySavedInputExponentU = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT);
+	int ySavedInputExponentL = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT+1);
 	if( ySavedDataVersion != CUR_EPROM_DATA_VERSION )
 	{
 		// Invalid saved settings
@@ -187,6 +197,8 @@ void setup()
 			Serial.println(ySavedMaxSpeedL);
 			Serial.println(ySavedNewSpeedWeightU);
 			Serial.println(ySavedNewSpeedWeightL);
+			Serial.println(ySavedInputExponentU);
+			Serial.println(ySavedInputExponentL);
 		}
 
 		// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
@@ -200,6 +212,24 @@ void setup()
 		// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
 		int iNewWeight = (ySavedNewSpeedWeightU << 8) + ySavedNewSpeedWeightL;
 		fNewSpeedWeight = iNewWeight / 65535.0;
+
+		// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+		int iInputExponent = (ySavedInputExponentU << 8) + ySavedInputExponentL;
+		fInputExponent = iInputExponent / 65535.0 * 5.0;
+
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("Settings from EEPROM");
+			Serial.print(" fMinSpeed=");
+			Serial.print(fMinSpeed);
+			Serial.print(" fMaxSpeed=");
+			Serial.print(fMaxSpeed);
+			Serial.print(" fNewSpeedWeight*10=");
+			Serial.print(fNewSpeedWeight*10);
+			Serial.print(" fInputExponent*10=");
+			Serial.print(fInputExponent*10);
+			Serial.println("");
+		}
 	}
 
     // setup LED pins for output
@@ -324,7 +354,7 @@ bool ReceiveTuningMessage()
 {
 	// Once we have the start of a message, delay until we have it all
 	int iTimeoutCounter = 0;
-	int iNumExpectedBytes = 3 * 2 * NUM_NODES + 1; // 3 tuning vars * 2 bytes per var * number of nodes + the end byte
+	int iNumExpectedBytes = NUM_TUNING_VARS * 2 * NUM_NODES + 1; // 3 tuning vars * 2 bytes per var * number of nodes + the end byte
 	while(Uart.available() < iNumExpectedBytes && iTimeoutCounter < RCV_TIMEOUT_MAX_COUNT)
 	{
 		iTimeoutCounter++;
@@ -344,6 +374,8 @@ bool ReceiveTuningMessage()
 	int iNewMaxSpeedL = -1;
 	int iNewWeightU = -1;
 	int iNewWeightL = -1;
+	int iNewInputExponentU = -1;
+	int iNewInputExponentL = -1;
 	for(int i = 0; i < NUM_NODES; i++)
 	{
 		// If this is our node, read in the values and save them
@@ -355,10 +387,18 @@ bool ReceiveTuningMessage()
 			iNewMaxSpeedL = Uart.read();
 			iNewWeightU = Uart.read();
 			iNewWeightL = Uart.read();
+			iNewInputExponentU = Uart.read();
+			iNewInputExponentL = Uart.read();
+			Serial.print("TEMP_CL iNewInputExponentU=");
+			Serial.println(iNewInputExponentU);
+			Serial.print("TEMP_CL iNewInputExponentL=");
+			Serial.println(iNewInputExponentL);
 		}
 		// Otherwise, just read and ignore the results
 		else
 		{
+			Uart.read();
+			Uart.read();
 			Uart.read();
 			Uart.read();
 			Uart.read();
@@ -372,20 +412,30 @@ bool ReceiveTuningMessage()
 	int iEndByte = Uart.read();
 	if(iEndByte != END_RCV_BYTE)
 	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("Didn't get valid End Byte. iEndByte=");
+			Serial.println(iEndByte);
+		}
+
 		return false;
 	}
 
 	// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-	int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
+	unsigned int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
 	fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
 
 	// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-	int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
+	unsigned int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
 	fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
 
 	// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-	int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
+	unsigned int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
 	fNewSpeedWeight = iNewWeight / 65535.0;
+
+	// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+	unsigned int iNewInputExponent = (iNewInputExponentU << 8) + iNewInputExponentL;
+	fInputExponent = iNewInputExponent / 65535.0 * 5.0;
 
 	if(USE_SERIAL_FOR_DEBUGGING)
 	{
@@ -396,6 +446,8 @@ bool ReceiveTuningMessage()
 		Serial.print(fMaxSpeed);
 		Serial.print(" fNewSpeedWeight*10=");
 		Serial.print(fNewSpeedWeight*10);
+		Serial.print(" fInputExponent*10=");
+		Serial.print(fInputExponent*10);
 		Serial.println("");
 	}
 
@@ -404,9 +456,66 @@ bool ReceiveTuningMessage()
 	EEPROM.write(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
 	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
 	EEPROM.write(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
-	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMaxSpeedL);
+	EEPROM.write(EEPROM_ADDR_MAX_SPEED+1, iNewMaxSpeedL);
 	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
 	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
+	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT,   iNewInputExponentU);
+	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT+1, iNewInputExponentL);
+
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print("EAMidiNodes - Wrote data version ");
+		Serial.println(CUR_EPROM_DATA_VERSION);
+		Serial.println(iNewMinSpeedU);
+		Serial.println(iNewMinSpeedL);
+		Serial.println(iNewMaxSpeedU);
+		Serial.println(iNewMaxSpeedL);
+		Serial.println(iNewWeightU);
+		Serial.println(iNewWeightL);
+		Serial.println(iNewInputExponentU);
+		Serial.println(iNewInputExponentL);
+	}
+
+
+	// TEMP_CL
+	delay(500);
+	// Read in settings from EPROM
+	int ySavedDataVersion = EEPROM.read(EEPROM_ADDR_DATA_VERSION);
+	int ySavedMinSpeedU = EEPROM.read(EEPROM_ADDR_MIN_SPEED);
+	int ySavedMinSpeedL = EEPROM.read(EEPROM_ADDR_MIN_SPEED+1);
+	int ySavedMaxSpeedU = EEPROM.read(EEPROM_ADDR_MAX_SPEED);
+	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
+	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
+	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
+	int ySavedInputExponentU = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT);
+	int ySavedInputExponentL = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT+1);
+	if( ySavedDataVersion != CUR_EPROM_DATA_VERSION )
+	{
+		// Invalid saved settings
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - tried to read settings from EEPROM but failed.  Read in data version ");
+			Serial.println(ySavedDataVersion);
+		}
+	}
+	else
+	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - Read in data version ");
+			Serial.println(ySavedDataVersion);
+			Serial.println(ySavedMinSpeedU);
+			Serial.println(ySavedMinSpeedL);
+			Serial.println(ySavedMaxSpeedU);
+			Serial.println(ySavedMaxSpeedL);
+			Serial.println(ySavedNewSpeedWeightU);
+			Serial.println(ySavedNewSpeedWeightL);
+			Serial.println(ySavedInputExponentU);
+			Serial.println(ySavedInputExponentL);
+		}
+	}
+	delay(500);
+
 
 	// Debug saying we got a valid message
 	for(int i = 0; i < 4; i++)
@@ -425,6 +534,8 @@ bool ReceiveTuningMessage()
 		Serial.print(fMaxSpeed);
 		Serial.print(" fNewSpeedWeight=");
 		Serial.print(fNewSpeedWeight);
+		Serial.print(" fInputExponent=");
+		Serial.print(fInputExponent);
 		Serial.println("");
 	}
 
@@ -451,17 +562,34 @@ void loop()
 	// Calculate the new speed ratio
 	float fNewSpeedRatio = (fCurSpeed - fMinSpeed) / (fMaxSpeed - fMinSpeed);
 
+	// TEMP_CL - try this AFTER the smoothing..
+	//// Apply the input exponent to change the input curve
+	//Serial.print("TEMP_CL fNewSpeedRatio pre exponent = ");
+	//Serial.print(fNewSpeedRatio);
+	//fNewSpeedRatio = pow(fNewSpeedRatio, fInputExponent);
+	//Serial.print(" fNewSpeedRatio post exponent = ");
+	//Serial.println(fNewSpeedRatio);
+
 	// Calculate the smoothed speed ratio
 	g_fSpeedRatio = fNewSpeedRatio * fNewSpeedWeight + g_fSpeedRatio * (1.0 - fNewSpeedWeight);
 
+	// Apply the input exponent to change the input curve.  This is the final output.
+	float fDisplaySpeedRatio = pow(g_fSpeedRatio, fInputExponent);
+	//Serial.print("TEMP_CL fNewSpeedRatio =");
+	//Serial.print(fNewSpeedRatio);
+	//Serial.print(" g_fSpeedRatio=");
+	//Serial.print(g_fSpeedRatio);
+	//Serial.print(" fDisplaySpeedRatio=");
+	//Serial.println(fDisplaySpeedRatio);
+
 	// Use the speed ratio to set the brightness of the LEDs
-    if(g_fSpeedRatio > 0)
+    if(fDisplaySpeedRatio > 0)
     {
 		for(int nLED = 0; nLED < NUM_LEDS_PER_NODE; nLED++)
 		{
 			float fSubRangeMin = nLED / 5.0;
 			float fSubRangeMax = (nLED + 1.0) / 5.0;
-			float fSubRangeRatio = (g_fSpeedRatio - fSubRangeMin) / (fSubRangeMax - fSubRangeMin);
+			float fSubRangeRatio = (fDisplaySpeedRatio - fSubRangeMin) / (fSubRangeMax - fSubRangeMin);
 			fSubRangeRatio = Clamp(fSubRangeRatio, 0.0, 1.0);
 			int iLEDbrightness = fSubRangeRatio * 255;
 
@@ -481,7 +609,7 @@ void loop()
 	// to 5 bits (32 values) so that it fits in a single byte.
 	// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
 	byte ySendByte = iNodeIndex << 5;
-	ySendByte = ySendByte | (int(g_fSpeedRatio * 30 + 0.5) + 1);
+	ySendByte = ySendByte | (int(fDisplaySpeedRatio * 30 + 0.5) + 1);
 
 	// DEBUG
 	// We don't do this check anymore because we only have 7 nodes 
@@ -555,8 +683,9 @@ void loop()
 			}
 
 			// Do some error checking that can likely be commented out in a final version
+			// The PC "node" index is NUM_NODES, so accept that as a valid value too.
 			if( iIncomingNodeIndex == iNodeIndex ||
-				iIncomingNodeIndex >= NUM_NODES )
+				iIncomingNodeIndex > NUM_NODES )
 			{
 				if(USE_SERIAL_FOR_DEBUGGING)
 				{

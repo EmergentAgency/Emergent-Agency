@@ -12,7 +12,7 @@ import processing.serial.*;
 import controlP5.*;
 
 // Number of nodes
-static int NUM_NODES = 3;
+static int NUM_NODES = 5;
 
 // If this much time passes, without hearing from a node, we assume it is broken and set its output to 0
 static int NODE_UPDATE_TIMEOUT_MS = 2000;
@@ -64,20 +64,31 @@ static int END_SEND_BYTE = 241; // Binary = 11110001 (this also translates to no
 // The filename of the settings file.  If the file doesn't exist, the values below are used.
 static String SETTINGS_FILENAME = "NodeSettings.txt";
 
-// The number of config vars there are per node
-static int NUM_CONFIG_VARS = 3;
+// The number of tuning / config vars there are per node.  These the vars that this program sends to the different nodes live.
+static int NUM_TUNING_VARS = 6;
 
-// The min speed in meters per second to respond to.  Any motion at or below this will be 
+// Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
 float[] afMinSpeed = {0.02,0.02,0.02,0.02,0.02,0.02,0.02};
 
-// The max speed in meters per second.  All motion above this speed will be treated like this speed
+// Tuning - The max speed in meters per second.  All motion above this speed will be treated like this speed
 float[] afMaxSpeed = {0.22,0.22,0.22,0.22,0.22,0.22,0.22};
 
-// This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
+// Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 float[] afNewSpeedWeight = {0.05,0.05,0.05,0.05,0.05,0.05,0.05};
+
+// Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
+// to be adjusted in a non-linear fashion.
+float[] afInputExponent = {1.0,1.0,1.0,1.0,1.0,1.0,1.0};
+
+// Tuning - The max MIDI value this sensor will return.  The sensor's full range is scaled between the min and max MIDI values.
+float[] afMaxMIDIValue = {127,127,127,127,127,127,127};
+
+// Tuning - The min MIDI value this sensor will return.  The sensor's full range is scaled between the min and max MIDI values.
+float[] afMinMIDIValue = {0,0,0,0,0,0,0};
+
 
 // If this is true, we wait our turn on the com bus and then send out the tuning updates
 boolean  g_bPushNewValuesToNodes = false;
@@ -91,7 +102,7 @@ static int NODE_COM_TIMEOUT_MS = 30;
 
 // Layout constants
 static int WINDOW_WIDTH = 700;
-static int WINDOW_HEIGHT = 600;
+static int WINDOW_HEIGHT = 700;
 static int LIGHT_BARS_INPUT_HEIGHT = 350;
 
 // Controller for things like text fields and check boxes.
@@ -130,26 +141,47 @@ void setup()
   PFont font = createFont("arial",20);
 
   // Create all the per node text boxes
+  int iOffsetY = 0;
   for(int i = 0; i < NUM_NODES; i++)
   {
     int iOffsetX = i * width / NUM_NODES + 3;
-    cp5.addTextfield("Min_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + 10, 70, 25)
+	iOffsetY = 10;
+    cp5.addTextfield("Max_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMaxMIDIValue[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Min_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMinMIDIValue[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Min_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMinSpeed[i]));
-    cp5.addTextfield("Max_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + 50, 70, 25)
+	iOffsetY += 40;
+    cp5.addTextfield("Max_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMaxSpeed[i]));
-    cp5.addTextfield("New_Speed_Weight_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + 90, 70, 25)
+	iOffsetY += 40;
+    cp5.addTextfield("New_Speed_Weight_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afNewSpeedWeight[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Input_Exponent_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afInputExponent[i]));
+	iOffsetY += 40;
   }
 
   // Create a check box container for all our binary settings
+  iOffsetY += 30;
   checkbox = cp5.addCheckBox("ToggleSettings")
-    .setPosition(3, LIGHT_BARS_INPUT_HEIGHT + 150)
+    .setPosition(3, LIGHT_BARS_INPUT_HEIGHT + iOffsetY)
     .setSize(25, 25)
     .addItem("Link_All_Nodes", LINK_ALL_NODES_CHECKBOX_INDEX);
 
@@ -168,7 +200,7 @@ void setup()
 
   // Pick the correct MIDI device.
   // TEMP_CL - See if there is a way to avoid hardcoding this...
-  g_midiOut = RWMidi.getOutputDevices()[3].createOutput();
+  g_midiOut = RWMidi.getOutputDevices()[4].createOutput();
  
   // List available serial ports
   println("Available serial ports: " + Serial.list().length);
@@ -180,10 +212,10 @@ void setup()
     g_bUseSerial = false;
   }
 
-  // Pick the correct serial port.  It is almost always the first device.
+  // Pick the correct serial port.  It is almost always the last device.
   if(g_bUseSerial)
   {
-    g_port = new Serial(this, Serial.list()[1], COM_BAUD_RATE); // TEMP_CL - using second device for testing...
+    g_port = new Serial(this, Serial.list()[Serial.list().length - 1], COM_BAUD_RATE);
   }
 
   // When we start, update the nodes so everyone is working with the same values
@@ -216,14 +248,22 @@ void SendNewValuesToNodes()
       // convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 1.0 stored 2 bytes
       int iNewWeight = int(afNewSpeedWeight[i] * 65535.0);
       int iNewWeightU = iNewWeight >> 8;
-      int nNewWeightL = iNewWeight & 255;
+      int iNewWeightL = iNewWeight & 255;
+
+      // convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 5.0 stored 2 bytes
+      int iNewExponent = int(afInputExponent[i] * 65535.0 / 5.0);
+      int iNewExponentU = iNewExponent >> 8;
+      int iNewExponentL = iNewExponent & 255;
+	  println("TEMP_CL iNewExponentU=" + iNewExponentU + " iNewExponentL=" + iNewExponentL);
 
       g_port.write(iNewMinSpeedU);
       g_port.write(iNewMinSpeedL);
       g_port.write(iNewMaxSpeedU);
       g_port.write(iNewMaxSpeedL);
       g_port.write(iNewWeightU);
-      g_port.write(nNewWeightL);
+      g_port.write(iNewWeightL);
+      g_port.write(iNewExponentU);
+      g_port.write(iNewExponentL);
     }
 
     g_port.write(END_SEND_BYTE);
@@ -236,16 +276,19 @@ void SendNewValuesToNodes()
 
 void SaveSettingsToFile()
 {
-  int iNumLinesPerNode = NUM_CONFIG_VARS + 1;
+  int iNumLinesPerNode = NUM_TUNING_VARS + 1;
 
   String[] asData = new String[iNumLinesPerNode * NUM_NODES];
   for(int i = 0; i < NUM_NODES; i++)
   {
     int iDataOffet = i * iNumLinesPerNode;
-    asData[iDataOffet + 0] = str(i);
-    asData[iDataOffet + 1] = str(afMinSpeed[i]);
-    asData[iDataOffet + 2] = str(afMaxSpeed[i]);
-    asData[iDataOffet + 3] = str(afNewSpeedWeight[i]);
+    asData[iDataOffet++] = str(i);
+    asData[iDataOffet++] = str(afMinSpeed[i]);
+    asData[iDataOffet++] = str(afMaxSpeed[i]);
+    asData[iDataOffet++] = str(afNewSpeedWeight[i]);
+    asData[iDataOffet++] = str(afInputExponent[i]);
+    asData[iDataOffet++] = str(afMaxMIDIValue[i]);
+    asData[iDataOffet++] = str(afMinMIDIValue[i]);
   }
   saveStrings(SETTINGS_FILENAME, asData);
 }
@@ -254,7 +297,7 @@ void SaveSettingsToFile()
 
 void LoadSettingsFromFile()
 {
-  int iNumLinesPerNode = NUM_CONFIG_VARS + 1;
+  int iNumLinesPerNode = NUM_TUNING_VARS + 1;
 
   String[] asData = loadStrings(SETTINGS_FILENAME);
   if(asData == null)
@@ -273,9 +316,12 @@ void LoadSettingsFromFile()
       {
         int iDataOffet = i * iNumLinesPerNode; 
         // First entry is node index. We ignore it while reading but it helps make the file more human readable.
-        afMinSpeed[i] =       Float.parseFloat(asData[iDataOffet + 1]);
-        afMaxSpeed[i] =       Float.parseFloat(asData[iDataOffet + 2]);
-        afNewSpeedWeight[i] = Float.parseFloat(asData[iDataOffet + 3]);
+        afMinSpeed[i] =       Float.parseFloat(asData[++iDataOffet]);
+        afMaxSpeed[i] =       Float.parseFloat(asData[++iDataOffet]);
+        afNewSpeedWeight[i] = Float.parseFloat(asData[++iDataOffet]);
+        afInputExponent[i] =  Float.parseFloat(asData[++iDataOffet]);
+        afMaxMIDIValue[i] =   Float.parseFloat(asData[++iDataOffet]);
+        afMinMIDIValue[i] =   Float.parseFloat(asData[++iDataOffet]);
       }
     }
     catch (NumberFormatException e)
@@ -291,130 +337,144 @@ void LoadSettingsFromFile()
 // Unless there is too much going on this runs at 60 FPS (about 16 or 17 ms).
 void draw()
 {
-  // Get current time.  Used for checking if nodes haven't updated a value in a while
-  int iCurTimeMS = millis();
+	// Get current time.  Used for checking if nodes haven't updated a value in a while
+	int iCurTimeMS = millis();
 
-  println(iCurTimeMS + " TEMP_CL - draw");
+	println(iCurTimeMS + " TEMP_CL - draw");
 
-  // Reset g_abNewMotionData before we read new values
-  for(int i = 0; i < NUM_NODES; i++)
-  {
-    g_abNewMotionData[i] = false;
-  }
+	// Reset g_abNewMotionData before we read new values
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		g_abNewMotionData[i] = false;
+	}
 
-  // Draw midi input from mouse (and also from sensors if pc override input is 0)
-  background(51); 
-  for(int i = 0; i < NUM_NODES; i++)
-  {
-    // Get left and right bounds of this vertical rect
-    int iLeft = i * width/NUM_NODES;
-    int iRight = (i+1) * width/NUM_NODES;
+	// Draw midi input from mouse (and also from sensors if pc override input is 0)
+	background(51); 
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		// Get left and right bounds of this vertical rect
+		int iLeft = i * width/NUM_NODES;
+		int iRight = (i+1) * width/NUM_NODES;
 
-    // Make it possible to instantly set to 0
-    boolean bForceUpdate = false;
+		// Make it possible to instantly set to 0
+		boolean bForceUpdate = false;
 
-    // If the mouse is down, update the pc override values
-    if(mousePressed && mouseX >= iLeft && mouseX < iRight && mouseY < LIGHT_BARS_INPUT_HEIGHT)
-    {
-      g_aiPCOverrideMotion[i] = 255 - mouseY;
-      if(g_aiPCOverrideMotion[i] < 0)
-      {
-        g_aiPCOverrideMotion[i] = 0;
-        bForceUpdate = true;
-      }
-      else if(g_aiPCOverrideMotion[i] > 255)
-      {
-        g_aiPCOverrideMotion[i] = 255;
-      }
-    }
+		// If the mouse is down, update the pc override values
+		if(mousePressed && mouseX >= iLeft && mouseX < iRight && mouseY < LIGHT_BARS_INPUT_HEIGHT)
+		{
+			g_aiPCOverrideMotion[i] = 255 - mouseY;
+			if(g_aiPCOverrideMotion[i] < 0)
+			{
+				g_aiPCOverrideMotion[i] = 0;
+				bForceUpdate = true;
+			}
+			else if(g_aiPCOverrideMotion[i] > 255)
+			{
+				g_aiPCOverrideMotion[i] = 255;
+			}
+		}
 
-    // If we have overriden to a non-zero value, force that value into the motion data.
-    if(bForceUpdate || g_aiPCOverrideMotion[i] > 0)
-    {
-      g_abNewMotionData[i] = g_abNewMotionData[i] || g_aiLastestMotion[i] != g_aiPCOverrideMotion[i];
-      g_aiLastestMotion[i] = g_aiPCOverrideMotion[i];
-      g_aiLastMotionUpdateTime[i] = iCurTimeMS;
-    }
+		// If we have overriden to a non-zero value, force that value into the motion data.
+		if(bForceUpdate || g_aiPCOverrideMotion[i] > 0)
+		{
+			g_abNewMotionData[i] = g_abNewMotionData[i] || g_aiLastestMotion[i] != g_aiPCOverrideMotion[i];
+			g_aiLastestMotion[i] = g_aiPCOverrideMotion[i];
+			g_aiLastMotionUpdateTime[i] = iCurTimeMS;
+		}
 
-    fill(g_aiLastestMotion[i], 255);
-    rect(iLeft, 0, width/NUM_NODES - 2, 255);
-  }
-  if(bStandbyMode)
-  {
-    fill(125, 255);
-    rect(0, 0, width, height/4);
-  }
+		fill(g_aiLastestMotion[i], 255);
+		rect(iLeft, 0, width/NUM_NODES - 2, 255);
+	}
+
+	if(bStandbyMode)
+	{
+		fill(125, 255);
+		rect(0, 0, width, height/4);
+	}
   
-  // DEBUG - Keep this code around to test MIDI output without the nodes
-  //int controlOutX = int((float)mouseX / width * 127);
-  //int controlOutY = int((float)mouseY / width * 127);
-  //println("Controllers controlOutX=" + controlOutX + " controlOutY=" + controlOutY);
-  //g_midiOut.sendController(0, 10, controlOutX);
-  //g_midiOut.sendController(0, 11, controlOutY);
+	// DEBUG - Keep this code around to test MIDI output without the nodes
+	//int controlOutX = int((float)mouseX / width * 127);
+	//int controlOutY = int((float)mouseY / width * 127);
+	//println("Controllers controlOutX=" + controlOutX + " controlOutY=" + controlOutY);
+	//g_midiOut.sendController(0, 10, controlOutX);
+	//g_midiOut.sendController(0, 11, controlOutY);
 
-  // Read all the incoming messages and save them off into g_aiLastestMotion.
-  // It is important to read all the messages or else the buffer of backlog message
-  // will grow they will be lag between the new signal and it getting sent to MIDI
-  while(g_bUseSerial && g_port.available() > 0)
-  {
-    // read byte and then parse out node and motion value
-    int iReadByte = g_port.read();
-	if(iReadByte == 0)
+	// Read all the incoming messages and save them off into g_aiLastestMotion.
+	// It is important to read all the messages or else the buffer of backlog message
+	// will grow they will be lag between the new signal and it getting sent to MIDI
+	while(g_bUseSerial && g_port.available() > 0)
 	{
-		println("Got 0 byte!  Invalid! #########################################");
-		continue;
+		// read byte and then parse out node and motion value
+		int iReadByte = g_port.read();
+		if(iReadByte == 0)
+		{
+			println("Got 0 byte!  Invalid! #########################################");
+			continue;
+		}
+
+		// Get node index
+		int iNodeIndex = iReadByte >> 5;
+
+		// We are compressing our speed ratio
+		// to 5 bits (32 values) so that it fits in a single byte.
+		// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
+		int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
+
+		println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + iCurTimeMS);
+
+		if(iNodeIndex >= NUM_NODES)
+		{
+			println("Got invalid node index!");
+			continue;
+		}
+
+		// Only update the motion value if we aren't overriding it
+		if(g_aiPCOverrideMotion[iNodeIndex] == 0)
+		{
+			// Save off new value.  Since we can get multiple values from the same node in this loop, it is import
+			// to remember if any of the values are new, not just the last one.
+			g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
+			g_aiLastestMotion[iNodeIndex] = iMotion;
+			g_aiLastMotionUpdateTime[iNodeIndex] = iCurTimeMS;
+		}
+
+		// Save off the last node index and the time of the the last value so that we 
+		// can know when to talk on the common bus.
+		g_iNextExpectedNodeIndex = (iNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
+		g_iLastReceiveTime = iCurTimeMS;
 	}
 
-	// Get node index
-    int iNodeIndex = iReadByte >> 5;
-
-	// We are compressing our speed ratio
-	// to 5 bits (32 values) so that it fits in a single byte.
-	// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
-    int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
-
-    println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + iCurTimeMS);
-
-	if(iNodeIndex >= NUM_NODES)
+	// Check for a com timeout and then increment the next expected node.
+	// This is slightly different from the node timeout below.  We might consider it ok
+	// to occationally miss an update in the com cycle but not consider that a node
+	// that needs to be zeroed out.
+	while(iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 	{
-		println("Got invalid node index!");
-		continue;
+		println(iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+
+		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
+		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
 	}
 
-    // Save off new value.  Since we can get multiple values from the same node in this loop, it is import
-    // to remember if any of the values are new, not just the last one.
-    g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
-    g_aiLastestMotion[iNodeIndex] = iMotion;
-    g_aiLastMotionUpdateTime[iNodeIndex] = iCurTimeMS;
+	// If it is our turn to talk, do that
+	if(g_iNextExpectedNodeIndex == NUM_NODES)
+	{
+		// If we have new values to push to the nodes, check to see if it is our turn to talk
+		if(g_bPushNewValuesToNodes)
+		{
+			SendNewValuesToNodes();
+		}
+		// Otherwise, just send a fake message with our "node" index to keep com flow going
+		else if(g_bUseSerial)
+		{
+			int iSendByte = (NUM_NODES << 5) | 1;
+			g_port.write(iSendByte);
+		}
 
-    // Save off the last node index and the time of the the last value so that we 
-    // can know when to talk on the common bus.
-    g_iNextExpectedNodeIndex = (iNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
-    g_iLastReceiveTime = iCurTimeMS;
-  }
-
-  // Check for a com timeout and then increment the next expected node.
-  // This is slightly different from the node timeout below.  We might consider it ok
-  // to occationally miss an update in the com cycle but not consider that a node
-  // that needs to be zeroed out.
-  if(iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
-  {
-    println(iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
-
-    g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
-    g_iLastReceiveTime = iCurTimeMS;
-  }
-
-  // If we have new values to push to the nodes, check to see if it is our turn to talk
-  if(g_bPushNewValuesToNodes)
-  {
-    // If it is our turn to talk, do that
-    if(g_iNextExpectedNodeIndex == NUM_NODES)
-    {
-      SendNewValuesToNodes();
-      g_iNextExpectedNodeIndex = 0;
-    }
-  }
+		// Move along on the next expected node index and timeout time.
+		g_iNextExpectedNodeIndex = 0;
+		g_iLastReceiveTime = iCurTimeMS;
+	}
 
   // Check for nodes timing out
   for(int i = 0; i < NUM_NODES; i++)
@@ -462,7 +522,7 @@ void draw()
     // and think there is a feedback loop.
     if(g_abNewMotionData[i])
     {
-      int iMidiValue = g_aiLastestMotion[i] / 2;
+      int iMidiValue = int(afMinMIDIValue[i] + (afMaxMIDIValue[i] - afMinMIDIValue[i]) * (g_aiLastestMotion[i] / 255.0));
       println("Write MIDI i=" + i + " iMidiValue=" + iMidiValue);
       g_midiOut.sendController(0, 10 + i, iMidiValue);
     }
@@ -473,7 +533,7 @@ void draw()
 
 // Updates the given setting and text box.  Accounts for g_bLinkAllNodes and handles 
 // invalid numbers.
-void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, String sValue)
+void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, String sValue, boolean bPushNewSettingsToNodes)
 {
   float fNewValue = 0;
   try
@@ -508,9 +568,13 @@ void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, St
   {
     cp5.get(Textfield.class, textFieldPrefix + iNodeIndex).setText(str(afValues[iNodeIndex]));
   }
-  println(textFieldPrefix + iNodeIndex + " = " + afValues[iNodeIndex]);
+  println("Update setting" + textFieldPrefix + iNodeIndex + " = " + afValues[iNodeIndex]);
 
-  g_bPushNewValuesToNodes = true;
+  if(bPushNewSettingsToNodes)
+  {
+	g_bPushNewValuesToNodes = true;
+  }
+
   SaveSettingsToFile();
 }
 
@@ -523,7 +587,7 @@ public void Min_Speed_5(String sValue) { Update_Min_Speed(5, sValue); }
 public void Min_Speed_6(String sValue) { Update_Min_Speed(6, sValue); }
 public void Update_Min_Speed(int iNodeIndex, String sValue)
 {
-  Update_Setting(iNodeIndex, afMinSpeed, "Min_Speed_", sValue);
+  Update_Setting(iNodeIndex, afMinSpeed, "Min_Speed_", sValue, true);
 }
 
 public void Max_Speed_0(String sValue) { Update_Max_Speed(0, sValue); }
@@ -535,7 +599,7 @@ public void Max_Speed_5(String sValue) { Update_Max_Speed(5, sValue); }
 public void Max_Speed_6(String sValue) { Update_Max_Speed(6, sValue); }
 public void Update_Max_Speed(int iNodeIndex, String sValue)
 {
-  Update_Setting(iNodeIndex, afMaxSpeed, "Max_Speed_", sValue);
+  Update_Setting(iNodeIndex, afMaxSpeed, "Max_Speed_", sValue, true);
 }
 
 public void New_Speed_Weight_0(String sValue) { Update_New_Speed_Weight(0, sValue); }
@@ -547,7 +611,43 @@ public void New_Speed_Weight_5(String sValue) { Update_New_Speed_Weight(5, sValu
 public void New_Speed_Weight_6(String sValue) { Update_New_Speed_Weight(6, sValue); }
 public void Update_New_Speed_Weight(int iNodeIndex, String sValue)
 {
-  Update_Setting(iNodeIndex, afNewSpeedWeight, "New_Speed_Weight_", sValue);
+  Update_Setting(iNodeIndex, afNewSpeedWeight, "New_Speed_Weight_", sValue, true);
+}
+
+public void Input_Exponent_0(String sValue) { Update_Input_Exponent(0, sValue); }
+public void Input_Exponent_1(String sValue) { Update_Input_Exponent(1, sValue); }
+public void Input_Exponent_2(String sValue) { Update_Input_Exponent(2, sValue); }
+public void Input_Exponent_3(String sValue) { Update_Input_Exponent(3, sValue); }
+public void Input_Exponent_4(String sValue) { Update_Input_Exponent(4, sValue); }
+public void Input_Exponent_5(String sValue) { Update_Input_Exponent(5, sValue); }
+public void Input_Exponent_6(String sValue) { Update_Input_Exponent(6, sValue); }
+public void Update_Input_Exponent(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afInputExponent, "Input_Exponent_", sValue, true);
+}
+
+public void Max_MIDI_0(String sValue) { Update_Max_MIDI(0, sValue); }
+public void Max_MIDI_1(String sValue) { Update_Max_MIDI(1, sValue); }
+public void Max_MIDI_2(String sValue) { Update_Max_MIDI(2, sValue); }
+public void Max_MIDI_3(String sValue) { Update_Max_MIDI(3, sValue); }
+public void Max_MIDI_4(String sValue) { Update_Max_MIDI(4, sValue); }
+public void Max_MIDI_5(String sValue) { Update_Max_MIDI(5, sValue); }
+public void Max_MIDI_6(String sValue) { Update_Max_MIDI(6, sValue); }
+public void Update_Max_MIDI(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMaxMIDIValue, "Max_MIDI_", sValue, false);
+}
+
+public void Min_MIDI_0(String sValue) { Update_Min_MIDI(0, sValue); }
+public void Min_MIDI_1(String sValue) { Update_Min_MIDI(1, sValue); }
+public void Min_MIDI_2(String sValue) { Update_Min_MIDI(2, sValue); }
+public void Min_MIDI_3(String sValue) { Update_Min_MIDI(3, sValue); }
+public void Min_MIDI_4(String sValue) { Update_Min_MIDI(4, sValue); }
+public void Min_MIDI_5(String sValue) { Update_Min_MIDI(5, sValue); }
+public void Min_MIDI_6(String sValue) { Update_Min_MIDI(6, sValue); }
+public void Update_Min_MIDI(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMinMIDIValue, "Min_MIDI_", sValue, false);
 }
 
 
@@ -567,14 +667,20 @@ void controlEvent(ControlEvent theEvent)
         // Enable / Disable all the text boxes except for the first node.
         for(int iNodeIndex = 1; iNodeIndex < NUM_NODES; iNodeIndex++)
         {
+          cp5.get(Textfield.class,"Max_MIDI_"        + iNodeIndex).setLock(g_bLinkAllNodes);
+          cp5.get(Textfield.class,"Min_MIDI_"        + iNodeIndex).setLock(g_bLinkAllNodes);
           cp5.get(Textfield.class,"Min_Speed_"        + iNodeIndex).setLock(g_bLinkAllNodes);
           cp5.get(Textfield.class,"Max_Speed_"        + iNodeIndex).setLock(g_bLinkAllNodes);
           cp5.get(Textfield.class,"New_Speed_Weight_" + iNodeIndex).setLock(g_bLinkAllNodes);
+          cp5.get(Textfield.class,"Input_Exponent_" + iNodeIndex).setLock(g_bLinkAllNodes);
 
           int iColor = g_bLinkAllNodes ? 0 : cp5.get(Textfield.class,"Min_Speed_0").getColor().getBackground();
+          cp5.get(Textfield.class,"Max_MIDI_"        + iNodeIndex).setColorBackground(iColor);
+          cp5.get(Textfield.class,"Min_MIDI_"        + iNodeIndex).setColorBackground(iColor);
           cp5.get(Textfield.class,"Min_Speed_"        + iNodeIndex).setColorBackground(iColor);
           cp5.get(Textfield.class,"Max_Speed_"        + iNodeIndex).setColorBackground(iColor);
           cp5.get(Textfield.class,"New_Speed_Weight_" + iNodeIndex).setColorBackground(iColor);
+          cp5.get(Textfield.class,"Input_Exponent_" + iNodeIndex).setColorBackground(iColor);
         }
       }
     }
