@@ -98,7 +98,7 @@ int g_iNextExpectedNodeIndex = 0;
 
 // But sometimes a node drops out so we need to time out.
 int g_iLastReceiveTime = 0;
-static int NODE_COM_TIMEOUT_MS = 30;
+static int NODE_COM_TIMEOUT_MS = 20;
 
 // Layout constants
 static int WINDOW_WIDTH = 700;
@@ -227,49 +227,59 @@ void setup()
 // Update min speed, max speed, and smoothing for all nodes
 void SendNewValuesToNodes()
 {
-  println("SendNewValuesToNodes");
+	println("SendNewValuesToNodes");
 
-  if(g_bUseSerial)
-  {
-    g_port.write(START_SEND_BYTE);
+	if(g_bUseSerial)
+	{
+		g_port.write(START_SEND_BYTE);
 
-    for(int i = 0; i < NUM_NODES; i++)
-    {
-      // convert fMinSpeed to two bytes of data to send. This has a range from 0.0 to 2.0 stored 2 bytes
-      int iNewMinSpeed = int(afMinSpeed[i] * 65535.0 / 2.0);
-      int iNewMinSpeedU = iNewMinSpeed >> 8;
-      int iNewMinSpeedL = iNewMinSpeed & 255;
+		for(int i = 0; i < NUM_NODES; i++)
+		{
+			// convert fMinSpeed to two bytes of data to send. This has a range from 0.0 to 2.0 stored 2 bytes
+			int iNewMinSpeed = int(afMinSpeed[i] * 65535.0 / 2.0);
+			int iNewMinSpeedU = iNewMinSpeed >> 8;
+			int iNewMinSpeedL = iNewMinSpeed & 255;
 
-      // convert fMaxSpeed to two bytes of data to send. This has a range from 0.0 to 2.0 stored 2 bytes
-      int iNewMaxSpeed = int(afMaxSpeed[i] * 65535.0 / 2.0);
-      int iNewMaxSpeedU = iNewMaxSpeed >> 8;
-      int iNewMaxSpeedL = iNewMaxSpeed & 255;
+			// convert fMaxSpeed to two bytes of data to send. This has a range from 0.0 to 2.0 stored 2 bytes
+			int iNewMaxSpeed = int(afMaxSpeed[i] * 65535.0 / 2.0);
+			int iNewMaxSpeedU = iNewMaxSpeed >> 8;
+			int iNewMaxSpeedL = iNewMaxSpeed & 255;
 
-      // convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 1.0 stored 2 bytes
-      int iNewWeight = int(afNewSpeedWeight[i] * 65535.0);
-      int iNewWeightU = iNewWeight >> 8;
-      int iNewWeightL = iNewWeight & 255;
+			// convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 1.0 stored 2 bytes
+			int iNewWeight = int(afNewSpeedWeight[i] * 65535.0);
+			int iNewWeightU = iNewWeight >> 8;
+			int iNewWeightL = iNewWeight & 255;
 
-      // convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 5.0 stored 2 bytes
-      int iNewExponent = int(afInputExponent[i] * 65535.0 / 5.0);
-      int iNewExponentU = iNewExponent >> 8;
-      int iNewExponentL = iNewExponent & 255;
-	  println("TEMP_CL iNewExponentU=" + iNewExponentU + " iNewExponentL=" + iNewExponentL);
+			// convert fNewSpeedWeight to two bytes of data to send. This has a range from 0.0 to 5.0 stored 2 bytes
+			int iNewExponent = int(afInputExponent[i] * 65535.0 / 5.0);
+			int iNewExponentU = iNewExponent >> 8;
+			int iNewExponentL = iNewExponent & 255;
 
-      g_port.write(iNewMinSpeedU);
-      g_port.write(iNewMinSpeedL);
-      g_port.write(iNewMaxSpeedU);
-      g_port.write(iNewMaxSpeedL);
-      g_port.write(iNewWeightU);
-      g_port.write(iNewWeightL);
-      g_port.write(iNewExponentU);
-      g_port.write(iNewExponentL);
-    }
+			g_port.write(iNewMinSpeedU);
+			g_port.write(iNewMinSpeedL);
+			g_port.write(iNewMaxSpeedU);
+			g_port.write(iNewMaxSpeedL);
+			g_port.write(iNewWeightU);
+			g_port.write(iNewWeightL);
+			g_port.write(iNewExponentU);
+			g_port.write(iNewExponentL);
 
-    g_port.write(END_SEND_BYTE);
-  }
+			// TEMP_CL 
+			println("sent iNewMinSpeedU=" + iNewMinSpeedU);
+			println("sent iNewMinSpeedL=" + iNewMinSpeedL);
+			println("sent iNewMaxSpeedU=" + iNewMaxSpeedU);
+			println("sent iNewMaxSpeedL=" + iNewMaxSpeedL);
+			println("sent iNewWeightU=" + iNewWeightU);
+			println("sent iNewWeightL=" + iNewWeightL);
+			println("sent iNewExponentU=" + iNewExponentU);
+			println("sent iNewExponentL=" + iNewExponentL);
+		}
 
-  g_bPushNewValuesToNodes = false;
+		g_port.write(END_SEND_BYTE);
+		println("### New settings sent!");
+	}
+
+	g_bPushNewValuesToNodes = false;
 }
 
 
@@ -339,8 +349,6 @@ void draw()
 {
 	// Get current time.  Used for checking if nodes haven't updated a value in a while
 	int iCurTimeMS = millis();
-
-	println(iCurTimeMS + " TEMP_CL - draw");
 
 	// Reset g_abNewMotionData before we read new values
 	for(int i = 0; i < NUM_NODES; i++)
@@ -573,6 +581,7 @@ void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, St
   if(bPushNewSettingsToNodes)
   {
 	g_bPushNewValuesToNodes = true;
+	println("### New settings queued up to be sent!");
   }
 
   SaveSettingsToFile();

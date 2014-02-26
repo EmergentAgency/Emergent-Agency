@@ -28,8 +28,8 @@ static const int EEPROM_ADDR_MAX_SPEED = 24;
 static const int EEPROM_ADDR_NEW_SPEED_WEIGHT = 26;
 static const int EEPROM_ADDR_INPUT_EXPONENT = 28;
 
-// The current data version of the EPROM data.  Each time the format changes, increment this
-static const int CUR_EPROM_DATA_VERSION = 2;
+// The current data version of the EEPROM data.  Each time the format changes, increment this
+static const int CUR_EEPROM_DATA_VERSION = 2;
 
 // If this is true, we use Xbee to send signals.  Right now, these doesn't turn on anything special but it might at some point.
 static const bool USE_XBEE = false;
@@ -123,7 +123,8 @@ float fInputExponent = 1.0;
 float g_fSpeedRatio;
 
 // Settings needed for timing out nodes in case some disconnect, break, or a signal is lost.
-static const int NODE_COM_TIMEOUT_MS = 30;
+static const int NODE_COM_TIMEOUT_MS = 20;
+static const int PC_COM_TIMEOUT_MS = 40;
 int g_iNextNodeIndex = 0;
 unsigned long g_iLastReceiveTime = 0;
 
@@ -167,70 +168,7 @@ void setup()
 	}
 
 	// Read in settings from EPROM
-	int ySavedDataVersion = EEPROM.read(EEPROM_ADDR_DATA_VERSION);
-	int ySavedMinSpeedU = EEPROM.read(EEPROM_ADDR_MIN_SPEED);
-	int ySavedMinSpeedL = EEPROM.read(EEPROM_ADDR_MIN_SPEED+1);
-	int ySavedMaxSpeedU = EEPROM.read(EEPROM_ADDR_MAX_SPEED);
-	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
-	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
-	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
-	int ySavedInputExponentU = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT);
-	int ySavedInputExponentL = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT+1);
-	if( ySavedDataVersion != CUR_EPROM_DATA_VERSION )
-	{
-		// Invalid saved settings
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("EAMidiNodes - tried to read settings from EEPROM but failed.  Read in data version ");
-			Serial.println(ySavedDataVersion);
-		}
-	}
-	else
-	{
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("EAMidiNodes - Read in data version ");
-			Serial.println(ySavedDataVersion);
-			Serial.println(ySavedMinSpeedU);
-			Serial.println(ySavedMinSpeedL);
-			Serial.println(ySavedMaxSpeedU);
-			Serial.println(ySavedMaxSpeedL);
-			Serial.println(ySavedNewSpeedWeightU);
-			Serial.println(ySavedNewSpeedWeightL);
-			Serial.println(ySavedInputExponentU);
-			Serial.println(ySavedInputExponentL);
-		}
-
-		// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-		int iNewMinSpeed = (ySavedMinSpeedU << 8) + ySavedMinSpeedL;
-		fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
-
-		// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-		int iNewMaxSpeed = (ySavedMaxSpeedU << 8) + ySavedMaxSpeedL;
-		fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
-
-		// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-		int iNewWeight = (ySavedNewSpeedWeightU << 8) + ySavedNewSpeedWeightL;
-		fNewSpeedWeight = iNewWeight / 65535.0;
-
-		// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-		int iInputExponent = (ySavedInputExponentU << 8) + ySavedInputExponentL;
-		fInputExponent = iInputExponent / 65535.0 * 5.0;
-
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("Settings from EEPROM");
-			Serial.print(" fMinSpeed=");
-			Serial.print(fMinSpeed);
-			Serial.print(" fMaxSpeed=");
-			Serial.print(fMaxSpeed);
-			Serial.print(" fNewSpeedWeight*10=");
-			Serial.print(fNewSpeedWeight*10);
-			Serial.print(" fInputExponent*10=");
-			Serial.print(fInputExponent*10);
-			Serial.println("");
-		}
-	}
+	ReadSettingsFromEEPROM();
 
     // setup LED pins for output
     for(int i = 0; i < NUM_LEDS_PER_NODE; i++)
@@ -276,6 +214,74 @@ void setup()
 	attachInterrupt(INT_PIN, MotionDetectorPulse, RISING);   // Attach an Interupt to INT_PIN for timing period of motion detector input
 }
 
+
+
+void ReadSettingsFromEEPROM()
+{
+	int ySavedDataVersion = EEPROM.read(EEPROM_ADDR_DATA_VERSION);
+	int ySavedMinSpeedU = EEPROM.read(EEPROM_ADDR_MIN_SPEED);
+	int ySavedMinSpeedL = EEPROM.read(EEPROM_ADDR_MIN_SPEED+1);
+	int ySavedMaxSpeedU = EEPROM.read(EEPROM_ADDR_MAX_SPEED);
+	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
+	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
+	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
+	int ySavedInputExponentU = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT);
+	int ySavedInputExponentL = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT+1);
+	if( ySavedDataVersion != CUR_EEPROM_DATA_VERSION )
+	{
+		// Invalid saved settings
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - tried to read settings from EEPROM but failed.  Read in data version ");
+			Serial.println(ySavedDataVersion);
+		}
+	}
+	else
+	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("EAMidiNodes - Read in data version ");
+			Serial.println(ySavedDataVersion);
+			Serial.println(ySavedMinSpeedU);
+			Serial.println(ySavedMinSpeedL);
+			Serial.println(ySavedMaxSpeedU);
+			Serial.println(ySavedMaxSpeedL);
+			Serial.println(ySavedNewSpeedWeightU);
+			Serial.println(ySavedNewSpeedWeightL);
+			Serial.println(ySavedInputExponentU);
+			Serial.println(ySavedInputExponentL);
+		}
+
+		// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+		int iNewMinSpeed = (ySavedMinSpeedU << 8) + ySavedMinSpeedL;
+		fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
+
+		// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
+		int iNewMaxSpeed = (ySavedMaxSpeedU << 8) + ySavedMaxSpeedL;
+		fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
+
+		// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+		int iNewWeight = (ySavedNewSpeedWeightU << 8) + ySavedNewSpeedWeightL;
+		fNewSpeedWeight = iNewWeight / 65535.0;
+
+		// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
+		int iInputExponent = (ySavedInputExponentU << 8) + ySavedInputExponentL;
+		fInputExponent = iInputExponent / 65535.0 * 5.0;
+
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.println("Settings from EEPROM:");
+			Serial.print("fMinSpeed=");
+			Serial.println(fMinSpeed);
+			Serial.print("fMaxSpeed=");
+			Serial.println(fMaxSpeed);
+			Serial.print("fNewSpeedWeight*10=");
+			Serial.println(fNewSpeedWeight*10);
+			Serial.print("fInputExponent*10=");
+			Serial.println(fInputExponent*10);
+		}
+	}
+}
 
 
 // Interupt called to get time between pulses
@@ -352,6 +358,11 @@ float Clamp(float fVal, float fMin, float fMax)
 
 bool ReceiveTuningMessage()
 {
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.println("##### ReceiveTuningMessage ######");
+	}
+
 	// Once we have the start of a message, delay until we have it all
 	int iTimeoutCounter = 0;
 	int iNumExpectedBytes = NUM_TUNING_VARS * 2 * NUM_NODES + 1; // 3 tuning vars * 2 bytes per var * number of nodes + the end byte
@@ -364,6 +375,14 @@ bool ReceiveTuningMessage()
 	// Return false if we hit the timeout max
 	if(iTimeoutCounter >= RCV_TIMEOUT_MAX_COUNT)
 	{
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("ReceiveTuningMessage timeout: iNumExpectedBytes=");
+			Serial.print(iNumExpectedBytes);
+			Serial.print(" available=");
+			Serial.println(Uart.available());
+		}
+
 		return false;
 	}
 
@@ -381,18 +400,14 @@ bool ReceiveTuningMessage()
 		// If this is our node, read in the values and save them
 		if(i == iNodeIndex)
 		{
-			iNewMinSpeedU = Uart.read();
-			iNewMinSpeedL = Uart.read();
-			iNewMaxSpeedU = Uart.read();
-			iNewMaxSpeedL = Uart.read();
-			iNewWeightU = Uart.read();
-			iNewWeightL = Uart.read();
+			iNewMinSpeedU      = Uart.read();
+			iNewMinSpeedL      = Uart.read();
+			iNewMaxSpeedU      = Uart.read();
+			iNewMaxSpeedL      = Uart.read();
+			iNewWeightU        = Uart.read();
+			iNewWeightL        = Uart.read();
 			iNewInputExponentU = Uart.read();
 			iNewInputExponentL = Uart.read();
-			Serial.print("TEMP_CL iNewInputExponentU=");
-			Serial.println(iNewInputExponentU);
-			Serial.print("TEMP_CL iNewInputExponentL=");
-			Serial.println(iNewInputExponentL);
 		}
 		// Otherwise, just read and ignore the results
 		else
@@ -421,102 +436,6 @@ bool ReceiveTuningMessage()
 		return false;
 	}
 
-	// Update fMinSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-	unsigned int iNewMinSpeed = (iNewMinSpeedU << 8) + iNewMinSpeedL;
-	fMinSpeed = iNewMinSpeed / 65535.0 * 2.0;
-
-	// Update fMaxSpeed. This has a range from 0.0 to 2.0 stored 2 bytes
-	unsigned int iNewMaxSpeed = (iNewMaxSpeedU << 8) + iNewMaxSpeedL;
-	fMaxSpeed = iNewMaxSpeed / 65535.0 * 2.0;
-
-	// Update fNewSpeedWeight with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-	unsigned int iNewWeight = (iNewWeightU << 8) + iNewWeightL;
-	fNewSpeedWeight = iNewWeight / 65535.0;
-
-	// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
-	unsigned int iNewInputExponent = (iNewInputExponentU << 8) + iNewInputExponentL;
-	fInputExponent = iNewInputExponent / 65535.0 * 5.0;
-
-	if(USE_SERIAL_FOR_DEBUGGING)
-	{
-		Serial.print("TEMP_CL Got new settings");
-		Serial.print(" fMinSpeed=");
-		Serial.print(fMinSpeed);
-		Serial.print(" fMaxSpeed=");
-		Serial.print(fMaxSpeed);
-		Serial.print(" fNewSpeedWeight*10=");
-		Serial.print(fNewSpeedWeight*10);
-		Serial.print(" fInputExponent*10=");
-		Serial.print(fInputExponent*10);
-		Serial.println("");
-	}
-
-	// Save out settings to EPROM
-	EEPROM.write(EEPROM_ADDR_DATA_VERSION, CUR_EPROM_DATA_VERSION);
-	EEPROM.write(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
-	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
-	EEPROM.write(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
-	EEPROM.write(EEPROM_ADDR_MAX_SPEED+1, iNewMaxSpeedL);
-	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
-	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
-	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT,   iNewInputExponentU);
-	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT+1, iNewInputExponentL);
-
-	if(USE_SERIAL_FOR_DEBUGGING)
-	{
-		Serial.print("EAMidiNodes - Wrote data version ");
-		Serial.println(CUR_EPROM_DATA_VERSION);
-		Serial.println(iNewMinSpeedU);
-		Serial.println(iNewMinSpeedL);
-		Serial.println(iNewMaxSpeedU);
-		Serial.println(iNewMaxSpeedL);
-		Serial.println(iNewWeightU);
-		Serial.println(iNewWeightL);
-		Serial.println(iNewInputExponentU);
-		Serial.println(iNewInputExponentL);
-	}
-
-
-	// TEMP_CL
-	delay(500);
-	// Read in settings from EPROM
-	int ySavedDataVersion = EEPROM.read(EEPROM_ADDR_DATA_VERSION);
-	int ySavedMinSpeedU = EEPROM.read(EEPROM_ADDR_MIN_SPEED);
-	int ySavedMinSpeedL = EEPROM.read(EEPROM_ADDR_MIN_SPEED+1);
-	int ySavedMaxSpeedU = EEPROM.read(EEPROM_ADDR_MAX_SPEED);
-	int ySavedMaxSpeedL = EEPROM.read(EEPROM_ADDR_MAX_SPEED+1);
-	int ySavedNewSpeedWeightU = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT);
-	int ySavedNewSpeedWeightL = EEPROM.read(EEPROM_ADDR_NEW_SPEED_WEIGHT+1);
-	int ySavedInputExponentU = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT);
-	int ySavedInputExponentL = EEPROM.read(EEPROM_ADDR_INPUT_EXPONENT+1);
-	if( ySavedDataVersion != CUR_EPROM_DATA_VERSION )
-	{
-		// Invalid saved settings
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("EAMidiNodes - tried to read settings from EEPROM but failed.  Read in data version ");
-			Serial.println(ySavedDataVersion);
-		}
-	}
-	else
-	{
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("EAMidiNodes - Read in data version ");
-			Serial.println(ySavedDataVersion);
-			Serial.println(ySavedMinSpeedU);
-			Serial.println(ySavedMinSpeedL);
-			Serial.println(ySavedMaxSpeedU);
-			Serial.println(ySavedMaxSpeedL);
-			Serial.println(ySavedNewSpeedWeightU);
-			Serial.println(ySavedNewSpeedWeightL);
-			Serial.println(ySavedInputExponentU);
-			Serial.println(ySavedInputExponentL);
-		}
-	}
-	delay(500);
-
-
 	// Debug saying we got a valid message
 	for(int i = 0; i < 4; i++)
 	{
@@ -528,16 +447,30 @@ bool ReceiveTuningMessage()
 
 	if(USE_SERIAL_FOR_DEBUGGING)
 	{
-		Serial.print("TEMP_CL Got new remote values! fMinSpeed=");
-		Serial.print(fMinSpeed);
-		Serial.print(" fMaxSpeed=");
-		Serial.print(fMaxSpeed);
-		Serial.print(" fNewSpeedWeight=");
-		Serial.print(fNewSpeedWeight);
-		Serial.print(" fInputExponent=");
-		Serial.print(fInputExponent);
-		Serial.println("");
+		Serial.println("Get new settings from network:");
+		Serial.println(iNewMinSpeedU);
+		Serial.println(iNewMinSpeedL);
+		Serial.println(iNewMaxSpeedU);
+		Serial.println(iNewMaxSpeedL);
+		Serial.println(iNewWeightU);
+		Serial.println(iNewWeightL);
+		Serial.println(iNewInputExponentU);
+		Serial.println(iNewInputExponentL);
 	}
+
+	// Save out settings to EEPROM
+	EEPROM.write(EEPROM_ADDR_DATA_VERSION, CUR_EEPROM_DATA_VERSION);
+	EEPROM.write(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
+	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
+	EEPROM.write(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
+	EEPROM.write(EEPROM_ADDR_MAX_SPEED+1, iNewMaxSpeedL);
+	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
+	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
+	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT,   iNewInputExponentU);
+	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT+1, iNewInputExponentL);
+
+	// Read data just written to EEPROM as new settings
+	ReadSettingsFromEEPROM();
 
 	return true;
 }
@@ -646,7 +579,7 @@ void loop()
 		{
 			if(USE_SERIAL_FOR_DEBUGGING)
 			{
-				Serial.print("TEMP_CL Got more more than a single byte in a loop:");
+				Serial.print("Got more more than a single byte in a loop:");
 				Serial.println(iNumReadBytes);
 			}
 		}
@@ -674,7 +607,7 @@ void loop()
 				Serial.println(iMotion);
 			}
 
-			// Throw out 0 bytes TEMP_CL
+			// Throw out 0 bytes
 			if(iReadByte == 0)
 			{
 				Serial.print(iCurTime);
@@ -706,8 +639,9 @@ void loop()
 
 	if(iNumReadBytes == 0)
 	{
+		int iTimeout = (g_iNextNodeIndex == NUM_NODES) ? PC_COM_TIMEOUT_MS : NODE_COM_TIMEOUT_MS;
 		// Check for a timeout.
-		if(iCurTime - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
+		if(iCurTime - g_iLastReceiveTime > iTimeout)
 		{
 			if(USE_SERIAL_FOR_DEBUGGING)
 			{
