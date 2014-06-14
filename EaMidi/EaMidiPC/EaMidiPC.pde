@@ -33,17 +33,61 @@ boolean g_bUseSerial = true;
 // MIDI output object
 MidiOutput g_midiOut;
 
+// The midi channel used to set master volume to make the piece silent if no one has used it for a while
+static int MASTER_VOLUME_CHANNEL = 0;
+
 // The midi controller number used to set master volume to make the piece silent if no one has used it for a while
-static int MASTER_VOLUME_MIDI = 20;
+static int MASTER_VOLUME_CONTROLLER = 20;
+
+// The midi note number used to set master volume to make the piece silent if no one has used it for a while
+static int MASTER_VOLUME_NOTE = 60;
 
 // If this number time passes, the piece goes silent (aka standby mode)
 static int NO_MOTION_STANDBY_TIME_MS = 20000;
 
+// The current time in MS.  Saved between frames and used to calc delta time
+int g_iCurTimeMS = 0;
+
 // If too much time passes, the piece goes silent (aka standby mode)
-boolean bStandbyMode = false;
+boolean g_bStandbyMode = false;
 
 // The last time motion was detected
 int g_aiLastMotionTime = 0;
+
+// The node that the max motion was last detected on.  This is used to see which node "blipping on"
+// is preventing standby mode from kicking in.
+int g_iMaxMotionNodeIndex = 0;
+
+// Standby activity.  Ranges from 0 to 1.  Each time there is movement, this activity is incremented based on STANDYBY_FULL_ON_SECONDS.
+// Each time this is no movement it is decremented based on STANDYBY_FULL_OFF_SECONDS.  This is compared to STANDBY_ON_THRESHOLD and
+// STANDBY_OFF_THRESHOLD to determine when to enter and exit standby mode.
+float g_fStandyActivityAmount = 0.0;
+
+// The number of seconds it takes the system to go from 0 activity to full on if a node's movement is full on.
+static float STANDYBY_FULL_ON_SECONDS = 0.5;
+
+// The number of seconds it takes the system to go from full activity to 0 if no motion is seen on any nodes.
+static float STANDYBY_FULL_OFF_SECONDS = 20.0;
+
+// When g_fStandyActivityAmount falls below this the sytem enters standby mode. 
+static float STANDBY_ON_THRESHOLD = 0.4;
+
+// When g_fStandyActivityAmount goes above this the sytem exits standby mode. 
+static float STANDBY_OFF_THRESHOLD = 0.6;
+
+// Used to fade master volume in and out with standby mode.
+int g_iMasterVolume = 0;
+int g_iTargetMasterVolume = 0;
+
+// "Full" volume for when standby is off
+static int STANDBY_OFF_VOLUME = 100;
+
+// Standby volume fade out rate - TODO - make this based on delta time.  Just per tick now.
+static int STANDBY_VOLUME_FADE_OUT_RATE = 1;
+
+// Standby volume fade int rate - TODO - make this based on delta time.  Just per tick now.
+static int STANDBY_VOLUME_FADE_IN_RATE = 5;
+
 
 // The lastest motion reading from the nodes
 int[] g_aiLastestMotion = new int[NUM_NODES];
@@ -53,6 +97,9 @@ boolean[] g_abNewMotionData = new boolean[NUM_NODES];
 
 // The last time in MS that we got a new value.  Used to zero out nodes that have stopped communicating.
 int[] g_aiLastMotionUpdateTime = new int[NUM_NODES];
+
+// If this is true, the "note" for the node is on
+boolean[] g_abNoteOn = new boolean[NUM_NODES];
 
 // This is used for testing and lets the PC override the latest motion data
 int[] g_aiPCOverrideMotion = new int[NUM_NODES];
@@ -64,8 +111,8 @@ static int END_SEND_BYTE = 241; // Binary = 11110001 (this also translates to no
 // The filename of the settings file.  If the file doesn't exist, the values below are used.
 static String SETTINGS_FILENAME = "NodeSettings.txt";
 
-// The number of tuning / config vars there are per node.  These the vars that this program sends to the different nodes live.
-static int NUM_TUNING_VARS = 6;
+// The number of tuning / config vars there are per node.  Some of these the vars are sent to the different nodes live.
+static int NUM_TUNING_VARS = 10;
 
 // Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
@@ -89,6 +136,18 @@ float[] afMaxMIDIValue = {127,127,127,127,127,127,127};
 // Tuning - The min MIDI value this sensor will return.  The sensor's full range is scaled between the min and max MIDI values.
 float[] afMinMIDIValue = {0,0,0,0,0,0,0};
 
+// Tuning - MIDI controller to adjust with the sensor
+float[] afMIDIController = {10,11,12,13,14,15,16};
+
+// Tuning - MIDI controler channel index
+float[] afMIDIControllerChannel = {0,0,0,0,0,0,0};
+
+// Tuning - MIDI note to trigger (60 is middle C)
+float[] afMIDINote = {60,60,60,60,60,60,60};
+
+// Tuning - MIDI note channel index
+float[] afMIDINoteChannel = {1,2,3,4,5,6,7};
+
 
 // If this is true, we wait our turn on the com bus and then send out the tuning updates
 boolean  g_bPushNewValuesToNodes = false;
@@ -98,11 +157,11 @@ int g_iNextExpectedNodeIndex = 0;
 
 // But sometimes a node drops out so we need to time out.
 int g_iLastReceiveTime = 0;
-static int NODE_COM_TIMEOUT_MS = 20;
+static int NODE_COM_TIMEOUT_MS = 20; // There are still a fair number of timeouts with 20ms.  Setting it to 60 seems to remove the timeouts but introduces lag.
 
 // Layout constants
 static int WINDOW_WIDTH = 700;
-static int WINDOW_HEIGHT = 700;
+static int WINDOW_HEIGHT = 850;
 static int LIGHT_BARS_INPUT_HEIGHT = 350;
 
 // Controller for things like text fields and check boxes.
@@ -146,32 +205,52 @@ void setup()
   {
     int iOffsetX = i * width / NUM_NODES + 3;
 	iOffsetY = 10;
-    cp5.addTextfield("Max_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("Max_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMaxMIDIValue[i]));
 	iOffsetY += 40;
-    cp5.addTextfield("Min_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("Min_MIDI_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMinMIDIValue[i]));
 	iOffsetY += 40;
-    cp5.addTextfield("Min_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("MIDI_Controller_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMIDIController[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Ctrl_Channel_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMIDIControllerChannel[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("MIDI_Note_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMIDINote[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Note_Channel_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
+      .setAutoClear(false)
+      .setFont(font)
+      .setText(str(afMIDINoteChannel[i]));
+	iOffsetY += 40;
+    cp5.addTextfield("Min_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMinSpeed[i]));
 	iOffsetY += 40;
-    cp5.addTextfield("Max_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("Max_Speed_" + i,        iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afMaxSpeed[i]));
 	iOffsetY += 40;
-    cp5.addTextfield("New_Speed_Weight_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("New_Speed_Weight_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afNewSpeedWeight[i]));
 	iOffsetY += 40;
-    cp5.addTextfield("Input_Exponent_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 25)
+    cp5.addTextfield("Input_Exponent_" + i, iOffsetX, LIGHT_BARS_INPUT_HEIGHT + iOffsetY, 70, 20)
       .setAutoClear(false)
       .setFont(font)
       .setText(str(afInputExponent[i]));
@@ -264,7 +343,6 @@ void SendNewValuesToNodes()
 			g_port.write(iNewExponentU);
 			g_port.write(iNewExponentL);
 
-			// TEMP_CL 
 			println("sent iNewMinSpeedU=" + iNewMinSpeedU);
 			println("sent iNewMinSpeedL=" + iNewMinSpeedL);
 			println("sent iNewMaxSpeedU=" + iNewMaxSpeedU);
@@ -299,6 +377,10 @@ void SaveSettingsToFile()
     asData[iDataOffet++] = str(afInputExponent[i]);
     asData[iDataOffet++] = str(afMaxMIDIValue[i]);
     asData[iDataOffet++] = str(afMinMIDIValue[i]);
+    asData[iDataOffet++] = str(afMIDIController[i]);
+    asData[iDataOffet++] = str(afMIDIControllerChannel[i]);
+    asData[iDataOffet++] = str(afMIDINote[i]);
+    asData[iDataOffet++] = str(afMIDINoteChannel[i]);
   }
   saveStrings(SETTINGS_FILENAME, asData);
 }
@@ -326,12 +408,16 @@ void LoadSettingsFromFile()
       {
         int iDataOffet = i * iNumLinesPerNode; 
         // First entry is node index. We ignore it while reading but it helps make the file more human readable.
-        afMinSpeed[i] =       Float.parseFloat(asData[++iDataOffet]);
-        afMaxSpeed[i] =       Float.parseFloat(asData[++iDataOffet]);
-        afNewSpeedWeight[i] = Float.parseFloat(asData[++iDataOffet]);
-        afInputExponent[i] =  Float.parseFloat(asData[++iDataOffet]);
-        afMaxMIDIValue[i] =   Float.parseFloat(asData[++iDataOffet]);
-        afMinMIDIValue[i] =   Float.parseFloat(asData[++iDataOffet]);
+        afMinSpeed[i] =              Float.parseFloat(asData[++iDataOffet]);
+        afMaxSpeed[i] =              Float.parseFloat(asData[++iDataOffet]);
+        afNewSpeedWeight[i] =        Float.parseFloat(asData[++iDataOffet]);
+        afInputExponent[i] =         Float.parseFloat(asData[++iDataOffet]);
+        afMaxMIDIValue[i] =          Float.parseFloat(asData[++iDataOffet]);
+        afMinMIDIValue[i] =          Float.parseFloat(asData[++iDataOffet]);
+        afMIDIController[i] =        Float.parseFloat(asData[++iDataOffet]);
+        afMIDIControllerChannel[i] = Float.parseFloat(asData[++iDataOffet]);
+        afMIDINote[i] =              Float.parseFloat(asData[++iDataOffet]);
+        afMIDINoteChannel[i] =       Float.parseFloat(asData[++iDataOffet]);
       }
     }
     catch (NumberFormatException e)
@@ -347,8 +433,10 @@ void LoadSettingsFromFile()
 // Unless there is too much going on this runs at 60 FPS (about 16 or 17 ms).
 void draw()
 {
-	// Get current time.  Used for checking if nodes haven't updated a value in a while
-	int iCurTimeMS = millis();
+	// Get current time and delta time
+	int iNewTimeMS = millis();
+	int iDeltaTimeMS = iNewTimeMS - g_iCurTimeMS;
+	g_iCurTimeMS = iNewTimeMS;
 
 	// Reset g_abNewMotionData before we read new values
 	for(int i = 0; i < NUM_NODES; i++)
@@ -387,14 +475,21 @@ void draw()
 		{
 			g_abNewMotionData[i] = g_abNewMotionData[i] || g_aiLastestMotion[i] != g_aiPCOverrideMotion[i];
 			g_aiLastestMotion[i] = g_aiPCOverrideMotion[i];
-			g_aiLastMotionUpdateTime[i] = iCurTimeMS;
+			g_aiLastMotionUpdateTime[i] = g_iCurTimeMS;
 		}
 
 		fill(g_aiLastestMotion[i], 255);
 		rect(iLeft, 0, width/NUM_NODES - 2, 255);
+
+		// Draw mark for last max motion
+		if(g_iMaxMotionNodeIndex == i)
+		{
+			fill(200,0,0,255);
+			rect(iLeft, 235, width/NUM_NODES - 2, 20);
+		}
 	}
 
-	if(bStandbyMode)
+	if(g_bStandbyMode)
 	{
 		fill(125, 255);
 		rect(0, 0, width, height/4);
@@ -428,7 +523,7 @@ void draw()
 		// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
 		int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
 
-		println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + iCurTimeMS);
+		// println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + g_iCurTimeMS);
 
 		if(iNodeIndex >= NUM_NODES)
 		{
@@ -443,22 +538,22 @@ void draw()
 			// to remember if any of the values are new, not just the last one.
 			g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
 			g_aiLastestMotion[iNodeIndex] = iMotion;
-			g_aiLastMotionUpdateTime[iNodeIndex] = iCurTimeMS;
+			g_aiLastMotionUpdateTime[iNodeIndex] = g_iCurTimeMS;
 		}
 
 		// Save off the last node index and the time of the the last value so that we 
 		// can know when to talk on the common bus.
 		g_iNextExpectedNodeIndex = (iNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
-		g_iLastReceiveTime = iCurTimeMS;
+		g_iLastReceiveTime = g_iCurTimeMS;
 	}
 
 	// Check for a com timeout and then increment the next expected node.
 	// This is slightly different from the node timeout below.  We might consider it ok
 	// to occationally miss an update in the com cycle but not consider that a node
 	// that needs to be zeroed out.
-	while(iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
+	while(g_iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 	{
-		println(iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+		println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
 
 		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
@@ -481,60 +576,126 @@ void draw()
 
 		// Move along on the next expected node index and timeout time.
 		g_iNextExpectedNodeIndex = 0;
-		g_iLastReceiveTime = iCurTimeMS;
+		g_iLastReceiveTime = g_iCurTimeMS;
 	}
 
-  // Check for nodes timing out
-  for(int i = 0; i < NUM_NODES; i++)
-  {
-    if(g_aiLastestMotion[i] > 0 && iCurTimeMS - g_aiLastMotionUpdateTime[i] > NODE_UPDATE_TIMEOUT_MS)
-    {
-      println("Node " + i + " timed out.");
-      g_abNewMotionData[i] = true;
-      g_aiLastestMotion[i] = 0;
-    }
-  }
+	// Check for nodes timing out
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		if(g_aiLastestMotion[i] > 0 && g_iCurTimeMS - g_aiLastMotionUpdateTime[i] > NODE_UPDATE_TIMEOUT_MS)
+		{
+			println("Node " + i + " timed out.");
+			g_abNewMotionData[i] = true;
+			g_aiLastestMotion[i] = 0;
+		}
+	}
 
-  // Calc max motion and use it to kill master volume (standby mode) if all nodes read 0 for too long
-  int iMaxMotion = 0;
-  for(int i = 0; i < NUM_NODES; i++)
-  {
-    if(g_aiLastestMotion[i] > iMaxMotion)
-    {
-      iMaxMotion = g_aiLastestMotion[i];
-    }
-  }
-  if(iMaxMotion > 0)
-  {
-    g_aiLastMotionTime = iCurTimeMS;
-    if(bStandbyMode)
-    {
-      println("Write MIDI i=" + MASTER_VOLUME_MIDI + " iMidiValue=127");
-      g_midiOut.sendController(0, MASTER_VOLUME_MIDI, 127);
-      bStandbyMode = false;
-    }
-  }
-  else if(!bStandbyMode && iCurTimeMS - g_aiLastMotionTime > NO_MOTION_STANDBY_TIME_MS)
-  {
-    println("Write MIDI i=" + MASTER_VOLUME_MIDI + " iMidiValue=0");
-    g_midiOut.sendController(0, MASTER_VOLUME_MIDI, 0);
-    bStandbyMode = true;
-  }
+	// Calc max motion and use it to kill master volume (standby mode) if all nodes read 0 for too long
+	int iMaxMotion = 0;
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		if(g_aiLastestMotion[i] > iMaxMotion)
+		{
+			iMaxMotion = g_aiLastestMotion[i];
+			g_iMaxMotionNodeIndex = i;
+		}
+	}
+	if(iMaxMotion > 0)
+	{
+		g_aiLastMotionTime = g_iCurTimeMS;
 
-  // Go through all the motion values and if we got a new one, send it as MIDI
-  for(int i = 0; i < NUM_NODES; i++)
-  {
-    // If we have a new motion value, send it to MIDI.
-    // If we send the same signal over and over again 
-    // the MIDI mapper (loopbe1 in this case) can freak out
-    // and think there is a feedback loop.
-    if(g_abNewMotionData[i])
-    {
-      int iMidiValue = int(afMinMIDIValue[i] + (afMaxMIDIValue[i] - afMinMIDIValue[i]) * (g_aiLastestMotion[i] / 255.0));
-      println("Write MIDI i=" + i + " iMidiValue=" + iMidiValue);
-      g_midiOut.sendController(0, 10 + i, iMidiValue);
-    }
-  }
+		// Quickly increase activty if there is motion.  Increase faster based on level of activity
+		g_fStandyActivityAmount += (1/STANDYBY_FULL_ON_SECONDS) * (iMaxMotion / 255.0) * (iDeltaTimeMS / 1000.0);
+		if(g_fStandyActivityAmount > 1.0)
+		{
+			g_fStandyActivityAmount = 1.0;
+		}
+	}
+	else
+	{
+		// Slowly reduce activity if there no motion at this time
+		g_fStandyActivityAmount -= (1/STANDYBY_FULL_OFF_SECONDS) * (iDeltaTimeMS / 1000.0);
+		if(g_fStandyActivityAmount < 0.0)
+		{
+			g_fStandyActivityAmount = 0.0;
+		}
+	}
+
+	// Standby mode based on amount of activity
+	if(g_bStandbyMode && g_fStandyActivityAmount > STANDBY_OFF_THRESHOLD)
+	{
+		println("Standby OFF");
+
+		g_midiOut.sendNoteOn(MASTER_VOLUME_CHANNEL, MASTER_VOLUME_NOTE, 127); // default to full velocity
+		g_iTargetMasterVolume = STANDBY_OFF_VOLUME;
+
+		g_bStandbyMode = false;
+	}
+	else if(!g_bStandbyMode && g_fStandyActivityAmount < STANDBY_ON_THRESHOLD)
+	{
+		println("Standby ON");
+
+		g_midiOut.sendNoteOff(MASTER_VOLUME_CHANNEL, MASTER_VOLUME_NOTE, 0);
+		g_iTargetMasterVolume = 0;
+
+		g_bStandbyMode = true;
+	}
+
+	// Fade volume on and off
+	if(g_iTargetMasterVolume != g_iMasterVolume)
+	{
+		if(g_iMasterVolume > g_iTargetMasterVolume)
+		{
+			g_iMasterVolume -= STANDBY_VOLUME_FADE_OUT_RATE;
+			if(g_iMasterVolume < g_iTargetMasterVolume)
+			{
+				g_iMasterVolume = g_iTargetMasterVolume;
+			}
+		}
+		else
+		{
+			g_iMasterVolume += STANDBY_VOLUME_FADE_IN_RATE;
+			if(g_iMasterVolume > g_iTargetMasterVolume)
+			{
+				g_iMasterVolume = g_iTargetMasterVolume;
+			}
+		}
+		g_midiOut.sendController(MASTER_VOLUME_CHANNEL, MASTER_VOLUME_CONTROLLER, g_iMasterVolume);
+	}
+
+	// Go through all the motion values and if we got a new one, send it as MIDI
+	for(int i = 0; i < NUM_NODES; i++)
+	{
+		// If we have a new motion value, send it to MIDI.
+		// If we send the same signal over and over again 
+		// the MIDI mapper (loopbe1 in this case) can freak out
+		// and think there is a feedback loop.
+		// Also, send a note on event if the previous value was 0 and a note off if it is now 0 but was previously on
+		if(g_abNewMotionData[i])
+		{
+			int iMidiControllerValue = int(afMinMIDIValue[i] + (afMaxMIDIValue[i] - afMinMIDIValue[i]) * (g_aiLastestMotion[i] / 255.0));
+			int iMidiControllerIndex = int(afMIDIController[i]);
+			int iMidiControllerChannel = int(afMIDIControllerChannel[i]);
+			int MidiNote = int(afMIDINote[i]);
+			int MidiNoteChannel = int(afMIDINoteChannel[i]);
+
+			if(!g_abNoteOn[i] && g_aiLastestMotion[i] > 0)
+			{
+				println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
+				g_midiOut.sendNoteOn(MidiNoteChannel, MidiNote, 127); // default to full velocity
+				g_abNoteOn[i] = true;
+			}
+			else if(g_abNoteOn[i] && g_aiLastestMotion[i] == 0)
+			{
+				println("Note OFF node=" + i + " MidiNote=" + MidiNote + " MidiChannel=" + MidiNoteChannel);
+				g_midiOut.sendNoteOff(MidiNoteChannel, MidiNote, 0);
+				g_abNoteOn[i] = false;
+			}
+
+			println("Write controller node=" + i + " iMidiControllerValue=" + iMidiControllerValue + " iMidiControllerIndex=" + iMidiControllerIndex + " iMidiControllerChannel=" + iMidiControllerChannel);
+			g_midiOut.sendController(iMidiControllerChannel, iMidiControllerIndex, iMidiControllerValue);
+		}
+	}
 }
 
 
@@ -544,10 +705,11 @@ void draw()
 void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, String sValue, boolean bPushNewSettingsToNodes)
 {
   float fNewValue = 0;
+  boolean bLinkThisField = g_bLinkAllNodes && textFieldPrefix != "MIDI_Controller_" && textFieldPrefix != "Ctrl_Channel_" && textFieldPrefix != "MIDI_Note_" && textFieldPrefix != "Note_Channel_";
   try
   {
     fNewValue = Float.parseFloat(sValue);
-    if(g_bLinkAllNodes)
+    if(bLinkThisField)
     {
       for(int i = 0; i < NUM_NODES; i++)
       {
@@ -565,7 +727,7 @@ void Update_Setting(int iNodeIndex, float[] afValues, String textFieldPrefix, St
     println("Invalid number!");
   }
 
-  if(g_bLinkAllNodes)
+  if(bLinkThisField)
   {
     for(int i = 0; i < NUM_NODES; i++)
     {
@@ -657,6 +819,54 @@ public void Min_MIDI_6(String sValue) { Update_Min_MIDI(6, sValue); }
 public void Update_Min_MIDI(int iNodeIndex, String sValue)
 {
   Update_Setting(iNodeIndex, afMinMIDIValue, "Min_MIDI_", sValue, false);
+}
+
+public void MIDI_Controller_0(String sValue) { Update_MIDI_Controller(0, sValue); }
+public void MIDI_Controller_1(String sValue) { Update_MIDI_Controller(1, sValue); }
+public void MIDI_Controller_2(String sValue) { Update_MIDI_Controller(2, sValue); }
+public void MIDI_Controller_3(String sValue) { Update_MIDI_Controller(3, sValue); }
+public void MIDI_Controller_4(String sValue) { Update_MIDI_Controller(4, sValue); }
+public void MIDI_Controller_5(String sValue) { Update_MIDI_Controller(5, sValue); }
+public void MIDI_Controller_6(String sValue) { Update_MIDI_Controller(6, sValue); }
+public void Update_MIDI_Controller(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMIDIController, "MIDI_Controller_", sValue, false);
+}
+
+public void Ctrl_Channel_0(String sValue) { Update_Ctrl_Channel(0, sValue); }
+public void Ctrl_Channel_1(String sValue) { Update_Ctrl_Channel(1, sValue); }
+public void Ctrl_Channel_2(String sValue) { Update_Ctrl_Channel(2, sValue); }
+public void Ctrl_Channel_3(String sValue) { Update_Ctrl_Channel(3, sValue); }
+public void Ctrl_Channel_4(String sValue) { Update_Ctrl_Channel(4, sValue); }
+public void Ctrl_Channel_5(String sValue) { Update_Ctrl_Channel(5, sValue); }
+public void Ctrl_Channel_6(String sValue) { Update_Ctrl_Channel(6, sValue); }
+public void Update_Ctrl_Channel(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMIDIControllerChannel, "Ctrl_Channel_", sValue, false);
+}
+
+public void MIDI_Note_0(String sValue) { Update_MIDI_Note(0, sValue); }
+public void MIDI_Note_1(String sValue) { Update_MIDI_Note(1, sValue); }
+public void MIDI_Note_2(String sValue) { Update_MIDI_Note(2, sValue); }
+public void MIDI_Note_3(String sValue) { Update_MIDI_Note(3, sValue); }
+public void MIDI_Note_4(String sValue) { Update_MIDI_Note(4, sValue); }
+public void MIDI_Note_5(String sValue) { Update_MIDI_Note(5, sValue); }
+public void MIDI_Note_6(String sValue) { Update_MIDI_Note(6, sValue); }
+public void Update_MIDI_Note(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMIDINote, "MIDI_Note_", sValue, false);
+}
+
+public void Note_Channel_0(String sValue) { Update_Note_Channel(0, sValue); }
+public void Note_Channel_1(String sValue) { Update_Note_Channel(1, sValue); }
+public void Note_Channel_2(String sValue) { Update_Note_Channel(2, sValue); }
+public void Note_Channel_3(String sValue) { Update_Note_Channel(3, sValue); }
+public void Note_Channel_4(String sValue) { Update_Note_Channel(4, sValue); }
+public void Note_Channel_5(String sValue) { Update_Note_Channel(5, sValue); }
+public void Note_Channel_6(String sValue) { Update_Note_Channel(6, sValue); }
+public void Update_Note_Channel(int iNodeIndex, String sValue)
+{
+  Update_Setting(iNodeIndex, afMIDINoteChannel, "Note_Channel_", sValue, false);
 }
 
 
