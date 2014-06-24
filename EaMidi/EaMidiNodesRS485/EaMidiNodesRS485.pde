@@ -14,7 +14,7 @@
 static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 // Number of nodes
-static int NUM_NODES = 5;
+static int NUM_NODES = 7;
 
 // The index for this node.  If it is < 0, use the node index stored in
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
