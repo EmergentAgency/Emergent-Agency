@@ -12,7 +12,7 @@ import processing.serial.*;
 import controlP5.*;
 
 // Number of nodes
-static int NUM_NODES = 5;
+static int NUM_NODES = 7;
 
 // If this much time passes, without hearing from a node, we assume it is broken and set its output to 0
 static int NODE_UPDATE_TIMEOUT_MS = 2000;
@@ -34,10 +34,10 @@ boolean g_bUseSerial = true;
 MidiOutput g_midiOut;
 
 // The midi channel used to set master volume to make the piece silent if no one has used it for a while
-static int MASTER_VOLUME_CHANNEL = 0;
+static int MASTER_VOLUME_CHANNEL = 7;
 
 // The midi controller number used to set master volume to make the piece silent if no one has used it for a while
-static int MASTER_VOLUME_CONTROLLER = 20;
+static int MASTER_VOLUME_CONTROLLER = 0;
 
 // The midi note number used to set master volume to make the piece silent if no one has used it for a while
 static int MASTER_VOLUME_NOTE = 60;
@@ -553,7 +553,7 @@ void draw()
 	// that needs to be zeroed out.
 	while(g_iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 	{
-		println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+		// TEMP_CL println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
 
 		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
@@ -692,7 +692,7 @@ void draw()
 				g_abNoteOn[i] = false;
 			}
 
-			println("Write controller node=" + i + " iMidiControllerValue=" + iMidiControllerValue + " iMidiControllerIndex=" + iMidiControllerIndex + " iMidiControllerChannel=" + iMidiControllerChannel);
+			// TEMP_CL println("Write controller node=" + i + " iMidiControllerValue=" + iMidiControllerValue + " iMidiControllerIndex=" + iMidiControllerIndex + " iMidiControllerChannel=" + iMidiControllerChannel);
 			g_midiOut.sendController(iMidiControllerChannel, iMidiControllerIndex, iMidiControllerValue);
 		}
 	}
