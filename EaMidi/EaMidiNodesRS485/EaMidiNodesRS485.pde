@@ -11,14 +11,14 @@
 #include <EEPROM.h>
 
 // Use Serial to print out debug statements
-static bool USE_SERIAL_FOR_DEBUGGING = true;
+static bool USE_SERIAL_FOR_DEBUGGING = false;
 
 // Number of nodes
 static int NUM_NODES = 7;
 
 // The index for this node.  If it is < 0, use the node index stored in
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
-int iNodeIndex = -1;
+int g_iNodeIndex = -1;
 
 // The address in EEPROM for various saved values
 static const int EEPROM_ADDR_NODE_INDEX = 0;
@@ -148,23 +148,23 @@ void setup()
 	}
 
 	// Deal with the index for this node.
-	// If iNodeIndex is < 0, use the node index stored in
+	// If g_iNodeIndex is < 0, use the node index stored in
 	// EEPROM.  If >= 0, store that node index in the EEPROM of this node.
-	if(iNodeIndex < 0)
+	if(g_iNodeIndex < 0)
 	{
-		iNodeIndex = EEPROM.read(EEPROM_ADDR_NODE_INDEX);
-		if(iNodeIndex == 255)
+		g_iNodeIndex = EEPROM.read(EEPROM_ADDR_NODE_INDEX);
+		if(g_iNodeIndex == 255)
 		{
 			if(USE_SERIAL_FOR_DEBUGGING)
 			{
 				Serial.println("EAMidiNodes - tried to read node index from EEPROM but failed to get valid value.  Using 0.");
 			}
-			iNodeIndex = 0;
+			g_iNodeIndex = 0;
 		}
 	}
 	else
 	{
-		EEPROM.write(EEPROM_ADDR_NODE_INDEX, iNodeIndex);
+		EEPROMWrite(EEPROM_ADDR_NODE_INDEX, g_iNodeIndex);
 	}
 
 	// Read in settings from EPROM
@@ -190,11 +190,11 @@ void setup()
 		digitalWrite(pins[4], HIGH);
 		delay(500);
 
-		bool bPin0 = (iNodeIndex >> 0) & 1;
-		bool bPin1 = (iNodeIndex >> 1) & 1;
-		bool bPin2 = (iNodeIndex >> 2) & 1;
-		bool bPin3 = (iNodeIndex >> 3) & 1;
-		bool bPin4 = (iNodeIndex >> 4) & 1;
+		bool bPin0 = (g_iNodeIndex >> 0) & 1;
+		bool bPin1 = (g_iNodeIndex >> 1) & 1;
+		bool bPin2 = (g_iNodeIndex >> 2) & 1;
+		bool bPin3 = (g_iNodeIndex >> 3) & 1;
+		bool bPin4 = (g_iNodeIndex >> 4) & 1;
 		digitalWrite(pins[0], bPin0 ? HIGH : LOW);
 		digitalWrite(pins[1], bPin1 ? HIGH : LOW);
 		digitalWrite(pins[2], bPin2 ? HIGH : LOW);
@@ -356,6 +356,21 @@ float Clamp(float fVal, float fMin, float fMax)
 
 
 
+void EEPROMWrite(int iAddr, byte yValue)
+{
+	int yCurValue = EEPROM.read(iAddr);
+	if(yCurValue != (int)yValue)
+	{
+		EEPROM.write(iAddr, yValue);
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.println("WROTE TO EEPROM! The EEPROM is now slightly closer to death.");
+		}
+	}
+}
+
+
+
 bool ReceiveTuningMessage()
 {
 	if(USE_SERIAL_FOR_DEBUGGING)
@@ -398,7 +413,7 @@ bool ReceiveTuningMessage()
 	for(int i = 0; i < NUM_NODES; i++)
 	{
 		// If this is our node, read in the values and save them
-		if(i == iNodeIndex)
+		if(i == g_iNodeIndex)
 		{
 			iNewMinSpeedU      = Uart.read();
 			iNewMinSpeedL      = Uart.read();
@@ -437,11 +452,14 @@ bool ReceiveTuningMessage()
 	}
 
 	// Debug saying we got a valid message
-	for(int i = 0; i < 4; i++)
+	for(int i = 0; i < 2; i++)
 	{
-		analogWrite(pins[4], 255);
-		delay(100);
-		digitalWrite(pins[4], LOW);
+		for(int j = NUM_LEDS_PER_NODE-1; j >= 0; j--)
+		{
+			analogWrite(pins[j], 255);
+			delay(100);
+			digitalWrite(pins[j], LOW);
+		}
 		delay(200);
 	}
 
@@ -459,15 +477,15 @@ bool ReceiveTuningMessage()
 	}
 
 	// Save out settings to EEPROM
-	EEPROM.write(EEPROM_ADDR_DATA_VERSION, CUR_EEPROM_DATA_VERSION);
-	EEPROM.write(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
-	EEPROM.write(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
-	EEPROM.write(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
-	EEPROM.write(EEPROM_ADDR_MAX_SPEED+1, iNewMaxSpeedL);
-	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
-	EEPROM.write(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
-	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT,   iNewInputExponentU);
-	EEPROM.write(EEPROM_ADDR_INPUT_EXPONENT+1, iNewInputExponentL);
+	EEPROMWrite(EEPROM_ADDR_DATA_VERSION, CUR_EEPROM_DATA_VERSION);
+	EEPROMWrite(EEPROM_ADDR_MIN_SPEED,   iNewMinSpeedU);
+	EEPROMWrite(EEPROM_ADDR_MIN_SPEED+1, iNewMinSpeedL);
+	EEPROMWrite(EEPROM_ADDR_MAX_SPEED,   iNewMaxSpeedU);
+	EEPROMWrite(EEPROM_ADDR_MAX_SPEED+1, iNewMaxSpeedL);
+	EEPROMWrite(EEPROM_ADDR_NEW_SPEED_WEIGHT,   iNewWeightU);
+	EEPROMWrite(EEPROM_ADDR_NEW_SPEED_WEIGHT+1, iNewWeightL);
+	EEPROMWrite(EEPROM_ADDR_INPUT_EXPONENT,   iNewInputExponentU);
+	EEPROMWrite(EEPROM_ADDR_INPUT_EXPONENT+1, iNewInputExponentL);
 
 	// Read data just written to EEPROM as new settings
 	ReadSettingsFromEEPROM();
@@ -541,7 +559,7 @@ void loop()
 	// and the current speed.  We are compressing our speed ratio
 	// to 5 bits (32 values) so that it fits in a single byte.
 	// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
-	byte ySendByte = iNodeIndex << 5;
+	byte ySendByte = g_iNodeIndex << 5;
 	ySendByte = ySendByte | (int(fDisplaySpeedRatio * 30 + 0.5) + 1);
 
 	// DEBUG
@@ -564,7 +582,7 @@ void loop()
 	//{
 	//	iTestSendValue++;
 	//}
-	//ySendByte = (iNodeIndex << 5) | iTestSendValue;
+	//ySendByte = (g_iNodeIndex << 5) | iTestSendValue;
 
 	// Listen for other nodes talking
 	int iNumReadBytes = 0;
@@ -617,7 +635,7 @@ void loop()
 
 			// Do some error checking that can likely be commented out in a final version
 			// The PC "node" index is NUM_NODES, so accept that as a valid value too.
-			if( iIncomingNodeIndex == iNodeIndex ||
+			if( iIncomingNodeIndex == g_iNodeIndex ||
 				iIncomingNodeIndex > NUM_NODES )
 			{
 				if(USE_SERIAL_FOR_DEBUGGING)
@@ -659,13 +677,13 @@ void loop()
 	}
 
 	// If we are supposed to send next, do that
-	if(iNodeIndex == g_iNextNodeIndex)
+	if(g_iNodeIndex == g_iNextNodeIndex)
 	{
 		if(USE_SERIAL_FOR_DEBUGGING)
 		{
 			Serial.print(iCurTime);
-			Serial.print(" About to write data iNodeIndex=");
-			Serial.print(iNodeIndex);
+			Serial.print(" About to write data g_iNodeIndex=");
+			Serial.print(g_iNodeIndex);
 			Serial.print(" value=");
 			Serial.print(ySendByte & 31);
 			Serial.println("");
@@ -697,8 +715,8 @@ void loop()
 		if(USE_SERIAL_FOR_DEBUGGING)
 		{
 			Serial.print(iCurTime);
-			Serial.print(" Just wrote data iNodeIndex=");
-			Serial.println(iNodeIndex);
+			Serial.print(" Just wrote data g_iNodeIndex=");
+			Serial.println(g_iNodeIndex);
 		}
 	}
 }
