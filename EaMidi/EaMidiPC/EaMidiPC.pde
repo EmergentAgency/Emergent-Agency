@@ -152,6 +152,13 @@ float[] afMIDINoteChannel = {1,2,3,4,5,6,7};
 // If this is true, we wait our turn on the com bus and then send out the tuning updates
 boolean  g_bPushNewValuesToNodes = false;
 
+// At startup do repeated pushes to nodes to try very hard to make sure they have the proper tuning values.
+// This is how many times to push the tuning values.
+int g_iStartupPushValuesToNodesTimes = 3;
+
+// This var tracks how long to wait between startup tuning value pushes in MS.  It should be initialized to 0.
+float g_fCurTimeTillNextStartupPushMS = 0;
+
 // This is the next node index expected on the com bus.  Each node takes its turn on the com bus.
 int g_iNextExpectedNodeIndex = 0;
 
@@ -296,9 +303,6 @@ void setup()
   {
     g_port = new Serial(this, Serial.list()[Serial.list().length - 1], COM_BAUD_RATE);
   }
-
-  // When we start, update the nodes so everyone is working with the same values
-  g_bPushNewValuesToNodes = true;
 }
 
 
@@ -557,6 +561,18 @@ void draw()
 
 		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
+	}
+
+	// At startup do repeated pushes to nodes to try very hard to make sure they have the proper tuning values
+	if(!g_bPushNewValuesToNodes && g_iStartupPushValuesToNodesTimes > 0)
+	{
+		g_fCurTimeTillNextStartupPushMS -= iDeltaTimeMS;
+		if(g_fCurTimeTillNextStartupPushMS < 0)
+		{
+			g_bPushNewValuesToNodes = true;
+			g_iStartupPushValuesToNodesTimes--;
+			g_fCurTimeTillNextStartupPushMS = 2000;
+		}
 	}
 
 	// If it is our turn to talk, do that
