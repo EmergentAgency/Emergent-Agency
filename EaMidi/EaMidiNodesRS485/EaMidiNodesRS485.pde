@@ -11,7 +11,7 @@
 #include <EEPROM.h>
 
 // Use Serial to print out debug statements
-static bool USE_SERIAL_FOR_DEBUGGING = false;
+static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 // Number of nodes
 static int NUM_NODES = 7;
@@ -123,8 +123,11 @@ float fInputExponent = 1.0;
 float g_fSpeedRatio;
 
 // Settings needed for timing out nodes in case some disconnect, break, or a signal is lost.
-static const int NODE_COM_TIMEOUT_MS = 20;
-static const int PC_COM_TIMEOUT_MS = 40;
+// These could probably be lower but right now I want to bias towards waiting more to make sure
+// all communication works as opposed to having things still be fast when nodes are removed.
+// This means running a partial node setup isn't a really good idea.
+static const int NODE_COM_TIMEOUT_MS = 30; 
+static const int PC_COM_TIMEOUT_MS = 70;
 int g_iNextNodeIndex = 0;
 unsigned long g_iLastReceiveTime = 0;
 

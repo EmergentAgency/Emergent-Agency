@@ -164,7 +164,7 @@ int g_iNextExpectedNodeIndex = 0;
 
 // But sometimes a node drops out so we need to time out.
 int g_iLastReceiveTime = 0;
-static int NODE_COM_TIMEOUT_MS = 20; // There are still a fair number of timeouts with 20ms.  Setting it to 60 seems to remove the timeouts but introduces lag.
+static int NODE_COM_TIMEOUT_MS = 30; // This NEEDS to be the same as the setting in the node file!
 
 // Layout constants
 static int WINDOW_WIDTH = 700;
@@ -527,7 +527,7 @@ void draw()
 		// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
 		int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
 
-		// println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + g_iCurTimeMS);
+		println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + g_iCurTimeMS);
 
 		if(iNodeIndex >= NUM_NODES)
 		{
@@ -557,7 +557,7 @@ void draw()
 	// that needs to be zeroed out.
 	while(g_iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 	{
-		// TEMP_CL println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+		println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
 
 		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
@@ -587,7 +587,10 @@ void draw()
 		else if(g_bUseSerial)
 		{
 			int iSendByte = (NUM_NODES << 5) | 1;
+
+			delay(10); // This delay matches the delay on the node side.  Without it the PC can send its message too earlyf or the nodes to be listening.
 			g_port.write(iSendByte);
+			println(g_iCurTimeMS + " Just sent PC message"); 
 		}
 
 		// Move along on the next expected node index and timeout time.
@@ -646,6 +649,9 @@ void draw()
 		g_iTargetMasterVolume = STANDBY_OFF_VOLUME;
 
 		g_bStandbyMode = false;
+
+		// Try pushing new nodes values every time it turns back on.  Also will grab people's attention.
+		g_bPushNewValuesToNodes = true;
 	}
 	else if(!g_bStandbyMode && g_fStandyActivityAmount < STANDBY_ON_THRESHOLD)
 	{
