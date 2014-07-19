@@ -34,10 +34,10 @@ REM Load up the Reason file for this project and then wait for it to finish load
 start "" "C:\Users\Chris\Documents\MIDI\Somatone_%project_name%.rns"
 timeout /t 4
 
-REM Start the EaMidiPC processing sketch twice to make sure the settings get pushed to all the nodes
-start C:\processing-2.1\processing-java.exe --run --force --sketch="C:\Users\Chris\Documents\EmergentAgencyGit\EaMidi\EaMidiPC" --output=C:\Windows\Temp\Processing
-timeout /t 8
-tskill java
+REM REM Start the EaMidiPC processing sketch twice to make sure the settings get pushed to all the nodes
+REM start C:\processing-2.1\processing-java.exe --run --force --sketch="C:\Users\Chris\Documents\EmergentAgencyGit\EaMidi\EaMidiPC" --output=C:\Windows\Temp\Processing
+REM timeout /t 8
+REM tskill java
 start C:\processing-2.1\processing-java.exe --run --force --sketch="C:\Users\Chris\Documents\EmergentAgencyGit\EaMidi\EaMidiPC" --output=C:\Windows\Temp\Processing
 
 REM Run the project for a reasonable amount of time
