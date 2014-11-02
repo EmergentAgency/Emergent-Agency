@@ -163,6 +163,7 @@ bool g_bNewLights = true;
 bool g_bBackgroundLights = true;
 bool g_bBackgroundLightsPulse = true;
 bool g_bSeqLights = true;
+int g_iColorMapping = 0;
 
 
 void setup()
@@ -211,12 +212,12 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	g_aSeq[nSeq].m_yOnR = 200;
-	g_aSeq[nSeq].m_yOnG = 0;
-	g_aSeq[nSeq].m_yOnB = 0;
+	g_aSeq[nSeq].m_yOnR = 222;
+	g_aSeq[nSeq].m_yOnG = 100;
+	g_aSeq[nSeq].m_yOnB = 100;
 	g_aSeq[nSeq].m_yFadeR = 6;
-	g_aSeq[nSeq].m_yFadeG = 4;
-	g_aSeq[nSeq].m_yFadeB = 4;
+	g_aSeq[nSeq].m_yFadeG = 9;
+	g_aSeq[nSeq].m_yFadeB = 9;
 	nSeq++;
 	// 1
 	g_aSeq[nSeq].m_bActive = true;
@@ -236,9 +237,9 @@ void setup()
 	g_aSeq[nSeq].m_yOnR = 255;
 	g_aSeq[nSeq].m_yOnG = 255;
 	g_aSeq[nSeq].m_yOnB = 255;
-	g_aSeq[nSeq].m_yFadeR = 2;
-	g_aSeq[nSeq].m_yFadeG = 4;
-	g_aSeq[nSeq].m_yFadeB = 4;
+	g_aSeq[nSeq].m_yFadeR = 6;
+	g_aSeq[nSeq].m_yFadeG = 6;
+	g_aSeq[nSeq].m_yFadeB = 6;
 	nSeq++;
 	// 2
 	g_aSeq[nSeq].m_bActive = true;
@@ -249,12 +250,12 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	g_aSeq[nSeq].m_yOnR = 200;
-	g_aSeq[nSeq].m_yOnG = 0;
-	g_aSeq[nSeq].m_yOnB = 0;
+	g_aSeq[nSeq].m_yOnR = 222;
+	g_aSeq[nSeq].m_yOnG = 100;
+	g_aSeq[nSeq].m_yOnB = 100;
 	g_aSeq[nSeq].m_yFadeR = 6;
-	g_aSeq[nSeq].m_yFadeG = 4;
-	g_aSeq[nSeq].m_yFadeB = 4;
+	g_aSeq[nSeq].m_yFadeG = 9;
+	g_aSeq[nSeq].m_yFadeB = 9;
 	nSeq++;
 	// 3
 	g_aSeq[nSeq].m_bActive = true;
@@ -286,12 +287,12 @@ void setup()
 	//g_aSeq[nSeq].m_yFadeG = 2;
 	//g_aSeq[nSeq].m_yFadeB = 4;
 
-	g_aSeq[nSeq].m_yOnR = 200;
-	g_aSeq[nSeq].m_yOnG = 255;
-	g_aSeq[nSeq].m_yOnB = 200;
-	g_aSeq[nSeq].m_yFadeR = 4;
-	g_aSeq[nSeq].m_yFadeG = 2;
-	g_aSeq[nSeq].m_yFadeB = 1;
+	g_aSeq[nSeq].m_yOnR = 255;
+	g_aSeq[nSeq].m_yOnG = 220;
+	g_aSeq[nSeq].m_yOnB = 150;
+	g_aSeq[nSeq].m_yFadeR = 2;
+	g_aSeq[nSeq].m_yFadeG = 3;
+	g_aSeq[nSeq].m_yFadeB = 4;
 	nSeq++;
 
 
@@ -472,13 +473,29 @@ void UpdateSeqFire(unsigned long iCurTime, struct Sequence &seq)
 	//	seq.m_ayOutValuesR[iMaxLEDIndex-1] = yFirstValueB;
 	//}
 
+	static const int iNumFirePoints = 8;
+	static int aFirePoints[iNumFirePoints];
+	static int iCyclesTillNewPoints = 0;
+	static const int iFirePointsRefreshCycles = 5;
+
+	if(iCyclesTillNewPoints <= 0)
+	{
+		for(int i = 0; i < iNumFirePoints; i++)
+		{
+			aFirePoints[i] = random(iMinLEDIndex,iMaxLEDIndex);
+		}
+
+		iCyclesTillNewPoints = iFirePointsRefreshCycles;
+	}
+	iCyclesTillNewPoints--;
+
 	if(true)
 	{
 		// TEMP_CL - don't use the pattern just pick some random LEDs in the range from 32-36
 		// also add to what is there, don't overwrite
-		for(int i = 0; i < 8; i++)
+		for(int i = 0; i < iNumFirePoints; i++)
 		{
-			int nLED = random(iMinLEDIndex,iMaxLEDIndex);
+			int nLED = aFirePoints[i];
 			//seq.m_ayOutValuesR[nLED] = seq.m_yOnR;
 			//seq.m_ayOutValuesG[nLED] = seq.m_yOnG;
 			//seq.m_ayOutValuesB[nLED] = seq.m_yOnB;
@@ -573,7 +590,8 @@ void loop()
 	// Change state based on in button pressed
 	if(bButtonAPressed) g_bBackgroundLights      = !g_bBackgroundLights;
 	if(bButtonBPressed) g_bBackgroundLightsPulse = !g_bBackgroundLightsPulse;
-	if(bButtonCPressed) g_bNewLights             = !g_bNewLights;
+	// TEMP_CL if(bButtonCPressed) g_bNewLights             = !g_bNewLights;
+	if(bButtonCPressed) g_iColorMapping = (g_iColorMapping + 1) % 6;
 	if(bButtonDPressed) g_bSeqLights             = !g_bSeqLights;
 
 	// Check for sync / rhythm tap
@@ -757,9 +775,21 @@ void loop()
 	
 		if(g_ayLEDValueR[nLED] > 0 || g_ayLEDValueG[nLED] > 0 || g_ayLEDValueB[nLED] > 0)
 		{
-			// Set pixel color
-			g_Leds.setPixelColor(nLED, exp_map[g_ayLEDValueR[nLED]], exp_map[g_ayLEDValueG[nLED]], exp_map[g_ayLEDValueB[nLED]]);
-			// TEMP_CL g_Leds.setPixelColor(nLED, g_ayLEDValueR[nLED], g_ayLEDValueG[nLED], g_ayLEDValueB[nLED]);
+			// Remap brightness values
+			byte yR = exp_map[g_ayLEDValueR[nLED]];
+			byte yG = exp_map[g_ayLEDValueG[nLED]];
+			byte yB = exp_map[g_ayLEDValueB[nLED]];
+
+			// Set pixel color based on current setting of color mapping
+			switch(g_iColorMapping)
+			{
+				case 0: g_Leds.setPixelColor(nLED, yR, yG, yB); break;
+				case 1: g_Leds.setPixelColor(nLED, yR, yB, yG); break;
+				case 2: g_Leds.setPixelColor(nLED, yG, yR, yB); break;
+				case 3: g_Leds.setPixelColor(nLED, yG, yB, yR); break;
+				case 4: g_Leds.setPixelColor(nLED, yB, yR, yG); break;
+				case 5: g_Leds.setPixelColor(nLED, yB, yG, yR); break;
+			}
 		}
 		else
 		{
