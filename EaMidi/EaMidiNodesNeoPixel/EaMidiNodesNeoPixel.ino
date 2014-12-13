@@ -58,15 +58,18 @@ static const int pins[NUM_LEDS_PER_NODE] = {14, 15, 26, 25, 16};
 class Color
 {
 public:
-	Color() : m_yPlaceholder(0), m_yR(0), m_yG(0), m_yB(0)
+	//Color() : m_yPlaceholder(0), m_yR(0), m_yG(0), m_yB(0)
+	Color() : m_yR(0), m_yG(0), m_yB(0)
 	{
 	};
 
-	Color(byte yR, byte yG, byte yB) : m_yPlaceholder(0), m_yR(yR), m_yG(yG), m_yB(yB)
+	//Color(byte yR, byte yG, byte yB) : m_yPlaceholder(0), m_yR(yR), m_yG(yG), m_yB(yB)
+	Color(byte yR, byte yG, byte yB) : m_yR(yR), m_yG(yG), m_yB(yB)
 	{
 	};
 
-	Color(uint32_t c) : m_yPlaceholder(0), m_yR( (c&0xFF0000) >> 16 ), m_yG( (c&0x00FF00) >> 8 ), m_yB( c&0x0000FF )
+	//Color(uint32_t c) : m_yPlaceholder(0), m_yR( (c&0xFF0000) >> 16 ), m_yG( (c&0x00FF00) >> 8 ), m_yB( c&0x0000FF )
+	Color(uint32_t c) : m_yR( (c&0xFF0000) >> 16 ), m_yG( (c&0x00FF00) >> 8 ), m_yB( c&0x0000FF )
 	{
 	};
 
@@ -112,7 +115,7 @@ public:
 		m_yB = byte(float(m_yB) * fMult);
 	}
 
-	byte m_yPlaceholder; // This allows for easy conversation to uint32_t color type
+	//byte m_yPlaceholder; // This allows for easy conversation to uint32_t color type
 	byte m_yG;
 	byte m_yR;
 	byte m_yB;
@@ -134,10 +137,13 @@ Color g_aoLEDOut[NUM_LEDS];
 float g_fDimRemainder;
 
 // Number of light "points" 
-#define NUM_SPRITES 10
+#define NUM_SPRITES 15
 
 // -1.0 is first LED, 1.0 is last LED.  Positions can be past ends.
 float g_afSpritePositions[NUM_SPRITES];
+
+// Velocity scale
+float g_afSpriteVelcale[NUM_SPRITES];
 
 // Total life of the sprites in MS (counts up)
 float g_afSpriteLifeInMS[NUM_SPRITES];
@@ -155,7 +161,18 @@ static const float g_afIntensityPoint[NUM_INTENSITY_POINTS]={0.0, 0.333, 0.666, 
 //static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(64,0,0), Color(96,64,32), Color(255,192,128), Color(255,255,192)};
 //static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(64,0,0), Color(96,32,0), Color(255,192,128), Color(255,255,192)};
 //static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(64,0,0), Color(96,32,0), Color(255,192,128), Color(255,255,255)};
-static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(64,0,0), Color(96,32,0), Color(220,192,128), Color(220,220,220)};
+//static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(64,0,0), Color(96,32,0), Color(220,192,128), Color(220,220,220)};
+
+// More consistent brightness
+//static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(96,0,0), Color(96,32,0), Color(220,192,128), Color(220,220,220)};
+
+// Test full power
+static const Color g_acIntensityColor[NUM_INTENSITY_POINTS]={Color(96,0,0), Color(96,32,0), Color(220,192,128), Color(255,255,255)};
+
+// Create a fast lookup table for intensity color to save computation time
+#define INTENSITY_LOOKUP_SAMPLES 200
+#define MAX_INTENSITY_LOOKUP 199
+Color g_acIntensityLookup[INTENSITY_LOOKUP_SAMPLES];
 
 // Distance (as ratio from start 0.0 to end 1.0) that it takes to go from 0.0 intensity to 1.0 intensity 
 #define FADE_DISTANCE 1.5
@@ -250,6 +267,34 @@ unsigned long g_iLastReceiveTime = 0;
 
 
 
+void DebugLog(char* sLog)
+{
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.println(sLog);
+	}
+}
+
+void DebugLog(char* sLog, float f)
+{
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print(sLog);
+		Serial.println(f);
+	}
+}
+
+void DebugLog(char* sLog, int i)
+{
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print(sLog);
+		Serial.println(i);
+	}
+}
+
+
+
 void setup()
 {
 	if(USE_SERIAL_FOR_DEBUGGING)
@@ -301,6 +346,12 @@ void setup()
 	// Init LED values
 	memset(g_aoLEDOut, 0, NUM_LEDS * sizeof(Color));
 
+	// Init intensity lookup
+	for (int i = 0; i < INTENSITY_LOOKUP_SAMPLES; i++)
+	{
+		g_acIntensityLookup[i] = GetIntensityColor((float)i / (float)(MAX_INTENSITY_LOOKUP));
+	}
+
 	// Init NeoPixel
 	g_Leds.begin();  // Call this to start up the LED strip.
 	for (int i = 0; i < NUM_LEDS; i++)
@@ -315,6 +366,7 @@ void setup()
 		g_afSpriteLifeInMS[i] = MAX_LIFETIME_IN_MS / NUM_SPRITES * i;
 		g_afSpritePositions[i] = random(2000) / 1000.0 - 1.0;
 		g_afSpritePositions[i] /= 2.0;
+		g_afSpriteVelcale[i] = (random(2) == 0) ? -1.0 : 1.0;
 	}
 
  	// Do a simple startup sequence to test LEDs
@@ -394,6 +446,12 @@ void ReadSettingsFromEEPROM()
 		// Update fInputExponent with new value. This has a range from 0.0 to 1.0 stored 2 bytes 
 		int iInputExponent = (ySavedInputExponentU << 8) + ySavedInputExponentL;
 		fInputExponent = iInputExponent / 65535.0 * 5.0;
+
+		// TEMP_CL - HACK for overriding internal settings for test
+		iNewMinSpeed = 0.01;
+		fMaxSpeed = 0.4;
+		fNewSpeedWeight = 0.02;
+		fInputExponent = 1.0;
 
 		if(USE_SERIAL_FOR_DEBUGGING)
 		{
@@ -687,7 +745,7 @@ Color GetIntensityColor(float fIntensity)
 {
 	Color cOut;
 
-	if(fIntensity == 0)
+	if(fIntensity <= 0.01)
 	{
 		cOut = g_acIntensityColor[0];
 	}
@@ -719,6 +777,9 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	unsigned long iStartTime;
 	unsigned long iEndTime;
 
+	iStartTime = micros(); // TEMP_CL
+
+
 	//// Old system
 	//iStartTime = micros(); // TEMP_CL
  //   if(fDisplaySpeedRatio > 0)
@@ -746,6 +807,7 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	//Serial.println(iEndTime-iStartTime); // TEMP_CL
 
 
+
 	//// All LEDs same color
 	//Color cIntensityColor = GetIntensityColor(fDisplaySpeedRatio);
 	//for(int nLED = 0; nLED < NUM_LEDS; nLED++)
@@ -754,117 +816,63 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	//}
 	//delay(4);
 
-	//iStartTime = micros(); // TEMP_CL
-
-	static const int iHalfNumLEDS = NUM_LEDS / 2;
-	static const int iLEDOffset = iHalfNumLEDS;
-
-	float fMinIntensityPos = fDisplaySpeedRatio * (1.0 + FADE_DISTANCE);
-	float fMaxIntensityPos = fMinIntensityPos - FADE_DISTANCE;
-
-	Color cMinIntensity = GetIntensityColor(0.0);
-	Color cMaxIntensity = GetIntensityColor(1.0);
-	for(int nLED = 0; nLED < iHalfNumLEDS; nLED++)
-	{
-		float fLEDPos = (float)nLED / (float)(iHalfNumLEDS-1);
-		if(fLEDPos <= fMaxIntensityPos)
-		{
-			g_aoLEDOut[nLED+iLEDOffset] = cMaxIntensity;
-		}
-		else if(fLEDPos >= fMinIntensityPos)
-		{
-			g_aoLEDOut[nLED+iLEDOffset] = cMinIntensity;
-		}
-		else
-		{
-			g_aoLEDOut[nLED+iLEDOffset] = GetIntensityColor((fMinIntensityPos - fLEDPos) / FADE_DISTANCE);
-		}
-	}
-	// Fill in other half
-	for(int nLED = 0; nLED < iHalfNumLEDS; nLED++)
-	{
-		g_aoLEDOut[nLED] = g_aoLEDOut[NUM_LEDS-1 - nLED];
-	}
-
-	//iEndTime = micros(); // TEMP_CL
-	//Serial.print("total LED time = "); // TEMP_CL
-	//Serial.println(iEndTime-iStartTime); // TEMP_CL
-
-	//delay(4);
-
-
 
 
 	//// Dimming
-	//iStartTime = micros(); // TEMP_CL
-	//static const float kfDimPerSec = 400.0;
+	//static const float kfDimPerSec = 800.0;
 	//float fDimThisFrame = kfDimPerSec / 1000.0 * iDeltaTimeMS + g_fDimRemainder;
 	//int iDimThisFrame = int(fDimThisFrame);
 	//g_fDimRemainder = fDimThisFrame - iDimThisFrame;
 	//for(int i = 0; i < NUM_LEDS; i++)
 	//{
 	//	g_aoLEDOut[i].SubClamped(Color(iDimThisFrame, iDimThisFrame, iDimThisFrame));
-
-	//	//Color c(g_Leds.getPixelColor(i));
-	//	//c.SubClamped(Color(iDimThisFrame, iDimThisFrame, iDimThisFrame));
-	//	//g_Leds.setPixelColor(i, *((uint32_t*)(&c)) );
 	//}
-	//iEndTime = micros(); // TEMP_CL
-	////Serial.print("Dimming time = "); // TEMP_CL
-	////Serial.println(iEndTime-iStartTime); // TEMP_CL
 
-	////// Sprites
-	////for(int i = 0; i < NUM_SPRITES; i++)
-	////{
-	////	// Update positions - velocity is based on distance from center
-	////	//float fVelocityFactor = (float)iRawTimeMS / 60000.0;
-	////	//float fVelocityFactor = (sin(iRawTimeMS/5000) + 1.0) * 1.5;
-	////	float fVelocityFactor = fDisplaySpeedRatio * 2;
+	//// Sprites
+	//for(int i = 0; i < NUM_SPRITES; i++)
+	//{
+	//	// Update positions - velocity is based on distance from center
+	//	//float fVelocityFactor = (float)iRawTimeMS / 60000.0;
+	//	//float fVelocityFactor = (sin(iRawTimeMS/5000) + 1.0) * 1.5;
+	//	//float fVelocityFactor = fDisplaySpeedRatio * 0.8;
+	//	float fVelocityFactor = fDisplaySpeedRatio * fDisplaySpeedRatio * 1.5;
 
-	////	float fVel = g_afSpritePositions[i] * fVelocityFactor;
-	////	float fNewPos = g_afSpritePositions[i] + fVel * iDeltaTimeMS / 1000.0;
-	////	g_afSpritePositions[i] = fNewPos;
+	//	//float fVel = g_afSpritePositions[i] * fVelocityFactor;
+	//	float fVel = g_afSpriteVelcale[i] * fVelocityFactor;
 
-	////	if(USE_SERIAL_FOR_DEBUGGING)
-	////	{
-	////		Serial.print("g_afSpritePositions[i]=");
-	////		Serial.println(g_afSpritePositions[i]);
-	////	}
+	//	float fNewPos = g_afSpritePositions[i] + fVel * iDeltaTimeMS / 1000.0;
+	//	g_afSpritePositions[i] = fNewPos;
 
-	////	// Update lifetimes
-	////	g_afSpriteLifeInMS[i] += iDeltaTimeMS;
-	////	if(g_afSpriteLifeInMS[i] > MAX_LIFETIME_IN_MS || g_afSpritePositions[i] > 1.0 || g_afSpritePositions[i] < -1.0)
-	////	{
-	////		g_afSpriteLifeInMS[i] = 0;
-	////		g_afSpritePositions[i] = random(100,2000) / 2500.0;
-	////		if(random(2) == 0)
-	////		{
-	////			g_afSpritePositions[i] *= -1;
-	////		}
+	//	// Update lifetimes
+	//	g_afSpriteLifeInMS[i] += iDeltaTimeMS;
+	//	if(g_afSpriteLifeInMS[i] > MAX_LIFETIME_IN_MS || g_afSpritePositions[i] > 1.0 || g_afSpritePositions[i] < -1.0)
+	//	{
+	//		g_afSpriteLifeInMS[i] = 0;
+	//		g_afSpritePositions[i] = random(100,2000) / 2500.0;
+	//		if(random(2) == 0)
+	//		{
+	//			g_afSpritePositions[i] *= -1;
+	//		}
+	//	}
 
-	////		if(USE_SERIAL_FOR_DEBUGGING)
-	////		{
-	////			Serial.print("NEW POS g_afSpritePositions[i]=");
-	////			Serial.println(g_afSpritePositions[i]);
-	////		}
-	////	}
+	//	int nLED = int((g_afSpritePositions[i] + 1.0) / 2.0 * NUM_LEDS);
+	//	if(nLED >= 0 && nLED < NUM_LEDS)
+	//	{
+	//		Color c = GetIntensityColor(fDisplaySpeedRatio);
+	//		if(g_afSpriteLifeInMS[i] < MAX_LIFETIME_IN_MS/4)
+	//		{
+	//			c.Mult(g_afSpriteLifeInMS[i] / (MAX_LIFETIME_IN_MS/4));
+	//		}
+	//		else if(g_afSpriteLifeInMS[i] > MAX_LIFETIME_IN_MS * 3 / 4)
+	//		{
+	//			c.Mult(1.0 - (g_afSpriteLifeInMS[i] - MAX_LIFETIME_IN_MS * 3 / 4) / (MAX_LIFETIME_IN_MS/4));
+	//		}
 
-	////	int nLED = int((g_afSpritePositions[i] + 1.0) / 2.0 * NUM_LEDS);
-	////	if(nLED >= 0 && nLED < NUM_LEDS)
-	////	{
-	////		Color c = Color(150, 150, 100);
-	////		if(g_afSpriteLifeInMS[i] < MAX_LIFETIME_IN_MS/4)
-	////		{
-	////			c.Mult(g_afSpriteLifeInMS[i] / (MAX_LIFETIME_IN_MS/4));
-	////		}
-	////		else if(g_afSpriteLifeInMS[i] > MAX_LIFETIME_IN_MS * 3 / 4)
-	////		{
-	////			c.Mult(1.0 - (g_afSpriteLifeInMS[i] - MAX_LIFETIME_IN_MS * 3 / 4) / (MAX_LIFETIME_IN_MS/4));
-	////		}
+	//		ShowLight((g_afSpritePositions[i] + 1.0) / 2.0, c);
+	//	}
+	//}
 
-	////		ShowLight((g_afSpritePositions[i] + 1.0) / 2.0, c);
-	////	}
-	////}
+
 
 	//// Show exact value
 	////ShowLight(1.0 - fDisplaySpeedRatio, Color(255,128,100));
@@ -874,24 +882,105 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	////Serial.print("ShowLight time = "); // TEMP_CL
 	////Serial.println(iEndTime-iStartTime); // TEMP_CL
 
-	// Set final LED values
+
+
+	// TEMP_CL - testing
+	//fDisplaySpeedRatio = 0.5;
+
+
+
+	// Full string color fade from center
+
 	//iStartTime = micros(); // TEMP_CL
+
+	//static const int iNumFadeLEDs = 30;
+	static const int iNumFadeLEDs = 100;
+
+	static const int iHalfNumLEDS = iNumFadeLEDs / 2;
+	static const int iLEDOffset = NUM_LEDS / 2;
+
+	float fMinIntensityPos = fDisplaySpeedRatio * (1.0 + FADE_DISTANCE);
+	float fMaxIntensityPos = fMinIntensityPos - FADE_DISTANCE;
+
+	Color cMinIntensity = g_acIntensityLookup[0];
+	Color cMaxIntensity = g_acIntensityLookup[MAX_INTENSITY_LOOKUP];
+
+	//for(int nLED = 0; nLED < iHalfNumLEDS; nLED++)
+	//{
+	//	float fLEDPos = (float)nLED / (float)(iHalfNumLEDS-1);
+	//	if(fLEDPos <= fMaxIntensityPos)
+	//	{
+	//		g_aoLEDOut[nLED+iLEDOffset] = cMaxIntensity;
+	//	}
+	//	else if(fLEDPos >= fMinIntensityPos)
+	//	{
+	//		g_aoLEDOut[nLED+iLEDOffset] = cMinIntensity;
+	//	}
+	//	else
+	//	{
+	//		float fRatio = (fMinIntensityPos - fLEDPos) / FADE_DISTANCE;
+	//		g_aoLEDOut[nLED+iLEDOffset] = g_acIntensityLookup[int(fRatio * MAX_INTENSITY_LOOKUP)];
+	//	}
+	//}
+
+	int iMinIntensityPos = ClampI(int(fMinIntensityPos * (iHalfNumLEDS-1)), 0, iHalfNumLEDS);
+	int iMaxIntensityPos = int(fMaxIntensityPos * (iHalfNumLEDS-1));
+	int iFadeDist = int(FADE_DISTANCE * (iHalfNumLEDS-1));
+
+	//DebugLog("fDisplaySpeedRatio=", fDisplaySpeedRatio);
+	//DebugLog("iMinIntensityPos=", iMinIntensityPos);
+	//DebugLog("iMaxIntensityPos=", iMaxIntensityPos);
+	//DebugLog("iFadeDist=", iFadeDist);
+
+	int nLED = 0;
+	for(; nLED < iMaxIntensityPos; nLED++)
+	{
+		g_aoLEDOut[nLED+iLEDOffset] = cMaxIntensity;
+	}
+	for(; nLED < iMinIntensityPos; nLED++)
+	{
+		float fRatio = (nLED - iMaxIntensityPos) / iFadeDist;
+		g_aoLEDOut[nLED+iLEDOffset] = g_acIntensityLookup[int(fRatio * MAX_INTENSITY_LOOKUP)];
+	}
+	for(; nLED < iHalfNumLEDS; nLED++)
+	{
+		g_aoLEDOut[nLED+iLEDOffset] = cMinIntensity;
+	}
+
+	// Fill in other half
+	for(int nLED = 0; nLED < iHalfNumLEDS; nLED++)
+	{
+		g_aoLEDOut[iLEDOffset-1 - nLED] = g_aoLEDOut[iLEDOffset + nLED];
+	}
+
+	iEndTime = micros(); // TEMP_CL
+	DebugLog("calc intensity time = ", int(iEndTime-iStartTime)); // TEMP_CL
+
+	//delay(4);
+
+
+
+	// Set final LED values
+	iStartTime = micros(); // TEMP_CL
 	for(int i = 0; i < NUM_LEDS; i++)
 	{
 		//g_Leds.setPixelColor(i, g_aoLEDOut[i].m_yR, g_aoLEDOut[i].m_yG, g_aoLEDOut[i].m_yB);
 		g_Leds.setPixelColor(i, exp_map[g_aoLEDOut[i].m_yR], exp_map[g_aoLEDOut[i].m_yG], exp_map[g_aoLEDOut[i].m_yB]);
-		//g_Leds.setPixelColor( i, *((uint32_t*)(&(g_aoLEDOut[i]))) );
 	}
-	//iEndTime = micros(); // TEMP_CL
-	//Serial.print("setPixel time = "); // TEMP_CL
-	//Serial.println(iEndTime-iStartTime); // TEMP_CL
+	iEndTime = micros(); // TEMP_CL
+	DebugLog("setPixel time = ", int(iEndTime-iStartTime)); // TEMP_CL
 
 	//iStartTime = micros(); // TEMP_CL
-	g_Leds.setBrightness(80); // Dim for now to use less power
+	//g_Leds.setBrightness(80); // Dim for now to use less power
+	g_Leds.setBrightness(255);
 	g_Leds.show();
 	//iEndTime = micros(); // TEMP_CL
 	//Serial.print("g_Leds.show = "); // TEMP_CL
 	//Serial.println(iEndTime-iStartTime); // TEMP_CL
+
+
+	//iEndTime = micros(); // TEMP_CL
+	//DebugLog("total LED time = ",int(iEndTime-iStartTime)); // TEMP_CL
 }
 
 
@@ -1087,17 +1176,14 @@ void loop()
 
 		if(USE_RS485)
 		{
-			// TEMP_CL - try delay in front too...
-			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
-			delay(10); // TEMP_CL
-
+			delay(1); // TEMP_CL - short extra delay just to be safe
 			digitalWrite (RS485_ENABLE_WRITE_PIN, HIGH);  // enable sending
 		}
 		Uart.write(ySendByte);
 		if(USE_RS485)
 		{
-			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
-			delay(10); // TEMP_CL
+			Uart.flush();
+			delay(1); // TEMP_CL - short extra delay just to be safe
 			digitalWrite (RS485_ENABLE_WRITE_PIN, LOW);  // disable sending  
 
 		}
