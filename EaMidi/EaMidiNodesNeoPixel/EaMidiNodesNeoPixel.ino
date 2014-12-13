@@ -939,7 +939,7 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	}
 	for(; nLED < iMinIntensityPos; nLED++)
 	{
-		float fRatio = (nLED - iMaxIntensityPos) / iFadeDist;
+		float fRatio = 1.0 - float(nLED - iMaxIntensityPos) / iFadeDist;
 		g_aoLEDOut[nLED+iLEDOffset] = g_acIntensityLookup[int(fRatio * MAX_INTENSITY_LOOKUP)];
 	}
 	for(; nLED < iHalfNumLEDS; nLED++)
