@@ -274,22 +274,26 @@ void setup()
     .setSize(25, 25)
     .addItem("Link_All_Nodes", LINK_ALL_NODES_CHECKBOX_INDEX);
 
-  // List valid MIDI output devices.
-  println("Available MIDI ouput devices:");
-  for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
-  {
-    println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
-  }
+	// List valid MIDI output devices and look for LoopBe.
+	int iLoopBeMidiIndex = -1;
+	println("Available MIDI ouput devices:");
+	for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
+	{
+		println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
+		if(RWMidi.getOutputDeviceNames()[i].startsWith("LoopBe"))
+		{
+			iLoopBeMidiIndex = i;
+		}
+	}
 
-  // Bail if there aren't any MIDI outputs
-  if(RWMidi.getOutputDeviceNames().length == 0)
+  // Bail if we can't find LoopBe
+  if(iLoopBeMidiIndex < 0)
   {
     exit();
   }
 
   // Pick the correct MIDI device.
-  // TEMP_CL - See if there is a way to avoid hardcoding this...
-  g_midiOut = RWMidi.getOutputDevices()[4].createOutput();
+  g_midiOut = RWMidi.getOutputDevices()[iLoopBeMidiIndex].createOutput();
  
   // List available serial ports
   println("Available serial ports: " + Serial.list().length);
