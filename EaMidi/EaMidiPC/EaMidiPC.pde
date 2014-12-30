@@ -42,6 +42,9 @@ static int MASTER_VOLUME_CONTROLLER = 0;
 // The midi note number used to set master volume to make the piece silent if no one has used it for a while
 static int MASTER_VOLUME_NOTE = 60;
 
+// Min movement speed (0-255) to trigger note on and off
+static int MIN_SPEED_FOR_NOTE = 40;
+
 // If this number time passes, the piece goes silent (aka standby mode)
 static int NO_MOTION_STANDBY_TIME_MS = 20000;
 
@@ -557,23 +560,24 @@ void draw()
 	// that needs to be zeroed out.
 	while(g_iCurTimeMS - g_iLastReceiveTime > NODE_COM_TIMEOUT_MS)
 	{
-		println(g_iCurTimeMS + " Timedout waiting for node " + g_iNextExpectedNodeIndex); 
+		println(g_iCurTimeMS + " Timeout waiting for node " + g_iNextExpectedNodeIndex); 
 
 		g_iNextExpectedNodeIndex = (g_iNextExpectedNodeIndex + 1) % (NUM_NODES + 1); // The PC gets a chance to talk also and has a node index of NUM_NODES
 		g_iLastReceiveTime += NODE_COM_TIMEOUT_MS;
 	}
 
-	// At startup do repeated pushes to nodes to try very hard to make sure they have the proper tuning values
-	if(!g_bPushNewValuesToNodes && g_iStartupPushValuesToNodesTimes > 0)
-	{
-		g_fCurTimeTillNextStartupPushMS -= iDeltaTimeMS;
-		if(g_fCurTimeTillNextStartupPushMS < 0)
-		{
-			g_bPushNewValuesToNodes = true;
-			g_iStartupPushValuesToNodesTimes--;
-			g_fCurTimeTillNextStartupPushMS = 2000;
-		}
-	}
+	// TEMP_CL This is causing more problems than it seems to be fixing right now.  For the current run, the plan is to not have auto program switching.
+	//// At startup do repeated pushes to nodes to try very hard to make sure they have the proper tuning values
+	//if(!g_bPushNewValuesToNodes && g_iStartupPushValuesToNodesTimes > 0)
+	//{
+	//	g_fCurTimeTillNextStartupPushMS -= iDeltaTimeMS;
+	//	if(g_fCurTimeTillNextStartupPushMS < 0)
+	//	{
+	//		g_bPushNewValuesToNodes = true;
+	//		g_iStartupPushValuesToNodesTimes--;
+	//		g_fCurTimeTillNextStartupPushMS = 2000;
+	//	}
+	//}
 
 	// If it is our turn to talk, do that
 	if(g_iNextExpectedNodeIndex == NUM_NODES)
@@ -588,7 +592,7 @@ void draw()
 		{
 			int iSendByte = (NUM_NODES << 5) | 1;
 
-			delay(10); // This delay matches the delay on the node side.  Without it the PC can send its message too earlyf or the nodes to be listening.
+			delay(3); // This delay matches the delay on the node side.  Without it the PC can send its message too earlyf or the nodes to be listening.
 			g_port.write(iSendByte);
 			println(g_iCurTimeMS + " Just sent PC message"); 
 		}
@@ -650,8 +654,9 @@ void draw()
 
 		g_bStandbyMode = false;
 
-		// Try pushing new nodes values every time it turns back on.  Also will grab people's attention.
-		g_bPushNewValuesToNodes = true;
+		// TEMP_CL This is causing more problems than it seems to be fixing right now.  For the current run, the plan is to not have auto program switching.
+		//// Try pushing new nodes values every time it turns back on.  Also will grab people's attention.
+		//g_bPushNewValuesToNodes = true;
 	}
 	else if(!g_bStandbyMode && g_fStandyActivityAmount < STANDBY_ON_THRESHOLD)
 	{
@@ -701,13 +706,13 @@ void draw()
 			int MidiNote = int(afMIDINote[i]);
 			int MidiNoteChannel = int(afMIDINoteChannel[i]);
 
-			if(!g_abNoteOn[i] && g_aiLastestMotion[i] > 0)
+			if(!g_abNoteOn[i] && g_aiLastestMotion[i] > MIN_SPEED_FOR_NOTE)
 			{
 				println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
 				g_midiOut.sendNoteOn(MidiNoteChannel, MidiNote, 127); // default to full velocity
 				g_abNoteOn[i] = true;
 			}
-			else if(g_abNoteOn[i] && g_aiLastestMotion[i] == 0)
+			else if(g_abNoteOn[i] && g_aiLastestMotion[i] <= MIN_SPEED_FOR_NOTE)
 			{
 				println("Note OFF node=" + i + " MidiNote=" + MidiNote + " MidiChannel=" + MidiNoteChannel);
 				g_midiOut.sendNoteOff(MidiNoteChannel, MidiNote, 0);

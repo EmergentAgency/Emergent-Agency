@@ -612,6 +612,14 @@ void loop()
 		}
 		else
 		{
+			// Throw out 0 bytes
+			if(iReadByte == 0)
+			{
+				//Serial.print(iCurTime);
+				//Serial.println(" ############# Ignoring 0 byte!");
+				continue;
+			}
+
 			// Get the node index of the sender
 			int iIncomingNodeIndex = iReadByte >> 5;
 
@@ -626,14 +634,6 @@ void loop()
 				int iMotion = (iReadByte & 31) << 3;
 				Serial.print(" with value ");
 				Serial.println(iMotion);
-			}
-
-			// Throw out 0 bytes
-			if(iReadByte == 0)
-			{
-				Serial.print(iCurTime);
-				Serial.println(" ############# Ignoring 0 byte!");
-				continue;
 			}
 
 			// Do some error checking that can likely be commented out in a final version
@@ -696,7 +696,7 @@ void loop()
 		{
 			// TEMP_CL - try delay in front too...
 			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
-			delay(10); // TEMP_CL
+			delay(1); // TEMP_CL
 
 			digitalWrite (RS485_ENABLE_WRITE_PIN, HIGH);  // enable sending
 		}
@@ -704,7 +704,11 @@ void loop()
 		if(USE_RS485)
 		{
 			// TEMP_CL - this is likely more correct but just go doing overkill (below) for now - delayMicroseconds(MICRO_SECOND_DELAY_POST_WRITE_RS485); // wait to make sure the message went out before turning off sending
-			delay(10); // TEMP_CL
+			//delay(3); // TEMP_CL
+
+			Uart.flush();
+			delay(1); // TEMP_CL
+
 			digitalWrite (RS485_ENABLE_WRITE_PIN, LOW);  // disable sending  
 
 		}
