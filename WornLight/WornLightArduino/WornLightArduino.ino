@@ -66,6 +66,65 @@ static const unsigned char exp_map[256]={
   214,219,224,229,234,239,244,250,255
 };
 
+// Color class
+class Color
+{
+public:
+	Color() : m_yR(0), m_yG(0), m_yB(0)
+	{
+	};
+
+	Color(byte yR, byte yG, byte yB) : m_yR(yR), m_yG(yG), m_yB(yB)
+	{
+	};
+
+	void Add(Color oColor)
+	{
+		m_yR += oColor.m_yR;
+		m_yG += oColor.m_yG;
+		m_yB += oColor.m_yB;
+	}
+
+	void AddClamped(Color oColor)
+	{
+		m_yR = ClampI(m_yR + oColor.m_yR, 0, 255);
+		m_yG = ClampI(m_yG + oColor.m_yG, 0, 255);
+		m_yB = ClampI(m_yB + oColor.m_yB, 0, 255);
+	}
+
+	void Sub(Color oColor)
+	{
+		m_yR -= oColor.m_yR;
+		m_yG -= oColor.m_yG;
+		m_yB -= oColor.m_yB;
+	}
+
+	void SubClamped(Color oColor)
+	{
+		m_yR = ClampI(m_yR - oColor.m_yR, 0, 255);
+		m_yG = ClampI(m_yG - oColor.m_yG, 0, 255);
+		m_yB = ClampI(m_yB - oColor.m_yB, 0, 255);
+	}
+
+	void Lighten(Color oColor)
+	{
+		if(oColor.m_yR > m_yR) m_yR = oColor.m_yR;
+		if(oColor.m_yG > m_yG) m_yG = oColor.m_yG;
+		if(oColor.m_yB > m_yB) m_yB = oColor.m_yB;
+	}
+
+	void Mult(float fMult)
+	{
+		m_yR = byte(float(m_yR) * fMult);
+		m_yG = byte(float(m_yG) * fMult);
+		m_yB = byte(float(m_yB) * fMult);
+	}
+
+	byte m_yR;
+	byte m_yG;
+	byte m_yB;
+};
+
 // Light sequence deef
 #define MAX_SEQ_SIZE 128 // 64?
 struct Sequence
@@ -74,22 +133,14 @@ struct Sequence
 	int m_iNumNotes;
 	int m_iNumMeasures;
 	int* m_aiPattern;
-	byte m_yOnR;
-	byte m_yOnG;
-	byte m_yOnB;
-	byte m_yFadeR;
-	byte m_yFadeG;
-	byte m_yFadeB;
-	byte m_ayOutValuesR[NUM_LEDS];
-	byte m_ayOutValuesG[NUM_LEDS];
-	byte m_ayOutValuesB[NUM_LEDS];
+	Color m_oOnColor;
+	Color m_oFadeColor;
+	Color m_aoOutColors[NUM_LEDS];
 	int m_iLastNoteIndex;
 
-	Sequence() : m_bActive(false), m_iNumNotes(4), m_iNumMeasures(1), m_yOnR(255), m_yOnG(255), m_yOnB(255), m_yFadeR(1), m_yFadeG(1), m_yFadeB(1), m_iLastNoteIndex(-1)
+	Sequence() : m_bActive(false), m_iNumNotes(4), m_iNumMeasures(1), m_oOnColor(255,255,255), m_oFadeColor(1,1,1), m_iLastNoteIndex(-1)
 	{
-		memset(m_ayOutValuesR, 0, NUM_LEDS * sizeof(byte));
-		memset(m_ayOutValuesG, 0, NUM_LEDS * sizeof(byte));
-		memset(m_ayOutValuesB, 0, NUM_LEDS * sizeof(byte));
+		memset(m_aoOutColors, 0, NUM_LEDS * sizeof(Color));
 	}
 };
 
@@ -142,9 +193,7 @@ int g_MeasureTimeInMS = 3010;
 int g_iLastNoteIndexInSeq;
 
 // Total LED brightness
-byte g_ayLEDValueR[NUM_LEDS];
-byte g_ayLEDValueG[NUM_LEDS];
-byte g_ayLEDValueB[NUM_LEDS];
+Color g_aoLEDColors[NUM_LEDS];
 
 // Time offset used to let user sync to music
 unsigned long g_iMusicTimeOffset;
@@ -193,9 +242,7 @@ void setup()
 	ReadSettingsFromEEPROM();
 
 	// Init LED values
-	memset(g_ayLEDValueR, 0, NUM_LEDS * sizeof(byte));
-	memset(g_ayLEDValueG, 0, NUM_LEDS * sizeof(byte));
-	memset(g_ayLEDValueB, 0, NUM_LEDS * sizeof(byte));
+	memset(g_aoLEDColors, 0, NUM_LEDS * sizeof(Color));
 
 	// Init music sync
 	g_iMusicTimeOffset = 0;
@@ -203,6 +250,7 @@ void setup()
 	// Init sequences
 	int nSeq = 0;
 	int nPattern = 0;
+
 	// 0
 	g_aSeq[nSeq].m_bActive = true;
 	g_aSeq[nSeq].m_iNumMeasures = 4;
@@ -212,13 +260,10 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	g_aSeq[nSeq].m_yOnR = 222;
-	g_aSeq[nSeq].m_yOnG = 100;
-	g_aSeq[nSeq].m_yOnB = 100;
-	g_aSeq[nSeq].m_yFadeR = 6;
-	g_aSeq[nSeq].m_yFadeG = 9;
-	g_aSeq[nSeq].m_yFadeB = 9;
+	g_aSeq[nSeq].m_oOnColor = Color(222,100,100);
+	g_aSeq[nSeq].m_oFadeColor = Color(6,9,9);
 	nSeq++;
+
 	// 1
 	g_aSeq[nSeq].m_bActive = true;
 	g_aSeq[nSeq].m_iNumMeasures = 1;
@@ -228,19 +273,10 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	//g_aSeq[nSeq].m_yOnR = 255;
-	//g_aSeq[nSeq].m_yOnG = 255;
-	//g_aSeq[nSeq].m_yOnB = 255;
-	//g_aSeq[nSeq].m_yFadeR = 3;
-	//g_aSeq[nSeq].m_yFadeG = 3;
-	//g_aSeq[nSeq].m_yFadeB = 3;
-	g_aSeq[nSeq].m_yOnR = 255;
-	g_aSeq[nSeq].m_yOnG = 255;
-	g_aSeq[nSeq].m_yOnB = 255;
-	g_aSeq[nSeq].m_yFadeR = 6;
-	g_aSeq[nSeq].m_yFadeG = 6;
-	g_aSeq[nSeq].m_yFadeB = 6;
+	g_aSeq[nSeq].m_oOnColor = Color(255,255,255);
+	g_aSeq[nSeq].m_oFadeColor = Color(6,6,6);
 	nSeq++;
+
 	// 2
 	g_aSeq[nSeq].m_bActive = true;
 	g_aSeq[nSeq].m_iNumMeasures = 1;
@@ -250,13 +286,10 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	g_aSeq[nSeq].m_yOnR = 222;
-	g_aSeq[nSeq].m_yOnG = 100;
-	g_aSeq[nSeq].m_yOnB = 100;
-	g_aSeq[nSeq].m_yFadeR = 6;
-	g_aSeq[nSeq].m_yFadeG = 9;
-	g_aSeq[nSeq].m_yFadeB = 9;
+	g_aSeq[nSeq].m_oOnColor = Color(222,100,100);
+	g_aSeq[nSeq].m_oFadeColor = Color(6,9,9);
 	nSeq++;
+
 	// 3
 	g_aSeq[nSeq].m_bActive = true;
 	g_aSeq[nSeq].m_iNumMeasures = 1;
@@ -266,33 +299,8 @@ void setup()
 		if(g_aSeq[nSeq].m_aiPattern[g_aSeq[nSeq].m_iNumNotes] == -2)
 			break;
 	}
-	//g_aSeq[nSeq].m_yOnR = 255;
-	//g_aSeq[nSeq].m_yOnG = 255;
-	//g_aSeq[nSeq].m_yOnB = 255;
-	//g_aSeq[nSeq].m_yFadeR = 6;
-	//g_aSeq[nSeq].m_yFadeG = 6;
-	//g_aSeq[nSeq].m_yFadeB = 6;
-	//g_aSeq[nSeq].m_yOnR = 255;
-	//g_aSeq[nSeq].m_yOnG = 255;
-	//g_aSeq[nSeq].m_yOnB = 200;
-	//g_aSeq[nSeq].m_yFadeR = 3;
-	//g_aSeq[nSeq].m_yFadeG = 4;
-	//g_aSeq[nSeq].m_yFadeB = 6;
-
-	//// Good candle lights
-	//g_aSeq[nSeq].m_yOnR = 255;
-	//g_aSeq[nSeq].m_yOnG = 240;
-	//g_aSeq[nSeq].m_yOnB = 200;
-	//g_aSeq[nSeq].m_yFadeR = 2;
-	//g_aSeq[nSeq].m_yFadeG = 2;
-	//g_aSeq[nSeq].m_yFadeB = 4;
-
-	g_aSeq[nSeq].m_yOnR = 255;
-	g_aSeq[nSeq].m_yOnG = 220;
-	g_aSeq[nSeq].m_yOnB = 150;
-	g_aSeq[nSeq].m_yFadeR = 2;
-	g_aSeq[nSeq].m_yFadeG = 3;
-	g_aSeq[nSeq].m_yFadeB = 4;
+	g_aSeq[nSeq].m_oOnColor = Color(255,220,150);
+	g_aSeq[nSeq].m_oFadeColor = Color(2,3,4);
 	nSeq++;
 
 
@@ -414,9 +422,7 @@ void UpdateSeq(unsigned long iCurTime, struct Sequence &seq)
 		{
 			Serial.print("seq.m_aiPattern[iCurNoteIndexInSeq]="); Serial.println(seq.m_aiPattern[iCurNoteIndexInSeq]);
 		}
-		seq.m_ayOutValuesR[seq.m_aiPattern[iCurNoteIndexInSeq]] = seq.m_yOnR;
-		seq.m_ayOutValuesG[seq.m_aiPattern[iCurNoteIndexInSeq]] = seq.m_yOnG;
-		seq.m_ayOutValuesB[seq.m_aiPattern[iCurNoteIndexInSeq]] = seq.m_yOnB;
+		seq.m_aoOutColors[seq.m_aiPattern[iCurNoteIndexInSeq]] = seq.m_oOnColor;
 	}
 }
 
@@ -496,74 +502,16 @@ void UpdateSeqFire(unsigned long iCurTime, struct Sequence &seq)
 		for(int i = 0; i < iNumFirePoints; i++)
 		{
 			int nLED = aFirePoints[i];
-			//seq.m_ayOutValuesR[nLED] = seq.m_yOnR;
-			//seq.m_ayOutValuesG[nLED] = seq.m_yOnG;
-			//seq.m_ayOutValuesB[nLED] = seq.m_yOnB;
-			//seq.m_ayOutValuesR[nLED] += seq.m_yOnR / 2;
-			//seq.m_ayOutValuesG[nLED] += seq.m_yOnG / 2;
-			//seq.m_ayOutValuesB[nLED] += seq.m_yOnB / 2;
-			seq.m_ayOutValuesR[nLED] = ClampI(seq.m_yOnR / 20 + seq.m_ayOutValuesR[nLED], 0, seq.m_yOnR);
-			seq.m_ayOutValuesG[nLED] = ClampI(seq.m_yOnG / 20 + seq.m_ayOutValuesG[nLED], 0, seq.m_yOnG);
-			seq.m_ayOutValuesB[nLED] = ClampI(seq.m_yOnB / 20 + seq.m_ayOutValuesB[nLED], 0, seq.m_yOnB);
+			seq.m_aoOutColors[nLED].m_yR = ClampI(seq.m_oOnColor.m_yR / 20 + seq.m_aoOutColors[nLED].m_yR, 0, seq.m_oOnColor.m_yR);
+			seq.m_aoOutColors[nLED].m_yG = ClampI(seq.m_oOnColor.m_yG / 20 + seq.m_aoOutColors[nLED].m_yG, 0, seq.m_oOnColor.m_yG);
+			seq.m_aoOutColors[nLED].m_yB = ClampI(seq.m_oOnColor.m_yB / 20 + seq.m_aoOutColors[nLED].m_yB, 0, seq.m_oOnColor.m_yB);
 		}
 	}
 
 	// Fade
     for(int nLED = iMinLEDIndex; nLED < iMaxLEDIndex; nLED++)
     {
-		//if(((int)seq.m_ayOutValuesR[nLED] - (int)seq.m_yFadeR) < seq.m_yOnR/4)
-		//{
-		//	seq.m_ayOutValuesR[nLED] = seq.m_yOnR/4;
-		//}
-		//else
-		//{
-		//	seq.m_ayOutValuesR[nLED] -= seq.m_yFadeR;
-		//}
-
-		//if(((int)seq.m_ayOutValuesG[nLED] - (int)seq.m_yFadeG) < seq.m_yOnG/4)
-		//{
-		//	seq.m_ayOutValuesG[nLED] = seq.m_yOnG/4;
-		//}
-		//else
-		//{
-		//	seq.m_ayOutValuesG[nLED] -= seq.m_yFadeG;
-		//}
-
-		//if(((int)seq.m_ayOutValuesB[nLED] - (int)seq.m_yFadeB) < seq.m_yOnB/4)
-		//{
-		//	seq.m_ayOutValuesB[nLED] = seq.m_yOnB/4;
-		//}
-		//else
-		//{
-		//	seq.m_ayOutValuesB[nLED] -= seq.m_yFadeB;
-		//}
-
-		if(((int)seq.m_ayOutValuesR[nLED] - (int)seq.m_yFadeR) < 0)
-		{
-			seq.m_ayOutValuesR[nLED] = 0;
-		}
-		else
-		{
-			seq.m_ayOutValuesR[nLED] -= seq.m_yFadeR;
-		}
-
-		if(((int)seq.m_ayOutValuesG[nLED] - (int)seq.m_yFadeG) < 0)
-		{
-			seq.m_ayOutValuesG[nLED] = 0;
-		}
-		else
-		{
-			seq.m_ayOutValuesG[nLED] -= seq.m_yFadeG;
-		}
-
-		if(((int)seq.m_ayOutValuesB[nLED] - (int)seq.m_yFadeB) < 0)
-		{
-			seq.m_ayOutValuesB[nLED] = 0;
-		}
-		else
-		{
-			seq.m_ayOutValuesB[nLED] -= seq.m_yFadeB;
-		}
+		seq.m_aoOutColors[nLED].SubClamped(seq.m_oFadeColor);
 	}
 }
 
@@ -591,7 +539,7 @@ void loop()
 	if(bButtonAPressed) g_bBackgroundLights      = !g_bBackgroundLights;
 	if(bButtonBPressed) g_bBackgroundLightsPulse = !g_bBackgroundLightsPulse;
 	// TEMP_CL if(bButtonCPressed) g_bNewLights             = !g_bNewLights;
-	if(bButtonCPressed) g_iColorMapping = (g_iColorMapping + 1) % 6;
+	if(bButtonCPressed) g_iColorMapping = (g_iColorMapping + 1) % 7;
 	if(bButtonDPressed) g_bSeqLights             = !g_bSeqLights;
 
 	// Check for sync / rhythm tap
@@ -650,10 +598,7 @@ void loop()
 	// Display the light values
     for(int nLED = 0; nLED < NUM_LEDS; nLED++)
     {
-		g_ayLEDValueR[nLED] = 0;
-		g_ayLEDValueG[nLED] = 0;
-		g_ayLEDValueB[nLED] = 0;
-
+		g_aoLEDColors[nLED] = Color(0,0,0);
 
 		for(int nSeq = 0; nSeq < NUM_SEQ; nSeq++)
 		{
@@ -662,101 +607,21 @@ void loop()
 				continue;
 			}
 
-			byte iOutR = g_aSeq[nSeq].m_ayOutValuesR[nLED];
-			if(iOutR > 0)
+			Color oOutColor = g_aSeq[nSeq].m_aoOutColors[nLED];
+
+			if(nSeq == 3)
 			{
-				// TEMP_CL
-				if(nSeq == 3)
-				{
-					if(g_bBackgroundLightsPulse)
-						iOutR = int((float)iOutR * (float)g_aSeq[1].m_ayOutValuesR[28] / 255.0) / 2;
-					else
-						iOutR = iOutR / 2;
-				}
-
-				if(iOutR > g_ayLEDValueR[nLED])
-				{
-					g_ayLEDValueR[nLED] = iOutR;
-				}
-
-				// TEMP_CL 
-				if(nSeq != 3)
-				{
-
-				if(((int)g_aSeq[nSeq].m_ayOutValuesR[nLED] - (int)g_aSeq[nSeq].m_yFadeR) < 0)
-				{
-					g_aSeq[nSeq].m_ayOutValuesR[nLED] = 0;
-				}
+				if(g_bBackgroundLightsPulse)
+					oOutColor.Mult( 0.5 * (float)g_aSeq[1].m_aoOutColors[28].m_yR / 255.0); // TEMP_CL - fix this hardcoding
 				else
-				{
-					g_aSeq[nSeq].m_ayOutValuesR[nLED] -= g_aSeq[nSeq].m_yFadeR;
-				}
-
-				}
+					oOutColor.Mult(0.5);
 			}
-			byte iOutG = g_aSeq[nSeq].m_ayOutValuesG[nLED];
-			if(iOutG > 0)
+
+			g_aoLEDColors[nLED].Lighten(oOutColor);
+
+			if(nSeq != 3)
 			{
-				// TEMP_CL
-				if(nSeq == 3)
-				{
-					if(g_bBackgroundLightsPulse)
-						iOutG = int((float)iOutG * (float)g_aSeq[1].m_ayOutValuesG[28] / 255.0) / 2;
-					else
-						iOutG = iOutG / 2;
-				}
-
-				if(iOutG > g_ayLEDValueG[nLED])
-				{
-					g_ayLEDValueG[nLED] = iOutG;
-				}
-
-				// TEMP_CL 
-				if(nSeq != 3)
-				{
-
-				if(((int)g_aSeq[nSeq].m_ayOutValuesG[nLED] - (int)g_aSeq[nSeq].m_yFadeG) < 0)
-				{
-					g_aSeq[nSeq].m_ayOutValuesG[nLED] = 0;
-				}
-				else
-				{
-					g_aSeq[nSeq].m_ayOutValuesG[nLED] -= g_aSeq[nSeq].m_yFadeG;
-				}
-
-				}
-			}
-			byte iOutB = g_aSeq[nSeq].m_ayOutValuesB[nLED];
-			if(iOutB > 0)
-			{
-				// TEMP_CL
-				if(nSeq == 3)
-				{
-					if(g_bBackgroundLightsPulse)
-						iOutB = int((float)iOutB * (float)g_aSeq[1].m_ayOutValuesB[28] / 255.0) / 2;
-					else
-						iOutB = iOutB / 2;
-				}
-
-				if(iOutB > g_ayLEDValueB[nLED])
-				{
-					g_ayLEDValueB[nLED] = iOutB;
-				}
-
-				// TEMP_CL 
-				if(nSeq != 3)
-				{
-
-				if(((int)g_aSeq[nSeq].m_ayOutValuesB[nLED] - (int)g_aSeq[nSeq].m_yFadeB) < 0)
-				{
-					g_aSeq[nSeq].m_ayOutValuesB[nLED] = 0;
-				}
-				else
-				{
-					g_aSeq[nSeq].m_ayOutValuesB[nLED] -= g_aSeq[nSeq].m_yFadeB;
-				}
-
-				}
+				g_aSeq[nSeq].m_aoOutColors[nLED].SubClamped(g_aSeq[nSeq].m_oFadeColor);
 			}
 		}
 
@@ -773,12 +638,12 @@ void loop()
 		//	}
 		//}
 	
-		if(g_ayLEDValueR[nLED] > 0 || g_ayLEDValueG[nLED] > 0 || g_ayLEDValueB[nLED] > 0)
+		if(g_aoLEDColors[nLED].m_yR > 0 || g_aoLEDColors[nLED].m_yG > 0 || g_aoLEDColors[nLED].m_yB > 0)
 		{
 			// Remap brightness values
-			byte yR = exp_map[g_ayLEDValueR[nLED]];
-			byte yG = exp_map[g_ayLEDValueG[nLED]];
-			byte yB = exp_map[g_ayLEDValueB[nLED]];
+			byte yR = exp_map[g_aoLEDColors[nLED].m_yR];
+			byte yG = exp_map[g_aoLEDColors[nLED].m_yG];
+			byte yB = exp_map[g_aoLEDColors[nLED].m_yB];
 
 			// Set pixel color based on current setting of color mapping
 			switch(g_iColorMapping)
@@ -789,6 +654,7 @@ void loop()
 				case 3: g_Leds.setPixelColor(nLED, yG, yB, yR); break;
 				case 4: g_Leds.setPixelColor(nLED, yB, yR, yG); break;
 				case 5: g_Leds.setPixelColor(nLED, yB, yG, yR); break;
+				case 6: g_Leds.setPixelColor(nLED, yR, yR, yR); break; // White
 			}
 		}
 		else
