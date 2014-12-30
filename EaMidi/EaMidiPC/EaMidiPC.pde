@@ -283,6 +283,7 @@ void setup()
 		if(RWMidi.getOutputDeviceNames()[i].startsWith("LoopBe"))
 		{
 			iLoopBeMidiIndex = i;
+			println("Found LoopBe!");
 		}
 	}
 
