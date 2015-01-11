@@ -23,6 +23,16 @@ static bool USE_SERIAL_FOR_DEBUGGING = true;
 // EEPROM.  If >= 0, store that node index in the EEPROM of this node.
 int g_iNodeIndex = -1;
 
+// Set this to 'true' is this is being run with a short strip of LEDs for home testing.  'false' for the full setup.
+#define SHORT_LED_STRIP true
+
+// Number of LEDs
+#if SHORT_LED_STRIP
+#define NUM_NEO_PIXELS 10
+#else
+#define NUM_NEO_PIXELS 100
+#endif
+
 // The address in EEPROM for various saved values
 static const int EEPROM_ADDR_NODE_INDEX = 0;
 static const int EEPROM_ADDR_DATA_VERSION = 21;
@@ -120,9 +130,6 @@ public:
 	byte m_yR;
 	byte m_yB;
 };
-
-// Number of LEDs
-#define NUM_NEO_PIXELS 100
 
 // Allotted time in microsecond for LED processing.  Frequently the LEDs code will take
 // different amounts time to run.  This causes changes in the input smoothing code
@@ -366,7 +373,7 @@ void setup()
 	g_Leds.show();
 
  	// Do a simple startup sequence to test LEDs
-	static const int iNumLEDsToSkip = 3;
+	static const int iNumLEDsToSkip = NUM_NEO_PIXELS > 10 ? 3 : 1;
 	for(int nTest = 0; nTest < NUM_INIT_LOOPS; nTest++)
 	{
 		// Neo pixels
@@ -377,7 +384,7 @@ void setup()
 		}
 		g_Leds.show();
 		delay(500);
-		for(nLED = g_iNodeIndex; nLED < NUM_NEO_PIXELS/3; nLED++)
+		for(nLED = g_iNodeIndex; nLED < NUM_NEO_PIXELS/iNumLEDsToSkip; nLED++)
 		{
 			g_Leds.setPixelColor(nLED*iNumLEDsToSkip, 0);
 		}
@@ -686,7 +693,7 @@ bool ReceiveTuningMessage()
 			delay(100);
 			digitalWrite(pins[j], LOW);
 
-			g_Leds.setPixelColor(j*22, 0xFFFFFF);
+			g_Leds.setPixelColor(j*(NUM_NEO_PIXELS/5), 0xFFFFFF);
 			g_Leds.show();
 		}
 		delay(200);
@@ -792,11 +799,19 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	//	}
 	//}
 
+	// If we have a short strip, just fade them all the same
+#if SHORT_LED_STRIP
+	Color cIntensity = g_acIntensityLookup[int((fDisplaySpeedRatio/2.0 + 0.5) * MAX_INTENSITY_LOOKUP)];
+	for(int nLED = 0; nLED < NUM_NEO_PIXELS; nLED++)
+	{
+		g_aoLEDOut[nLED] = cIntensity;
+	}
+#else
 
 	// Full string color fade from center
 
 	// Setup how many leds we're going to use in the fade
-	static const int iNumFadeLEDs = 100;
+	static const int iNumFadeLEDs = NUM_NEO_PIXELS;
 	static const int iHalfNumLEDS = iNumFadeLEDs / 2;
 	static const int iLEDOffset = NUM_NEO_PIXELS / 2;
 
@@ -810,6 +825,7 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	// Save off min and max to avoid lookup
 	Color cMinIntensity = g_acIntensityLookup[0];
 	Color cMaxIntensity = g_acIntensityLookup[MAX_INTENSITY_LOOKUP];
+
 
 	// Loop across a max LEDs, then do fade, then do all min LEDs
 	int nLED = 0;
@@ -832,6 +848,7 @@ void DisplayMovementSpeed(float fDisplaySpeedRatio, int iDeltaTimeMS)
 	{
 		g_aoLEDOut[iLEDOffset-1 - nLED] = g_aoLEDOut[iLEDOffset + nLED];
 	}
+#endif // SHORT_LED_STRIP
 
 	// Set final LED values
 	for(int i = 0; i < NUM_NEO_PIXELS; i++)
