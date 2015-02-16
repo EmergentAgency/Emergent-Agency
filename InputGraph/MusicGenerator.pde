@@ -59,11 +59,18 @@ class MusicGenerator
 			m_oMidiOut = RWMidi.getOutputDevices()[iLoopBeMidiIndex].createOutput();
 		}
 
-		// TEMP_CL 
+		// Channel is 1 indexed in Reason and 0 index here so channel 0 = channel 1 there.
+		// Controllers are 0 indexed in both places.
 		m_iMidiNoteChannelHigh = 1;
 		m_iMidiNoteChannelLow = 2;
+		m_iMidiControllerChannel = 10;
+		m_iMidiControllerIndex = 1;
+
 		m_aiNotesHigh = new int[MAX_NOTES];
 		m_aiCordIndices = new int[MAX_NOTES];
+
+		fMaxInput = 0.25;
+		fMinInput = 0.75;
 	}
 
 	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent)
@@ -73,7 +80,7 @@ class MusicGenerator
 			return;
 		}
 
-		// If we ever fall below this threshold, turn off all notes
+		// If we ever fall below this threshold, turn off all notes and turn off controller
 		if(fInput < NOTE_OFF_THRESHOLD && m_iNumNotesHigh > 0)
 		{
 			// Turn off high notes
@@ -87,9 +94,7 @@ class MusicGenerator
 			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE, 127); // default to full velocity
 			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE, 127); // default to full velocity
 			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE, 127); // default to full velocity
-
 		}
-
 
 		if(bNoteOffEvent && m_iNumNotesHigh > 0)
 		//if(bNoteOffEvent && m_iNumNotesHigh > 1)
@@ -111,7 +116,7 @@ class MusicGenerator
 			}
 		}
 
-		// NOTE: Not an else if
+		// NOTE: Not an "else if"
 		if(bNoteOnEvent && m_iNumNotesHigh < MAX_NOTES)
 		{
 			m_iNumNotesHigh++;
@@ -157,6 +162,55 @@ class MusicGenerator
 			//println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
 			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh-1], 127); // default to full velocity
 		}
+
+		// If we have notes going, adjust the controller
+		if(m_iNumNotesHigh > 0)
+		{
+			// Adjust controller range
+			float fSmoothingAmount = 0.9;
+			m_fVerySmoothedInput = fInput * (1.0 - fSmoothingAmount) + m_fVerySmoothedInput * fSmoothingAmount;
+
+			// Deal with min
+			// If the current value is less than the current min, reset the min
+			if(m_fVerySmoothedInput < fMinInput)
+			{
+				fMinInput = m_fVerySmoothedInput;
+				m_iLastMinTimeMS = iCurTimeMS;
+			}
+			// If enough time as past, try moving the min up (but only if we are at least below the max input by a margin of error)
+			else if(iCurTimeMS - m_iLastMinTimeMS >= 250 && fMinInput < fMaxInput - 0.1)
+			{
+				fMinInput += 0.05;
+				m_iLastMinTimeMS = iCurTimeMS;
+			}
+
+			// Deal with max
+			// If the current value is greater than the current max, reset the max
+			if(m_fVerySmoothedInput > fMaxInput)
+			{
+				fMaxInput = m_fVerySmoothedInput;
+				m_iLastMaxTimeMS = iCurTimeMS;
+			}
+			// If enough time as past, try moving the max down (but only if we are at least above the min input by a margin of error)
+			else if(iCurTimeMS - m_iLastMaxTimeMS >= 500 && fMaxInput > fMinInput + 0.1)
+			{
+				fMaxInput -= 0.01;
+				m_iLastMaxTimeMS = iCurTimeMS;
+			}
+
+			// Use min and max to reset input
+			float fAdjustedInput = (m_fVerySmoothedInput - fMinInput) / (fMaxInput - fMinInput);
+			println("fAdjustedInput pre pow: " + fAdjustedInput);
+			fAdjustedInput = pow(fAdjustedInput, 2.0);
+			println("fAdjustedInput post pow: " + fAdjustedInput);
+
+			float fControllerSmoothing = 0.9;
+			m_fSmoothedController = fAdjustedInput * (1.0 - fControllerSmoothing) + m_fSmoothedController * fControllerSmoothing;
+			println("m_fSmoothedController=" + m_fSmoothedController);
+
+			int iControllerValue = ClampI(int(m_fSmoothedController * 80) + 10, 10, 90);
+			m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iControllerValue);
+		}
 	}
 
 	// If the device isn't initialized, it won't output any MIDI
@@ -173,6 +227,16 @@ class MusicGenerator
 	int m_iNumNotesLow;
 	int[] m_aiNotesLow;
 
+	int m_iMidiControllerChannel;
+	int m_iMidiControllerIndex;
+
 	int m_iFundamentalIndex;
 	int[] m_aiCordIndices;
+
+	float fMaxInput;
+	float fMinInput;
+	long m_iLastMinTimeMS;
+	long m_iLastMaxTimeMS;
+	float m_fVerySmoothedInput;
+	float m_fSmoothedController;
 }
