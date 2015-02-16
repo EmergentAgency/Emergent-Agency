@@ -10,20 +10,29 @@ import rwmidi.*;
 import processing.serial.*;
 import controlP5.*;
 
+
+
+// Number of nodes CHANGE THE VARS BELOW IF YOU CHANGE THIS
+static int NUM_NODES = 3;
+
 // TEMP_CL
-int g_iLastMidiNote = 60;
-
-int g_aiMelody[] = {58,58,53,49,53,49,53,49,56,56,56,53,49,53};
-int g_iNumMelodyNotes = 14;
-
+//int g_aiMelody[] = {58,58,53,49,53,49,53,49,56,56,56,53,49,53};
+//int g_iNumMelodyNotes = 14;
 //int g_aiNoteSet[] = {53,55,57,60,62,65,67,69,72};
 //int g_iNumSetNotes = 9;
-int g_aiNoteSet[] = {53,57,60,62,65,69,72};
 int g_iNumSetNotes = 7;
-int g_iCurNoteIndex = 0;
+int[][] g_aiNoteSet = {
+	{53,57,60,62,65,69,72},
+	{48,50,53,57,60,62,65},
+	{53,57,60,62,65,69,72},
+};
+int g_aiLastMidiNote[] = {60,60,60};
+int g_aiCurNoteIndex[] = {0,0,0};
+int iMinInput = 128;
+int iMaxInput = 128;
+long g_iLastMinTimeMS = 0;
+long g_iLastMaxTimeMS = 0;
 
-// Number of nodes
-static int NUM_NODES = 7;
 
 // If this much time passes, without hearing from a node, we assume it is broken and set its output to 0
 static int NODE_UPDATE_TIMEOUT_MS = 2000;
@@ -54,7 +63,7 @@ static int MASTER_VOLUME_CONTROLLER = 0;
 static int MASTER_VOLUME_NOTE = 60;
 
 // Min movement speed (0-255) to trigger note on and off
-static int MIN_SPEED_FOR_NOTE = 1;
+static int MIN_SPEED_FOR_NOTE = 32;
 
 // If this number time passes, the piece goes silent (aka standby mode)
 static int NO_MOTION_STANDBY_TIME_MS = 20000;
@@ -106,6 +115,19 @@ static int STANDBY_VOLUME_FADE_IN_RATE = 5;
 // The lastest motion reading from the nodes
 int[] g_aiLastestMotion = new int[NUM_NODES];
 
+// The motion data from the frame before;
+int[] g_aiPrevMotion = new int[NUM_NODES];
+
+// Two smoothed version of the input.  Use to find retriggers in the same node 
+int[] g_aiSmoothedMotionFast = new int[NUM_NODES];
+float g_fSmoothedNewWeightFast = 0.4;
+int[] g_aiSmoothedMotionSlow = new int[NUM_NODES];
+float g_fSmoothedNewWeightSlow = 0.05;
+
+// Smoothed raw input
+float g_fSmoothInput;
+float g_fSmoothInputNewWeight = 0.8;
+
 // True if we got different motion reading for this node
 boolean[] g_abNewMotionData = new boolean[NUM_NODES];
 
@@ -114,6 +136,10 @@ int[] g_aiLastMotionUpdateTime = new int[NUM_NODES];
 
 // If this is true, the "note" for the node is on
 boolean[] g_abNoteOn = new boolean[NUM_NODES];
+
+// True is since this note on the input has gone down
+boolean[] g_abNoteGoneDownFast = new boolean[NUM_NODES];
+boolean[] g_abNoteGoneDownSlow = new boolean[NUM_NODES];
 
 // This is used for testing and lets the PC override the latest motion data
 int[] g_aiPCOverrideMotion = new int[NUM_NODES];
@@ -130,10 +156,12 @@ static int NUM_TUNING_VARS = 10;
 
 // Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
-float[] afMinSpeed = {0.02,0.02,0.02,0.02,0.02,0.02,0.02};
+//float[] afMinSpeed = {0.02,0.02,0.02,0.02,0.02,0.02,0.02};
+float[] afMinSpeed = {0,0,0,0,0,0,0};
 
 // Tuning - The max speed in meters per second.  All motion above this speed will be treated like this speed
-float[] afMaxSpeed = {0.22,0.22,0.22,0.22,0.22,0.22,0.22};
+//float[] afMaxSpeed = {0.22,0.22,0.22,0.22,0.22,0.22,0.22};
+float[] afMaxSpeed = {255,255,255,255,255,255,255};
 
 // Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
@@ -199,6 +227,38 @@ boolean g_bLinkAllNodes = false;
 
 // We want to track focus and focus loss on text boxes so we don't have to press enter each time we change something.
 Textfield currentFocusedTf;
+
+
+
+// Clamp function
+float Clamp(float fVal, float fMin, float fMax)
+{
+	if(fVal < fMin)
+	{
+		fVal = fMin;
+	}
+	else if(fVal > fMax)
+	{
+		fVal = fMax;
+	}
+
+	return fVal;
+}
+
+// Clamp function - int
+int ClampI(int iVal, int iMin, int iMax)
+{
+	if(iVal < iMin)
+	{
+		iVal = iMin;
+	}
+	else if(iVal > iMax)
+	{
+		iVal = iMax;
+	}
+
+	return iVal;
+}
 
 
 
@@ -532,37 +592,82 @@ void draw()
 	{
 		// read byte and then parse out node and motion value
 		int iReadByte = g_port.read();
-		if(iReadByte == 0)
+
+		// Take the read byte and create a min and max the adjust over time.
+		// This is to account for the fact that skin connectivity changes over time
+		// Allowing the min and max to change over time will better reflect the range.
+
+		// Deal with min
+		// If the current value is less than the current min, reset the min
+		if(iReadByte < iMinInput)
 		{
-			println("Got 0 byte!  Invalid! #########################################");
-			continue;
+			iMinInput = iReadByte;
+			g_iLastMinTimeMS = g_iCurTimeMS;
+		}
+		// If enough time as past, try moving the min up (but only if we are at least below the max input by a margin of error)
+		else if(g_iCurTimeMS - g_iLastMinTimeMS >= 1000 && iMinInput < iMaxInput - 10)
+		{
+			iMinInput++;
+			g_iLastMinTimeMS = g_iCurTimeMS;
 		}
 
-		// Get node index
-		int iNodeIndex = iReadByte >> 5;
-
-		// We are compressing our speed ratio
-		// to 5 bits (32 values) so that it fits in a single byte.
-		// We are also never sending a byte of 0 so make speed run from 1 to 31, not 0 to 31
-		int iMotion = ((iReadByte & 31) - 1) * 255 / 30;
-
-		println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + g_iCurTimeMS);
-
-		if(iNodeIndex >= NUM_NODES)
+		// Deal with max
+		// If the current value is greater than the current max, reset the max
+		if(iReadByte > iMaxInput)
 		{
-			println("Got invalid node index!");
-			continue;
+			iMaxInput = iReadByte;
+			g_iLastMaxTimeMS = g_iCurTimeMS;
+		}
+		// If enough time as past, try moving the max down (but only if we are at least above the min input by a margin of error)
+		else if(g_iCurTimeMS - g_iLastMaxTimeMS >= 1000 && iMaxInput > iMinInput + 10)
+		{
+			iMaxInput--;
+			g_iLastMaxTimeMS = g_iCurTimeMS;
 		}
 
-		// Only update the motion value if we aren't overriding it
-		if(g_aiPCOverrideMotion[iNodeIndex] == 0)
+		// Use min and max to reset input
+		float fInput = float(iReadByte - iMinInput) / float(iMaxInput - iMinInput);
+		fInput = pow(fInput, afInputExponent[0]); // Just use the first one for now and ignore all others
+
+		g_fSmoothInput = fInput * g_fSmoothInputNewWeight + g_fSmoothInput * (1.0 - g_fSmoothInputNewWeight); // TEMP_CL NOTE THIS WILL SMOOTH IT TWICE
+		float iInput = 255 * g_fSmoothInput;
+
+		//println(g_iCurTimeMS + " TEMP_CL iMinInput=" + iMinInput + " iMaxInput=" + iMaxInput + " iReadByte=" + iReadByte + " fInput=" + fInput);
+
+		// Send this motion to all the nodes
+		int iNodeIndex;
+		for(iNodeIndex = 0; iNodeIndex < NUM_NODES; ++iNodeIndex)
 		{
-			// Save off new value.  Since we can get multiple values from the same node in this loop, it is import
-			// to remember if any of the values are new, not just the last one.
-			g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
-			g_aiLastestMotion[iNodeIndex] = iMotion;
-			g_aiLastMotionUpdateTime[iNodeIndex] = g_iCurTimeMS;
+			int iMotion = ClampI( int(255*((float)iInput - afMinSpeed[iNodeIndex]) / (afMaxSpeed[iNodeIndex] - afMinSpeed[iNodeIndex]) ), 0, 255);
+
+			//println("Read value iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " at time " + g_iCurTimeMS);
+
+			if(iNodeIndex >= NUM_NODES)
+			{
+				println("Got invalid node index!");
+				continue;
+			}
+
+			// Only update the motion value if we aren't overriding it
+			if(g_aiPCOverrideMotion[iNodeIndex] == 0)
+			{
+				// Save off new value.  Since we can get multiple values from the same node in this loop, it is import
+				// to remember if any of the values are new, not just the last one.
+				g_abNewMotionData[iNodeIndex] = g_abNewMotionData[iNodeIndex] || g_aiLastestMotion[iNodeIndex] != iMotion;
+
+				g_aiPrevMotion[iNodeIndex] = g_aiLastestMotion[iNodeIndex];
+				//print("TEMP_CL iNodeIndex=" + iNodeIndex + " iMotion=" + iMotion + " g_aiSmoothedMotionFast[iNodeIndex]=" + g_aiSmoothedMotionFast[iNodeIndex]);
+				g_aiSmoothedMotionFast[iNodeIndex] = int( float(iMotion) * g_fSmoothedNewWeightFast + float(g_aiSmoothedMotionFast[iNodeIndex]) * (1.0-g_fSmoothedNewWeightFast) );
+				//println(" g_aiSmoothedMotionFast[iNodeIndex]=" + g_aiSmoothedMotionFast[iNodeIndex]);
+				g_aiSmoothedMotionSlow[iNodeIndex] = int( float(iMotion) * g_fSmoothedNewWeightSlow + float(g_aiSmoothedMotionSlow[iNodeIndex]) * (1.0-g_fSmoothedNewWeightSlow) );
+
+				// TEMP_CL g_aiLastestMotion[iNodeIndex] = iMotion;
+				g_aiLastestMotion[iNodeIndex] = int( float(iMotion) * afNewSpeedWeight[iNodeIndex] + float(g_aiLastestMotion[iNodeIndex]) * (1.0-afNewSpeedWeight[iNodeIndex]) );
+
+				g_aiLastMotionUpdateTime[iNodeIndex] = g_iCurTimeMS;
+			}
 		}
+		iNodeIndex = 0;
 
 		// Save off the last node index and the time of the the last value so that we 
 		// can know when to talk on the common bus.
@@ -719,16 +824,55 @@ void draw()
 			int iMidiControllerValue = int(afMinMIDIValue[i] + (afMaxMIDIValue[i] - afMinMIDIValue[i]) * (g_aiLastestMotion[i] / 255.0));
 
 			// TEMP_CL
-			if(iMidiControllerValue < 80)
-				iMidiControllerValue = 80;
+			if(iMidiControllerValue < 60)
+				iMidiControllerValue = 60;
 
 			int iMidiControllerIndex = int(afMIDIController[i]);
 			int iMidiControllerChannel = int(afMIDIControllerChannel[i]);
 			int MidiNote = int(afMIDINote[i]);
 			int MidiNoteChannel = int(afMIDINoteChannel[i]);
 
-			if(!g_abNoteOn[i] && g_aiLastestMotion[i] > MIN_SPEED_FOR_NOTE)
+			// Maybe use a smoother version here?
+			//if(g_aiLastestMotion[i] < g_aiPrevMotion[i])
+			if(g_aiLastestMotion[i] < g_aiSmoothedMotionFast[i])
 			{
+				g_abNoteGoneDownFast[i] = true;
+			}
+			if(g_aiLastestMotion[i] < g_aiSmoothedMotionSlow[i])
+			{
+				g_abNoteGoneDownSlow[i] = true;
+			}
+
+			if(i == 0)
+			{
+				//println(g_iCurTimeMS + " TEMP_CL g_aiLastestMotion[i]=" + g_aiLastestMotion[i] + " g_abNoteGoneDownFast[i]=" + g_abNoteGoneDownFast[i] + " g_aiSmoothedMotionFast[i]=" + g_aiSmoothedMotionFast[i] + " g_aiSmoothedMotionSlow[i]=" + g_aiSmoothedMotionSlow[i]);
+			}
+
+			boolean bInitialNote = g_aiPrevMotion[i] < MIN_SPEED_FOR_NOTE && g_aiLastestMotion[i]  >= MIN_SPEED_FOR_NOTE;
+			//if(bInitialNote) println(g_iCurTimeMS + " bInitialNote");
+
+			boolean bFastNote = g_abNoteGoneDownFast[i] && g_aiLastestMotion[i] > g_aiSmoothedMotionFast[i] + 10;
+			//if(bFastNote) println(g_iCurTimeMS + " bFastNote");
+
+			boolean bSlowNote = g_abNoteGoneDownSlow[i] && g_aiLastestMotion[i] > g_aiSmoothedMotionSlow[i] + 25;
+			//if(bSlowNote) println(g_iCurTimeMS + " bSlowNote");
+
+
+			//if(!g_abNoteOn[i] && g_aiLastestMotion[i] > MIN_SPEED_FOR_NOTE)
+			//if((g_aiLastestMotion[i]-g_aiPrevMotion[i]) > 4 && g_abNoteGoneDown[i])
+			if( bInitialNote ||
+				bFastNote ||
+				bSlowNote )
+			{
+				if(g_abNoteOn[i])
+				{
+					g_midiOut.sendNoteOff(MidiNoteChannel, g_aiLastMidiNote[i], 0);
+				}
+
+				g_abNoteGoneDownFast[i] = false;
+				g_abNoteGoneDownSlow[i] = false;
+
+
 				// TEMP_CL - this is the hack for now, to try randomizing the notes
 				//int iRand = (int)random(5);
 				//switch(iRand)
@@ -745,42 +889,57 @@ void draw()
 				//case 9 : MidiNote = 81; break;
 				//}
 
-				//MidiNote = g_aiMelody[g_iCurNoteIndex];
-				//g_iCurNoteIndex++;
-				//if(g_iCurNoteIndex >= g_iNumMelodyNotes)
+				//MidiNote = g_aiMelody[g_aiCurNoteIndex[i]];
+				//g_aiCurNoteIndex[i]++;
+				//if(g_aiCurNoteIndex[i] >= g_iNumMelodyNotes)
 				//{
-				//	g_iCurNoteIndex = 0;
+				//	g_aiCurNoteIndex[i] = 0;
 				//}
 
-				if(g_iCurNoteIndex == 0)
+				// Repeating notes is allowed
+				//if(g_aiCurNoteIndex[i] == 0)
+				//{
+				//	g_aiCurNoteIndex[i] += (int)random(2);
+				//}
+				//else if(g_aiCurNoteIndex[i] == g_iNumSetNotes-1)
+				//{
+				//	g_aiCurNoteIndex[i] += (int)random(2) - 1;
+				//}
+				//else
+				//{
+				//	g_aiCurNoteIndex[i] += (int)random(3) - 1;
+				//}
+
+				// No repeated notes
+				if(g_aiCurNoteIndex[i] == 0)
 				{
-					g_iCurNoteIndex += (int)random(2);
+					g_aiCurNoteIndex[i] += (int)random(2) + 1;
 				}
-				else if(g_iCurNoteIndex == g_iNumSetNotes-1)
+				else if(g_aiCurNoteIndex[i] == g_iNumSetNotes-1)
 				{
-					g_iCurNoteIndex += (int)random(2) - 1;
+					g_aiCurNoteIndex[i] += (int)random(2) - 2;
 				}
 				else
 				{
-					g_iCurNoteIndex += (int)random(3) - 1;
+					g_aiCurNoteIndex[i] += (int)random(2) == 0 ? -1 : 1;
 				}
 
-				MidiNote = g_aiNoteSet[g_iCurNoteIndex];
+				MidiNote = g_aiNoteSet[i][g_aiCurNoteIndex[i]];
 
 				MidiNote -= 6;
 
-				println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
+				//println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
 				g_midiOut.sendNoteOn(MidiNoteChannel, MidiNote, 127); // default to full velocity
 				g_abNoteOn[i] = true;
 
-				g_iLastMidiNote = MidiNote;
+				g_aiLastMidiNote[i] = MidiNote;
 			}
 			else if(g_abNoteOn[i] && g_aiLastestMotion[i] <= MIN_SPEED_FOR_NOTE)
 			{
 				// TEMP_CL
-				MidiNote = g_iLastMidiNote;
+				MidiNote = g_aiLastMidiNote[i];
 
-				println("Note OFF node=" + i + " MidiNote=" + MidiNote + " MidiChannel=" + MidiNoteChannel);
+				//println("Note OFF node=" + i + " MidiNote=" + MidiNote + " MidiChannel=" + MidiNoteChannel);
 				g_midiOut.sendNoteOff(MidiNoteChannel, MidiNote, 0);
 				g_abNoteOn[i] = false;
 			}
