@@ -24,7 +24,7 @@ static bool USE_SERIAL_FOR_DEBUGGING = true;
 int g_iNodeIndex = -1;
 
 // Set this to 'true' is this is being run with a short strip of LEDs for home testing.  'false' for the full setup.
-#define SHORT_LED_STRIP true
+#define SHORT_LED_STRIP false
 
 // Number of LEDs
 #if SHORT_LED_STRIP
