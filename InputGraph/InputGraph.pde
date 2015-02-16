@@ -166,11 +166,15 @@ ProcessingNode g_oNode2;
 int g_iNumGraphs = 3;
  
 // If we are currently detecting an active touch
-boolean g_bDetect = false;
+boolean g_bDetectOn = false;
+boolean g_bDetectOff = false;
 
 // Min and max thresholds
 float g_fMinInputDetectThreshold = 0.02;
 float g_fMaxInputDetectThreshold = 0.05;
+
+// Class to generate music
+MusicGenerator g_oMusicGen;
 
 
 
@@ -194,6 +198,9 @@ void setup ()
 	g_oNode0 = new ProcessingNode(null,     false, 0.5, 4, 1.0); // Input
 	g_oNode1 = new ProcessingNode(g_oNode0, true,  0.7, 3, 0.5); // 1st serivative
 	g_oNode2 = new ProcessingNode(g_oNode1, true,  0.0, 0, 0.2); // 2nd Derivative
+
+	// Setup music generator
+	g_oMusicGen = new MusicGenerator();
 }
 
 
@@ -225,18 +232,32 @@ void draw ()
 	g_oNode1.Update(iDeltaTimeMS);
 	g_oNode2.Update(iDeltaTimeMS);
 
-	// Simple detection
+	// Simple detection for note on
 	float fSmoothedInput = g_oNode0.GetOutput();
 	float fFinalOutput = g_oNode1.GetOutput();
-	float fDetectThreshold = g_fMinInputDetectThreshold * (1.0 - fSmoothedInput) + g_fMaxInputDetectThreshold * fSmoothedInput;
-	boolean bOldDetect = g_bDetect;
-	g_bDetect = fFinalOutput > fDetectThreshold;
-	boolean bTrigger = !bOldDetect && g_bDetect;
-	if(bTrigger)
+	float fDetectOnThreshold = g_fMinInputDetectThreshold * (1.0 - fSmoothedInput) + g_fMaxInputDetectThreshold * fSmoothedInput;
+	boolean bOldDetectOn = g_bDetectOn;
+	g_bDetectOn = fFinalOutput > fDetectOnThreshold;
+	boolean bTriggerOn = !bOldDetectOn && g_bDetectOn;
+	if(bTriggerOn)
  	{
 		stroke(255,255,255);
 		line(g_iPosX, 0, g_iPosX, height);
 	}
+
+	// Simple detection for note off
+	float fDetectOffThreshold = -fDetectOnThreshold;
+	boolean bOldDetectOff = g_bDetectOff;
+	g_bDetectOff = fFinalOutput < fDetectOffThreshold;
+	boolean bTriggerOff = !bOldDetectOff && g_bDetectOff;
+	if(bTriggerOff)
+ 	{
+		stroke(255,0,0);
+		line(g_iPosX, 0, g_iPosX, height);
+	}
+
+	// Update music gen
+	g_oMusicGen.Update(g_iTimeMS, fSmoothedInput, bTriggerOn, bTriggerOff);
 
 	// Graph data
 	GraphValue(0, g_oNode0.GetOutput());
@@ -275,9 +296,13 @@ void GraphValue(int iGraphIndex, float fValue)
 	}
 
 	// draw the line:
-	if(g_bDetect)
+	if(g_bDetectOn)
 	{
 		stroke(255,128,255);
+	}
+	else if(g_bDetectOff)
+	{
+		stroke(255,128,128);
 	}
 	else
 	{
