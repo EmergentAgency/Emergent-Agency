@@ -8,6 +8,24 @@
 
 import rwmidi.*;
 
+// Synth
+static String MIDI_DEVICE_NAME = "LoopBe";
+static int CHANNEL_HIGH = 1;
+static int CHANNEL_LOW = 2;
+static int CONTROLLER_CHANNEL = 10;
+static int CONTROLLER_INDEX = 1;
+static boolean SEND_EXTRA_NOTE_OFF = false;
+
+//// Xiao Xiao's piano
+//static String MIDI_DEVICE_NAME = "E-MU";
+//static int CHANNEL_HIGH = 0;
+//static int CHANNEL_LOW = 0;
+//static int CONTROLLER_CHANNEL = 10;
+//static int CONTROLLER_INDEX = 1;
+//static boolean SEND_EXTRA_NOTE_OFF = true;
+
+
+
 //int g_aiNoteSet[] = {53,55,57,60,62,65,67,69,72};
 //int g_iNumSetNotes = 9;
 
@@ -23,10 +41,11 @@ int[][] g_aiCordSet = {
 };
 int g_iNumCordNotes = 3;
 
-static float NOTE_OFF_THRESHOLD = 0.02;
+// TEMP_CL static float NOTE_OFF_THRESHOLD = 0.02;
+static float NOTE_OFF_THRESHOLD = 0.03;
 static int MAX_NOTES = 5;
 static int OCTAVE = 12;
-
+static int TRANSPOSE = -12;
 
 
 class MusicGenerator
@@ -39,10 +58,10 @@ class MusicGenerator
 		for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
 		{
 			println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
-			if(RWMidi.getOutputDeviceNames()[i].startsWith("LoopBe"))
+			if(RWMidi.getOutputDeviceNames()[i].startsWith(MIDI_DEVICE_NAME))
 			{
 				iLoopBeMidiIndex = i;
-				println("Found LoopBe!");
+				println("Found device!");
 			}
 		}
 
@@ -61,10 +80,12 @@ class MusicGenerator
 
 		// Channel is 1 indexed in Reason and 0 index here so channel 0 = channel 1 there.
 		// Controllers are 0 indexed in both places.
-		m_iMidiNoteChannelHigh = 1;
-		m_iMidiNoteChannelLow = 2;
-		m_iMidiControllerChannel = 10;
-		m_iMidiControllerIndex = 1;
+
+		// Reason
+		m_iMidiNoteChannelHigh = CHANNEL_HIGH;
+		m_iMidiNoteChannelLow = CHANNEL_LOW;
+		m_iMidiControllerChannel = CONTROLLER_CHANNEL;
+		m_iMidiControllerIndex = CONTROLLER_INDEX;
 
 		m_aiNotesHigh = new int[MAX_NOTES];
 		m_aiCordIndices = new int[MAX_NOTES];
@@ -73,7 +94,7 @@ class MusicGenerator
 		fMinInput = 0.75;
 	}
 
-	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent)
+	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent, int iNoteVelocity)
 	{
 		if(!m_bInitialized)
 		{
@@ -81,38 +102,87 @@ class MusicGenerator
 		}
 
 		// If we ever fall below this threshold, turn off all notes and turn off controller
+		println("TEMP_CL fInput=" + fInput + " m_iNumNotesHigh=" + m_iNumNotesHigh + " iNoteVelocity=" + iNoteVelocity);
 		if(fInput < NOTE_OFF_THRESHOLD && m_iNumNotesHigh > 0)
 		{
+			println("TEMP_CL - kill all input");
+
 			// Turn off high notes
 			for(int i = 0; i <  m_iNumNotesHigh; ++i)
 			{
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i], 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
+				if(SEND_EXTRA_NOTE_OFF)
+				{
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
+				}
 			}
 			m_iNumNotesHigh = 0;
 
 			// Turn off low notes
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE, 127); // default to full velocity
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE, 127); // default to full velocity
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE, 127); // default to full velocity
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+			if(SEND_EXTRA_NOTE_OFF)
+			{
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+			}
+
+			// Turn down the controller
+			m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, 0);
 		}
 
 		if(bNoteOffEvent && m_iNumNotesHigh > 0)
 		//if(bNoteOffEvent && m_iNumNotesHigh > 1)
 		{
+			println("TEMP_CL - note off");
+
 			// Use the note off event to turn off cord notes but not the fundamental
 			m_iNumNotesHigh--;
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh], 0);
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
+			if(SEND_EXTRA_NOTE_OFF)
+			{
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
+			}
 
-			// If we would be left with no notes, treat this like a new note which will trigger a cord change
-			if(m_iNumNotesHigh < 1 && fInput >= NOTE_OFF_THRESHOLD)
+			// If we aren't playing any notes, turn off the cord
+			if(m_iNumNotesHigh < 1)
 			{
 				// Turn off low notes
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE, 127); // default to full velocity
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE, 127); // default to full velocity
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE, 127); // default to full velocity
-
-				// Trigger a new cord and fundamental
-				//bNoteOnEvent = true;
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+				if(SEND_EXTRA_NOTE_OFF)
+				{
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
+				}
 			}
 		}
 
@@ -140,10 +210,12 @@ class MusicGenerator
 
 				m_aiNotesHigh[m_iNumNotesHigh-1] = g_aiNoteSet[m_iFundamentalIndex];
 
+				println("TEMP_CL - cord on");
+
 				// Setup a low cord
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE, 127); // default to full velocity
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE, 127); // default to full velocity
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE, 127); // default to full velocity
+				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, iNoteVelocity);
+				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, iNoteVelocity);
+				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, iNoteVelocity);
 			}
 
 			// If we have fundamental, pick random other notes in the cord
@@ -159,8 +231,13 @@ class MusicGenerator
 				m_aiNotesHigh[m_iNumNotesHigh-1] = g_aiCordSet[m_iFundamentalIndex][m_aiCordIndices[m_iNumNotesHigh-2]];
 			}
 
+			println("TEMP_CL - note on");
+
 			//println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
-			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh-1], 127); // default to full velocity
+			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh-1] + TRANSPOSE, iNoteVelocity);
+
+			// TEMP_CL - trigger drum kit to test timing
+			//m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, 44, iNoteVelocity);
 		}
 
 		// If we have notes going, adjust the controller
@@ -200,13 +277,13 @@ class MusicGenerator
 
 			// Use min and max to reset input
 			float fAdjustedInput = (m_fVerySmoothedInput - fMinInput) / (fMaxInput - fMinInput);
-			println("fAdjustedInput pre pow: " + fAdjustedInput);
+			//println("fAdjustedInput pre pow: " + fAdjustedInput);
 			fAdjustedInput = pow(fAdjustedInput, 2.0);
-			println("fAdjustedInput post pow: " + fAdjustedInput);
+			//println("fAdjustedInput post pow: " + fAdjustedInput);
 
 			float fControllerSmoothing = 0.9;
 			m_fSmoothedController = fAdjustedInput * (1.0 - fControllerSmoothing) + m_fSmoothedController * fControllerSmoothing;
-			println("m_fSmoothedController=" + m_fSmoothedController);
+			//println("m_fSmoothedController=" + m_fSmoothedController);
 
 			int iControllerValue = ClampI(int(m_fSmoothedController * 80) + 10, 10, 90);
 			m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iControllerValue);

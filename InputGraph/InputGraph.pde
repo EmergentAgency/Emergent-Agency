@@ -54,6 +54,9 @@ class ProcessingNode
 		m_iAvgSmoothingNumSamples = iAvgSmoothingNumSamples;
 		m_fScalingFactor = fScalingFactor;
 
+		m_afPastBuffer = new float[MAX_NUM_SAMPLES];
+		m_iPastBufferIndex = 0;
+
 		m_afAvgBuffer = new float[MAX_NUM_SAMPLES];
 		m_iBufferIndex = 0;
 	}
@@ -97,6 +100,10 @@ class ProcessingNode
 			m_fExponentialSmoothedInput = m_fProcessingVar;
 		}
 
+		// Past buffer - very much like avg buffer but not variable in number of samples
+		m_iPastBufferIndex = (m_iPastBufferIndex + 1) % MAX_NUM_SAMPLES;
+		m_afPastBuffer[m_iPastBufferIndex] = m_fExponentialSmoothedInput;
+
 		// Smooth the input using the last n samples (which have already been smoothed with the Exponential smoothing)
 		if(m_iAvgSmoothingNumSamples > 1)
 		{
@@ -128,6 +135,17 @@ class ProcessingNode
 		return m_fOutput;
 	}
 
+	// 0 = new, 1 = one sample is the past
+	float GetOutputInPast(int iHistoryIndex)
+	{
+		int iPastIndex = m_iPastBufferIndex - iHistoryIndex;
+		while(iPastIndex < 0)
+		{
+			iPastIndex += MAX_NUM_SAMPLES;
+		}
+		return m_afPastBuffer[iPastIndex];
+	}
+
 	ProcessingNode m_oNodeInput;
 	boolean m_bDerivative;
 	float m_fExponentialSmoothingWeight;
@@ -138,6 +156,10 @@ class ProcessingNode
 	float m_fProcessingVar;
 	float m_fExponentialSmoothedInput;
 	float m_fAvgSmoothedInput;
+
+	float[] m_afPastBuffer;
+	int m_iPastBufferIndex;
+
 	float[] m_afAvgBuffer;
 	int m_iBufferIndex;
 	float m_fOutput;
@@ -169,9 +191,16 @@ int g_iNumGraphs = 3;
 boolean g_bDetectOn = false;
 boolean g_bDetectOff = false;
 
+// Vars relating to trigger
+boolean g_bUseTriggerVelocity = false;
+boolean g_bStartTrigger = false;
+float g_fPreTriggerValue = 0.0;
+int g_iTriggerVelocity = 0;
+boolean g_bSendTrigger = false;
+
 // Min and max thresholds
-float g_fMinInputDetectThreshold = 0.02;
-float g_fMaxInputDetectThreshold = 0.05;
+float g_fMinInputDetectThreshold = 0.07;
+float g_fMaxInputDetectThreshold = 0.14;
 
 // Class to generate music
 MusicGenerator g_oMusicGen;
@@ -181,7 +210,7 @@ MusicGenerator g_oMusicGen;
 void setup ()
 {
 	// set the window size:
-	size(1200, 800);        
+	size(1200, 1000);        
  
 	// List all the available serial ports
 	println(Serial.list());
@@ -195,9 +224,9 @@ void setup ()
 	background(0);
 
 	// Setup processing nodes
-	g_oNode0 = new ProcessingNode(null,     false, 0.5, 4, 1.0); // Input
-	g_oNode1 = new ProcessingNode(g_oNode0, true,  0.7, 3, 0.5); // 1st serivative
-	g_oNode2 = new ProcessingNode(g_oNode1, true,  0.0, 0, 0.2); // 2nd Derivative
+	g_oNode0 = new ProcessingNode(null,     false, 0.0, 5, 1.0); // Input
+	g_oNode1 = new ProcessingNode(g_oNode0, true,  0.0, 5, 0.6); // 1st serivative
+	g_oNode2 = new ProcessingNode(g_oNode1, true,  0.0, 5, 0.2); // 2nd Derivative
 
 	// Setup music generator
 	g_oMusicGen = new MusicGenerator();
@@ -212,69 +241,94 @@ void draw ()
 	while(g_port.available() > 0)
 	{
 		iReadByte = g_port.read();
-	}
-	if(iReadByte < 0)
-	{
-		return;
-	}
 
-	// Get raw input and then adjust it with a power function
-	//g_fRawInput = pow(float(iReadByte) / 255.0, 2.0); 
-	g_fRawInput = pow(float(iReadByte) / 255.0, 1.0); 
+		// Get raw input and then adjust it with a power function
+		//g_fRawInput = pow(float(iReadByte) / 255.0, 2.0); 
+		g_fRawInput = pow(float(iReadByte) / 255.0, 1.0); 
 
-	// Get delta time
-	long iLastTimeMS = g_iTimeMS;
-	g_iTimeMS = millis();
-	int iDeltaTimeMS = int(g_iTimeMS - iLastTimeMS);
+		// Get delta time
+		long iLastTimeMS = g_iTimeMS;
+		g_iTimeMS = millis();
+		//int iDeltaTimeMS = int(g_iTimeMS - iLastTimeMS);
+		int iDeltaTimeMS = 10; // TEMP_CL - we might actually get better more consistent results assuming a fixed timestep as opposed to having two loops (the microcontroller and the PC) that sometimes don't sync well.
 
-	// Update nodes
-	g_oNode0.UpdateFromInput(iDeltaTimeMS, g_fRawInput);
-	g_oNode1.Update(iDeltaTimeMS);
-	g_oNode2.Update(iDeltaTimeMS);
+		// Update nodes
+		g_oNode0.UpdateFromInput(iDeltaTimeMS, g_fRawInput);
+		g_oNode1.Update(iDeltaTimeMS);
+		g_oNode2.Update(iDeltaTimeMS);
 
-	// Simple detection for note on
-	float fSmoothedInput = g_oNode0.GetOutput();
-	float fFinalOutput = g_oNode1.GetOutput();
-	float fDetectOnThreshold = g_fMinInputDetectThreshold * (1.0 - fSmoothedInput) + g_fMaxInputDetectThreshold * fSmoothedInput;
-	boolean bOldDetectOn = g_bDetectOn;
-	g_bDetectOn = fFinalOutput > fDetectOnThreshold;
-	boolean bTriggerOn = !bOldDetectOn && g_bDetectOn;
-	if(bTriggerOn)
- 	{
-		stroke(255,255,255);
-		line(g_iPosX, 0, g_iPosX, height);
-	}
+		// Simple detection for note on
+		float fSmoothedInput = g_oNode0.GetOutput();
+		float fFinalOutput = g_oNode1.GetOutput();
+		float fDetectOnThreshold = g_fMinInputDetectThreshold * (1.0 - fSmoothedInput) + g_fMaxInputDetectThreshold * fSmoothedInput;
+		if(!g_bStartTrigger || !g_bUseTriggerVelocity)
+		{
+			boolean bOldDetectOn = g_bDetectOn;
+			g_bDetectOn = fFinalOutput > fDetectOnThreshold;
+			boolean bTriggerOn = !bOldDetectOn && g_bDetectOn;
+			if(bTriggerOn)
+ 			{
+				// Save that we detected a trigger if we're using velocity, otherwise, just send it
+				if(g_bUseTriggerVelocity)
+				{
+					g_bStartTrigger = true;
+					g_fPreTriggerValue = g_oNode1.GetOutputInPast(1);
+				}
+				else
+				{
+					g_iTriggerVelocity = 64;
+					g_bSendTrigger = true;
+				}
+			}
+		}
+		else if(g_bStartTrigger)
+		{
+			float fCurValue = g_oNode1.GetOutput();
+			float fTriggerDelta = fCurValue - g_fPreTriggerValue;
+			g_iTriggerVelocity = int(ClampF(fTriggerDelta / 0.3, 0.0, 1.0) * 127);
+			g_bStartTrigger = false;
+			g_bSendTrigger = true;
+		}
 
-	// Simple detection for note off
-	float fDetectOffThreshold = -fDetectOnThreshold;
-	boolean bOldDetectOff = g_bDetectOff;
-	g_bDetectOff = fFinalOutput < fDetectOffThreshold;
-	boolean bTriggerOff = !bOldDetectOff && g_bDetectOff;
-	if(bTriggerOff)
- 	{
-		stroke(255,0,0);
-		line(g_iPosX, 0, g_iPosX, height);
-	}
+		if(g_bSendTrigger)
+		{
+			stroke(g_iTriggerVelocity + 127, g_iTriggerVelocity + 127, g_iTriggerVelocity + 127);
+			line(g_iPosX, 0, g_iPosX, height);
+		}
 
-	// Update music gen
-	g_oMusicGen.Update(g_iTimeMS, fSmoothedInput, bTriggerOn, bTriggerOff);
+		// Simple detection for note off
+		float fDetectOffThreshold = -fDetectOnThreshold;
+		boolean bOldDetectOff = g_bDetectOff;
+		g_bDetectOff = fFinalOutput < fDetectOffThreshold;
+		boolean bTriggerOff = !bOldDetectOff && g_bDetectOff;
+		if(bTriggerOff)
+ 		{
+			stroke(255,0,0);
+			line(g_iPosX, 0, g_iPosX, height);
+		}
 
-	// Graph data
-	GraphValue(0, g_oNode0.GetOutput());
-	GraphValue(1, g_oNode1.GetOutput() + 0.5);
-	GraphValue(2, g_oNode2.GetOutput() + 0.5);
+		// Update music gen
+		g_oMusicGen.Update(g_iTimeMS, fSmoothedInput, g_bSendTrigger, bTriggerOff, g_iTriggerVelocity);
+		g_bSendTrigger = false;
 
-	// Advance x pos for all graphs
-	// at the edge of the screen, go back to the beginning:
-	if (g_iPosX >= width)
-	{
-		g_iPosX = 0;
-		background(0); 
-	} 
-	else
-	{
-		// increment the horizontal position:
-		g_iPosX++;
+		// Graph data
+		GraphValue(0, g_oNode0.GetOutput());
+		GraphValue(1, g_oNode1.GetOutput() + 0.5);
+		GraphValue(2, g_oNode2.GetOutput() + 0.5);
+
+		// Advance x pos for all graphs
+		// at the edge of the screen, go back to the beginning:
+		if (g_iPosX >= width)
+		{
+			g_iPosX = 0;
+			background(0); 
+		} 
+		else
+		{
+			// increment the horizontal position:
+			// TEMP_CL g_iPosX++;
+			g_iPosX += 4;
+		}
 	}
 }
 
@@ -320,14 +374,12 @@ void keyPressed()
 	{
 		float fInc = (key == 'q') ? 0.05 : -0.05;
 		float fNewSmoothing = ClampF(g_oNode0.GetExponentialSmoothingWeight() + fInc, 0, 1);
-		println("Node 0 ExponentialSmoothingWeight=" + fNewSmoothing);
 		g_oNode0.AdjustSmoothing(fNewSmoothing, g_oNode0.GetAvgSmoothingNumSamples());
 	}
 	else if (key == 'w' || key == 's')
 	{
 		int iInc = (key == 'w') ? 1 : -1;
 		int iNewSamples = ClampI(g_oNode0.GetAvgSmoothingNumSamples() + iInc, 0, MAX_NUM_SAMPLES-1);
-		println("Node 0 AvgSmoothingNumSamples=" + iNewSamples);
 		g_oNode0.AdjustSmoothing(g_oNode0.GetExponentialSmoothingWeight(), iNewSamples);
 	}
 
@@ -336,14 +388,12 @@ void keyPressed()
 	{
 		float fInc = (key == 'e') ? 0.05 : -0.05;
 		float fNewSmoothing = ClampF(g_oNode1.GetExponentialSmoothingWeight() + fInc, 0, 1);
-		println("Node 1 ExponentialSmoothingWeight=" + fNewSmoothing);
 		g_oNode1.AdjustSmoothing(fNewSmoothing, g_oNode1.GetAvgSmoothingNumSamples());
 	}
 	else if (key == 'r' || key == 'f')
 	{
 		int iInc = (key == 'r') ? 1 : -1;
 		int iNewSamples = ClampI(g_oNode1.GetAvgSmoothingNumSamples() + iInc, 0, MAX_NUM_SAMPLES-1);
-		println("Node 1 AvgSmoothingNumSamples=" + iNewSamples);
 		g_oNode1.AdjustSmoothing(g_oNode1.GetExponentialSmoothingWeight(), iNewSamples);
 	}
 
@@ -352,14 +402,12 @@ void keyPressed()
 	{
 		float fInc = (key == 't') ? 0.05 : -0.05;
 		float fNewSmoothing = ClampF(g_oNode2.GetExponentialSmoothingWeight() + fInc, 0, 1);
-		println("Node 2 ExponentialSmoothingWeight=" + fNewSmoothing);
 		g_oNode2.AdjustSmoothing(fNewSmoothing, g_oNode2.GetAvgSmoothingNumSamples());
 	}
 	else if (key == 'y' || key == 'h')
 	{
 		int iInc = (key == 'y') ? 1 : -1;
 		int iNewSamples = ClampI(g_oNode2.GetAvgSmoothingNumSamples() + iInc, 0, MAX_NUM_SAMPLES-1);
-		println("Node 2 AvgSmoothingNumSamples=" + iNewSamples);
 		g_oNode2.AdjustSmoothing(g_oNode2.GetExponentialSmoothingWeight(), iNewSamples);
 	}
 
@@ -368,13 +416,20 @@ void keyPressed()
 	{
 		float fInc = (key == 'u') ? 0.01 : -0.01;
 		g_fMinInputDetectThreshold = ClampF(g_fMinInputDetectThreshold + fInc, 0, 1);
-		println("Node 0 g_fMinInputDetectThreshold=" + g_fMinInputDetectThreshold);
 	}
 	else if (key == 'i' || key == 'k')
 	{
 		float fInc = (key == 'i') ? 0.01 : -0.01;
 		g_fMaxInputDetectThreshold = ClampF(g_fMaxInputDetectThreshold + fInc, 0, 1);
-		println("Node 0 g_fMaxInputDetectThreshold=" + g_fMaxInputDetectThreshold);
 	}
 
+
+	println("Node 0 ExponentialSmoothingWeight=" + g_oNode0.GetExponentialSmoothingWeight());
+	println("Node 0 AvgSmoothingNumSamples="     + g_oNode0.GetAvgSmoothingNumSamples());
+	println("Node 1 ExponentialSmoothingWeight=" + g_oNode1.GetExponentialSmoothingWeight());
+	println("Node 1 AvgSmoothingNumSamples="     + g_oNode1.GetAvgSmoothingNumSamples());
+	println("Node 2 ExponentialSmoothingWeight=" + g_oNode2.GetExponentialSmoothingWeight());
+	println("Node 2 AvgSmoothingNumSamples="     + g_oNode2.GetAvgSmoothingNumSamples());
+	println("g_fMinInputDetectThreshold=" + g_fMinInputDetectThreshold);
+	println("g_fMaxInputDetectThreshold=" + g_fMaxInputDetectThreshold);
 }
