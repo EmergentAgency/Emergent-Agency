@@ -42,7 +42,7 @@ int[][] g_aiCordSet = {
 int g_iNumCordNotes = 3;
 
 // TEMP_CL static float NOTE_OFF_THRESHOLD = 0.02;
-static float NOTE_OFF_THRESHOLD = 0.03;
+static float NOTE_OFF_THRESHOLD = 0.05;
 static int MAX_NOTES = 5;
 static int OCTAVE = 12;
 static int TRANSPOSE = -12;
@@ -145,8 +145,8 @@ class MusicGenerator
 			m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, 0);
 		}
 
-		if(bNoteOffEvent && m_iNumNotesHigh > 0)
-		//if(bNoteOffEvent && m_iNumNotesHigh > 1)
+		// TEMP_CL if(bNoteOffEvent && m_iNumNotesHigh > 0)
+		if(bNoteOffEvent && m_iNumNotesHigh > 1)
 		{
 			println("TEMP_CL - note off");
 

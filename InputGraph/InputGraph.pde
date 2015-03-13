@@ -12,6 +12,25 @@ import processing.serial.*;
 
 static int MAX_NUM_SAMPLES = 30;
 
+// Settings to cut and paste from output
+static float g_fNode0Exp=0.0;
+static int   g_iNode0Avg=5;
+static float g_fNode1Exp=0.0;
+static int   g_iNode1Avg=5;
+static float g_fNode2Exp=0.0;
+static int   g_iNode2Avg=5;
+static float g_fMinInput=0.07;
+static float g_fMaxInput=0.14;
+
+//static float g_fNode0Exp=0.0;
+//static int   g_iNode0Avg=5;
+//static float g_fNode1Exp=0.1;
+//static int   g_iNode1Avg=6;
+//static float g_fNode2Exp=0.0;
+//static int   g_iNode2Avg=5;
+//static float g_fMinInput=0.16000001;
+//static float g_fMaxInput=0.23000005;
+
 // Clamp function - float
 float ClampF(float fVal, float fMin, float fMax)
 {
@@ -199,8 +218,8 @@ int g_iTriggerVelocity = 0;
 boolean g_bSendTrigger = false;
 
 // Min and max thresholds
-float g_fMinInputDetectThreshold = 0.07;
-float g_fMaxInputDetectThreshold = 0.14;
+float g_fMinInputDetectThreshold = g_fMinInput;
+float g_fMaxInputDetectThreshold = g_fMaxInput;
 
 // Class to generate music
 MusicGenerator g_oMusicGen;
@@ -224,9 +243,9 @@ void setup ()
 	background(0);
 
 	// Setup processing nodes
-	g_oNode0 = new ProcessingNode(null,     false, 0.0, 5, 1.0); // Input
-	g_oNode1 = new ProcessingNode(g_oNode0, true,  0.0, 5, 0.6); // 1st serivative
-	g_oNode2 = new ProcessingNode(g_oNode1, true,  0.0, 5, 0.2); // 2nd Derivative
+	g_oNode0 = new ProcessingNode(null,     false, g_fNode0Exp, g_iNode0Avg, 1.0); // Input
+	g_oNode1 = new ProcessingNode(g_oNode0, true,  g_fNode1Exp, g_iNode1Avg, 0.6); // 1st serivative
+	g_oNode2 = new ProcessingNode(g_oNode1, true,  g_fNode2Exp, g_iNode2Avg, 0.2); // 2nd Derivative
 
 	// Setup music generator
 	g_oMusicGen = new MusicGenerator();
@@ -327,7 +346,7 @@ void draw ()
 		{
 			// increment the horizontal position:
 			// TEMP_CL g_iPosX++;
-			g_iPosX += 4;
+			g_iPosX += 2;
 		}
 	}
 }
@@ -423,13 +442,13 @@ void keyPressed()
 		g_fMaxInputDetectThreshold = ClampF(g_fMaxInputDetectThreshold + fInc, 0, 1);
 	}
 
-
-	println("Node 0 ExponentialSmoothingWeight=" + g_oNode0.GetExponentialSmoothingWeight());
-	println("Node 0 AvgSmoothingNumSamples="     + g_oNode0.GetAvgSmoothingNumSamples());
-	println("Node 1 ExponentialSmoothingWeight=" + g_oNode1.GetExponentialSmoothingWeight());
-	println("Node 1 AvgSmoothingNumSamples="     + g_oNode1.GetAvgSmoothingNumSamples());
-	println("Node 2 ExponentialSmoothingWeight=" + g_oNode2.GetExponentialSmoothingWeight());
-	println("Node 2 AvgSmoothingNumSamples="     + g_oNode2.GetAvgSmoothingNumSamples());
-	println("g_fMinInputDetectThreshold=" + g_fMinInputDetectThreshold);
-	println("g_fMaxInputDetectThreshold=" + g_fMaxInputDetectThreshold);
+	println("Settings:");
+	println("static float g_fNode0Exp=" + g_oNode0.GetExponentialSmoothingWeight() + ";");
+	println("static int   g_iNode0Avg=" + g_oNode0.GetAvgSmoothingNumSamples() + ";");
+	println("static float g_fNode1Exp=" + g_oNode1.GetExponentialSmoothingWeight() + ";");
+	println("static int   g_iNode1Avg=" + g_oNode1.GetAvgSmoothingNumSamples() + ";");
+	println("static float g_fNode2Exp=" + g_oNode2.GetExponentialSmoothingWeight() + ";");
+	println("static int   g_iNode2Avg=" + g_oNode2.GetAvgSmoothingNumSamples() + ";");
+	println("static float g_fMinInput=" + g_fMinInputDetectThreshold + ";");
+	println("static float g_fMaxInput=" + g_fMaxInputDetectThreshold + ";");
 }
