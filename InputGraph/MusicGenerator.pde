@@ -8,12 +8,20 @@
 
 import rwmidi.*;
 
-// Synth
+//// Synth
+//static String MIDI_DEVICE_NAME = "LoopBe";
+//static int CHANNEL_HIGH = 1;
+//static int CHANNEL_LOW = 2;
+//static int CONTROLLER_CHANNEL = 10;
+//static int CONTROLLER_INDEX = 1;
+//static boolean SEND_EXTRA_NOTE_OFF = false;
+
+// Velocity
 static String MIDI_DEVICE_NAME = "LoopBe";
 static int CHANNEL_HIGH = 1;
-static int CHANNEL_LOW = 2;
+static int CHANNEL_LOW = 10; // skip this for now
 static int CONTROLLER_CHANNEL = 10;
-static int CONTROLLER_INDEX = 1;
+static int CONTROLLER_INDEX = 2; // skip this for now
 static boolean SEND_EXTRA_NOTE_OFF = false;
 
 //// Xiao Xiao's piano
@@ -102,7 +110,7 @@ class MusicGenerator
 		}
 
 		// If we ever fall below this threshold, turn off all notes and turn off controller
-		println("TEMP_CL fInput=" + fInput + " m_iNumNotesHigh=" + m_iNumNotesHigh + " iNoteVelocity=" + iNoteVelocity);
+		//println("TEMP_CL fInput=" + fInput + " m_iNumNotesHigh=" + m_iNumNotesHigh + " iNoteVelocity=" + iNoteVelocity);
 		if(fInput < NOTE_OFF_THRESHOLD && m_iNumNotesHigh > 0)
 		{
 			println("TEMP_CL - kill all input");

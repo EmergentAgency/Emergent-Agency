@@ -13,14 +13,14 @@ import processing.serial.*;
 static int MAX_NUM_SAMPLES = 30;
 
 // Settings to cut and paste from output
-static float g_fNode0Exp=0.0;
-static int   g_iNode0Avg=5;
-static float g_fNode1Exp=0.0;
-static int   g_iNode1Avg=5;
-static float g_fNode2Exp=0.0;
-static int   g_iNode2Avg=5;
-static float g_fMinInput=0.07;
-static float g_fMaxInput=0.14;
+//static float g_fNode0Exp=0.0;
+//static int   g_iNode0Avg=5;
+//static float g_fNode1Exp=0.0;
+//static int   g_iNode1Avg=5;
+//static float g_fNode2Exp=0.0;
+//static int   g_iNode2Avg=5;
+//static float g_fMinInput=0.07;
+//static float g_fMaxInput=0.14;
 
 //static float g_fNode0Exp=0.0;
 //static int   g_iNode0Avg=5;
@@ -30,6 +30,16 @@ static float g_fMaxInput=0.14;
 //static int   g_iNode2Avg=5;
 //static float g_fMinInput=0.16000001;
 //static float g_fMaxInput=0.23000005;
+
+static float g_fNode0Exp=0.0;
+static int   g_iNode0Avg=2;
+static float g_fNode1Exp=0.0;
+static int   g_iNode1Avg=3;
+static float g_fNode2Exp=0.0;
+static int   g_iNode2Avg=5;
+static float g_fMinInput=0.8;
+static float g_fMaxInput=0.8;
+
 
 // Clamp function - float
 float ClampF(float fVal, float fMin, float fMax)
@@ -211,7 +221,7 @@ boolean g_bDetectOn = false;
 boolean g_bDetectOff = false;
 
 // Vars relating to trigger
-boolean g_bUseTriggerVelocity = false;
+boolean g_bUseTriggerVelocity = true;
 boolean g_bStartTrigger = false;
 float g_fPreTriggerValue = 0.0;
 int g_iTriggerVelocity = 0;
@@ -220,6 +230,9 @@ boolean g_bSendTrigger = false;
 // Min and max thresholds
 float g_fMinInputDetectThreshold = g_fMinInput;
 float g_fMaxInputDetectThreshold = g_fMaxInput;
+
+// Max of the smoothed input so far
+float g_fMaxSmoothedInput = 0.1;
 
 // Class to generate music
 MusicGenerator g_oMusicGen;
@@ -291,7 +304,7 @@ void draw ()
 				if(g_bUseTriggerVelocity)
 				{
 					g_bStartTrigger = true;
-					g_fPreTriggerValue = g_oNode1.GetOutputInPast(1);
+					g_fPreTriggerValue = g_oNode0.GetOutputInPast(1);
 				}
 				else
 				{
@@ -302,9 +315,17 @@ void draw ()
 		}
 		else if(g_bStartTrigger)
 		{
-			float fCurValue = g_oNode1.GetOutput();
-			float fTriggerDelta = fCurValue - g_fPreTriggerValue;
-			g_iTriggerVelocity = int(ClampF(fTriggerDelta / 0.3, 0.0, 1.0) * 127);
+			// TODO - Find some way to recalibrate this over time as opposed to restarting the app
+			if(fSmoothedInput > g_fMaxSmoothedInput)
+			{
+				g_fMaxSmoothedInput = fSmoothedInput;
+			}
+
+			float fCurValue = fSmoothedInput;
+			//float fTriggerDelta = fCurValue - g_fPreTriggerValue;
+			float fTriggerDelta = fCurValue; // Try this for now because the previous is clearly wrong for second notes.  This is wrong too but might sound better
+			g_iTriggerVelocity = int(ClampF(fTriggerDelta / (g_fMaxSmoothedInput * 0.9), 0.0, 1.0) * 127);
+			println("TEMP_CL g_iTriggerVelocity=" + g_iTriggerVelocity);
 			g_bStartTrigger = false;
 			g_bSendTrigger = true;
 		}
