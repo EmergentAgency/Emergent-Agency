@@ -9,7 +9,8 @@
 import rwmidi.*;
 
 //// Synth
-//static String MIDI_DEVICE_NAME = "LoopBe";
+//static String MIDI_OUT_DEVICE_NAME = "LoopBe";
+//static String MIDI_IN_DEVICE_NAME = "2- Legacy";
 //static int CHANNEL_HIGH = 1;
 //static int CHANNEL_LOW = 2;
 //static int CONTROLLER_CHANNEL = 10;
@@ -17,7 +18,8 @@ import rwmidi.*;
 //static boolean SEND_EXTRA_NOTE_OFF = false;
 
 // Velocity
-static String MIDI_DEVICE_NAME = "LoopBe";
+static String MIDI_OUT_DEVICE_NAME = "LoopBe";
+static String MIDI_IN_DEVICE_NAME = "2- Legacy";
 static int CHANNEL_HIGH = 1;
 static int CHANNEL_LOW = 10; // skip this for now
 static int CONTROLLER_CHANNEL = 10;
@@ -25,7 +27,8 @@ static int CONTROLLER_INDEX = 2; // skip this for now
 static boolean SEND_EXTRA_NOTE_OFF = false;
 
 //// Xiao Xiao's piano
-//static String MIDI_DEVICE_NAME = "E-MU";
+//static String MIDI_OUT_DEVICE_NAME = "E-MU";
+//static String MIDI_IN_DEVICE_NAME = "E-MU";
 //static int CHANNEL_HIGH = 0;
 //static int CHANNEL_LOW = 0;
 //static int CONTROLLER_CHANNEL = 10;
@@ -54,37 +57,67 @@ static float NOTE_OFF_THRESHOLD = 0.05;
 static int MAX_NOTES = 5;
 static int OCTAVE = 12;
 static int TRANSPOSE = -12;
+static int MAX_RECORDED_NOTES = 256;
 
 
-class MusicGenerator
+
+public class MusicGenerator
 {
 	MusicGenerator()
 	{
 		// List valid MIDI output devices and look for LoopBe.
-		int iLoopBeMidiIndex = -1;
+		int iMidiOutIndex = -1;
 		println("Available MIDI ouput devices:");
 		for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
 		{
 			println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
-			if(RWMidi.getOutputDeviceNames()[i].startsWith(MIDI_DEVICE_NAME))
+			if(RWMidi.getOutputDeviceNames()[i].startsWith(MIDI_OUT_DEVICE_NAME))
 			{
-				iLoopBeMidiIndex = i;
+				iMidiOutIndex = i;
 				println("Found device!");
 			}
 		}
 
 		// Check to see if we initialized out MIDI device
-		m_bInitialized = iLoopBeMidiIndex >= 0;
+		m_bInitializedOutput = iMidiOutIndex >= 0;
 
-		if(!m_bInitialized)
+		if(!m_bInitializedOutput)
 		{
-			println("ERROR - Couldn't find LoopBe MIDI device. No MIDI will be generated.");
+			println("ERROR - Couldn't find " + MIDI_OUT_DEVICE_NAME + " MIDI device. No MIDI will be generated.");
 		}
 		else
 		{
 			// Pick the correct MIDI device.
-			m_oMidiOut = RWMidi.getOutputDevices()[iLoopBeMidiIndex].createOutput();
+			m_oMidiOut = RWMidi.getOutputDevices()[iMidiOutIndex].createOutput();
 		}
+
+
+		// List valid MIDI input devices and look for LoopBe.
+		int iMidiInIndex = -1;
+		println("Available MIDI input devices:");
+		for(int i = 0; i < RWMidi.getInputDeviceNames().length; i++)
+		{
+			println("MIDI input device name " + i + " = " + RWMidi.getInputDeviceNames()[i]);
+			if(RWMidi.getInputDeviceNames()[i].startsWith(MIDI_IN_DEVICE_NAME))
+			{
+				iMidiInIndex = i;
+				println("Found device!");
+			}
+		}
+
+		// Check to see if we initialized out MIDI device
+		m_bInitializedInput = iMidiInIndex >= 0;
+
+		if(!m_bInitializedInput)
+		{
+			println("ERROR - Couldn't find " + MIDI_IN_DEVICE_NAME + " MIDI device. No MIDI will be generated.");
+		}
+		else
+		{
+			// Pick the correct MIDI device.
+			m_oMidiIn = RWMidi.getInputDevices()[iMidiInIndex].createInput(this);
+		}
+
 
 		// Channel is 1 indexed in Reason and 0 index here so channel 0 = channel 1 there.
 		// Controllers are 0 indexed in both places.
@@ -100,14 +133,86 @@ class MusicGenerator
 
 		fMaxInput = 0.25;
 		fMinInput = 0.75;
+
+		m_aiRecordedNotes = new int[MAX_RECORDED_NOTES];
+		m_iNumRecordedNotes = 0;
+		m_bRecording = false;
+		m_iRecordingPlaybackIndex = 0;
+	}
+
+	public void noteOnReceived(Note oNote)
+	{
+		println("Note on: " + oNote.getPitch() + ", velocity: " + oNote.getVelocity());
+		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, oNote.getPitch(), oNote.getVelocity());
+
+		// If this is a note on event, record the note
+		if(oNote.getVelocity() > 0)
+		{
+			if(!m_bRecording)
+			{
+				m_bRecording = true;
+				m_iNumRecordedNotes = 0;
+			}
+
+			m_aiRecordedNotes[m_iNumRecordedNotes] = oNote.getPitch();
+			if(m_iNumRecordedNotes < MAX_RECORDED_NOTES)
+			{
+				m_iNumRecordedNotes++;
+			}
+			else
+			{
+				println("Record buffer full!");
+			}
+		}
+	}
+
+	public void noteOffReceived(Note oNote)
+	{
+		// This never seems to be called...
+		println("Note off: " + oNote.getPitch());
+		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, oNote.getPitch(), 0);
 	}
 
 	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent, int iNoteVelocity)
 	{
-		if(!m_bInitialized)
+		if(!m_bInitializedOutput)
 		{
 			return;
 		}
+
+		if(bNoteOnEvent && m_bRecording)
+		{
+			m_bRecording = false;
+			m_iRecordingPlaybackIndex = m_iNumRecordedNotes - 1;
+		}
+
+
+
+		// TEMP_CL - skip everything complicated for now
+
+		if(m_iNumRecordedNotes == 0)
+		{
+			return;
+		}
+
+		if(bNoteOnEvent)
+		{
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
+			m_iRecordingPlaybackIndex = (m_iRecordingPlaybackIndex + 1) % m_iNumRecordedNotes;
+			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], iNoteVelocity);
+		}
+		else if(bNoteOffEvent)
+		{
+			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
+		}
+
+		// Apparently we can't just bail here in a simple way...  : (
+		if(iCurTimeMS >= 0)
+		{
+			return;
+		}
+
+
 
 		// If we ever fall below this threshold, turn off all notes and turn off controller
 		//println("TEMP_CL fInput=" + fInput + " m_iNumNotesHigh=" + m_iNumNotesHigh + " iNoteVelocity=" + iNoteVelocity);
@@ -298,11 +403,15 @@ class MusicGenerator
 		}
 	}
 
-	// If the device isn't initialized, it won't output any MIDI
-	boolean m_bInitialized;
+	// If the device isn't initialized, it won't output/input any MIDI
+	boolean m_bInitializedOutput;
+	boolean m_bInitializedInput;
 
 	// MIDI output object
 	MidiOutput m_oMidiOut;
+
+	// MIDI input object
+	MidiInput m_oMidiIn;
 
 	int m_iMidiNoteChannelHigh;
 	int m_iNumNotesHigh;
@@ -324,4 +433,10 @@ class MusicGenerator
 	long m_iLastMaxTimeMS;
 	float m_fVerySmoothedInput;
 	float m_fSmoothedController;
+
+	// Recording
+	int[] m_aiRecordedNotes;
+	int m_iNumRecordedNotes;
+	boolean m_bRecording;
+	int m_iRecordingPlaybackIndex;
 }

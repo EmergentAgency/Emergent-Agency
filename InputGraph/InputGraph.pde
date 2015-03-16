@@ -33,12 +33,12 @@ static int MAX_NUM_SAMPLES = 30;
 
 static float g_fNode0Exp=0.0;
 static int   g_iNode0Avg=2;
-static float g_fNode1Exp=0.0;
-static int   g_iNode1Avg=3;
+static float g_fNode1Exp=0.3;
+static int   g_iNode1Avg=4;
 static float g_fNode2Exp=0.0;
 static int   g_iNode2Avg=5;
 static float g_fMinInput=0.8;
-static float g_fMaxInput=0.8;
+static float g_fMaxInput=0.6;
 
 
 // Clamp function - float
