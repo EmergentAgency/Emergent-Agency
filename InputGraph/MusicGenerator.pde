@@ -19,7 +19,7 @@ import rwmidi.*;
 
 // Velocity
 static String MIDI_OUT_DEVICE_NAME = "LoopBe";
-static String MIDI_IN_DEVICE_NAME = "2- Legacy";
+static String MIDI_IN_DEVICE_NAME = "Legacy";
 static int CHANNEL_HIGH = 1;
 static int CHANNEL_LOW = 10; // skip this for now
 static int CONTROLLER_CHANNEL = 10;
@@ -71,7 +71,7 @@ public class MusicGenerator
 		for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
 		{
 			println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
-			if(RWMidi.getOutputDeviceNames()[i].startsWith(MIDI_OUT_DEVICE_NAME))
+			if(RWMidi.getOutputDeviceNames()[i].indexOf(MIDI_OUT_DEVICE_NAME) >= 0)
 			{
 				iMidiOutIndex = i;
 				println("Found device!");
@@ -98,7 +98,7 @@ public class MusicGenerator
 		for(int i = 0; i < RWMidi.getInputDeviceNames().length; i++)
 		{
 			println("MIDI input device name " + i + " = " + RWMidi.getInputDeviceNames()[i]);
-			if(RWMidi.getInputDeviceNames()[i].startsWith(MIDI_IN_DEVICE_NAME))
+			if(RWMidi.getInputDeviceNames()[i].indexOf(MIDI_IN_DEVICE_NAME) >= 0)
 			{
 				iMidiInIndex = i;
 				println("Found device!");
@@ -134,8 +134,10 @@ public class MusicGenerator
 		fMaxInput = 0.25;
 		fMinInput = 0.75;
 
+		// Setup recorded notes and default it to a single note with middle C so you don't need to record anything to test
 		m_aiRecordedNotes = new int[MAX_RECORDED_NOTES];
-		m_iNumRecordedNotes = 0;
+		m_aiRecordedNotes[0] = 60;
+		m_iNumRecordedNotes = 1;
 		m_bRecording = false;
 		m_iRecordingPlaybackIndex = 0;
 	}
@@ -190,6 +192,9 @@ public class MusicGenerator
 
 		// TEMP_CL - skip everything complicated for now
 
+		int iTestControllerValue = ClampI(int(fInput * 127), 0, 127);
+		m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iTestControllerValue);
+
 		if(m_iNumRecordedNotes == 0)
 		{
 			return;
@@ -211,6 +216,8 @@ public class MusicGenerator
 		{
 			return;
 		}
+
+		// end - skip everything complicated for now
 
 
 

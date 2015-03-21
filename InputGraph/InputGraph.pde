@@ -31,15 +31,35 @@ static int MAX_NUM_SAMPLES = 30;
 //static float g_fMinInput=0.16000001;
 //static float g_fMaxInput=0.23000005;
 
+//// With a capacitor
+//static float g_fNode0Exp=0.0;
+//static int   g_iNode0Avg=2;
+//static float g_fNode1Exp=0.3;
+//static int   g_iNode1Avg=4;
+//static float g_fNode2Exp=0.0;
+//static int   g_iNode2Avg=5;
+//static float g_fMinInput=0.8;
+//static float g_fMaxInput=0.6;
+
+// No capacitor 
 static float g_fNode0Exp=0.0;
 static int   g_iNode0Avg=2;
 static float g_fNode1Exp=0.3;
-static int   g_iNode1Avg=4;
+static int   g_iNode1Avg=10;
 static float g_fNode2Exp=0.0;
 static int   g_iNode2Avg=5;
-static float g_fMinInput=0.8;
-static float g_fMaxInput=0.6;
+static float g_fMinInput=0.5;
+static float g_fMaxInput=0.3;
 
+//// No ground attached 
+//static float g_fNode0Exp=0.5499999;
+//static int   g_iNode0Avg=9;
+//static float g_fNode1Exp=0.0;
+//static int   g_iNode1Avg=15;
+//static float g_fNode2Exp=0.0;
+//static int   g_iNode2Avg=5;
+//static float g_fMinInput=0.4000001;
+//static float g_fMaxInput=0.15;
 
 // Clamp function - float
 float ClampF(float fVal, float fMin, float fMax)
