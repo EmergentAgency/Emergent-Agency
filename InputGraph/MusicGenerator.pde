@@ -21,9 +21,9 @@ import rwmidi.*;
 static String MIDI_OUT_DEVICE_NAME = "LoopBe";
 static String MIDI_IN_DEVICE_NAME = "Legacy";
 static int CHANNEL_HIGH = 1;
-static int CHANNEL_LOW = 10; // skip this for now
+static int CHANNEL_LOW = 2;
 static int CONTROLLER_CHANNEL = 10;
-static int CONTROLLER_INDEX = 2; // skip this for now
+static int CONTROLLER_INDEX = 1;
 static boolean SEND_EXTRA_NOTE_OFF = false;
 
 //// Xiao Xiao's piano
@@ -52,6 +52,18 @@ int[][] g_aiCordSet = {
 };
 int g_iNumCordNotes = 3;
 
+int g_iBaseNote = 60;
+int[] g_aiBaseScaleIntervals = {0,2,4,5,7,9,11};
+int[][] g_aiCordsScaleIndexOffsets = {
+	{0,2,4}, // This is more commonly called a 1,3,5 cord
+	{0,3,4}, // This is more commonly called a 1,4,5 cord
+};
+//int[] g_iOctaveOffsets = {-1,0,1};
+int[] g_iOctaveOffsets = {-2,-1,0};
+//int[] g_iOctaveOffsets = {-1,0};
+//int[] g_iOctaveOffsets = {-1};
+//int[] g_iOctaveOffsets = {0};
+
 // TEMP_CL static float NOTE_OFF_THRESHOLD = 0.02;
 static float NOTE_OFF_THRESHOLD = 0.05;
 static int MAX_NOTES = 5;
@@ -65,6 +77,17 @@ public class MusicGenerator
 {
 	MusicGenerator()
 	{
+		// Check bounds
+		for(int i = 0; i < g_iOctaveOffsets.length; ++i)
+		{
+			if((g_iBaseNote + g_iOctaveOffsets[i] * OCTAVE) < 0)
+			{
+				println("g_iBaseNote and g_iOctaveOffsets will create note with index < 0.  FIX THIS!");
+				delay(999999);
+				return;
+			}
+		}
+
 		// List valid MIDI output devices and look for LoopBe.
 		int iMidiOutIndex = -1;
 		println("Available MIDI ouput devices:");
@@ -140,10 +163,184 @@ public class MusicGenerator
 		m_iNumRecordedNotes = 1;
 		m_bRecording = false;
 		m_iRecordingPlaybackIndex = 0;
+
+		m_bRecordingEnabled = true;
+
+		m_bNoteOn = false;
+
+		m_aiAllCords = new int[g_aiCordsScaleIndexOffsets.length * g_aiBaseScaleIntervals.length][3];
+		m_iNumCords = 0;
+		BuildAllCords();
+
+		m_iMaxActiveNotes = 3 * g_iOctaveOffsets.length;
+		m_aiCurNotes = new int[m_iMaxActiveNotes];
+		m_iNumCurNotes = 0;
+
+		m_abActiveMidiNotes = new boolean[120]; // This is sort of arbitrary but 108 is the top of piano keyboard so we should be safe
+	}
+
+	public void BuildAllCords()
+	{
+		for(int iCord = 0; iCord < g_aiCordsScaleIndexOffsets.length; ++iCord)
+		{
+			for(int iFirstNote = 0; iFirstNote < g_aiBaseScaleIntervals.length; ++iFirstNote)
+			{
+				AddCord(g_aiBaseScaleIntervals[(g_aiCordsScaleIndexOffsets[iCord][0] + iFirstNote) % g_aiBaseScaleIntervals.length],
+					    g_aiBaseScaleIntervals[(g_aiCordsScaleIndexOffsets[iCord][1] + iFirstNote) % g_aiBaseScaleIntervals.length],
+						g_aiBaseScaleIntervals[(g_aiCordsScaleIndexOffsets[iCord][2] + iFirstNote) % g_aiBaseScaleIntervals.length]);
+			}
+		}
+	}
+
+	public void AddCord(int iNote1, int iNote2, int iNote3)
+	{
+		m_aiAllCords[m_iNumCords][0] = iNote1 % OCTAVE;
+		m_aiAllCords[m_iNumCords][1] = iNote2 % OCTAVE;
+		m_aiAllCords[m_iNumCords][2] = iNote3 % OCTAVE;
+
+		println("TEMP_CL added cord " + m_aiAllCords[m_iNumCords][0] + "," +
+			                            m_aiAllCords[m_iNumCords][1] + "," +
+										m_aiAllCords[m_iNumCords][2]);
+
+		++m_iNumCords;
+	}
+
+	public void AddNoteToCord()
+	{
+		if(m_iNumCurNotes >= m_iMaxActiveNotes)
+		{
+			println("AddNoteToCord called when m_iNumCurNotes=" + m_iNumCurNotes + ".  Full up on notes.  Bailing.");
+			return;
+		}
+
+		int[] aiValidCordIndices = new int[m_aiAllCords.length];
+		int iNumMatchingCords = 0;
+
+		for(int iCordIndex = 0; iCordIndex < m_aiAllCords.length; ++iCordIndex)
+		{
+			boolean bCordContainsAllActiveNotes = true;
+			for(int iNoteIndex = 0; iNoteIndex < m_iNumCurNotes; ++iNoteIndex)
+			{
+				// Check to see if this note is contained in this cord
+				boolean bCordContainsThisNote = false;
+				for(int iTriadIndex = 0; iTriadIndex < 3; iTriadIndex++)
+				{
+					if(m_aiCurNotes[iNoteIndex] == m_aiAllCords[iCordIndex][iTriadIndex])
+					{
+						bCordContainsThisNote = true;
+						break;
+					}
+				}
+				
+				if(!bCordContainsThisNote)
+				{
+					bCordContainsAllActiveNotes = false;
+					break;
+				}
+			}
+
+			if(bCordContainsAllActiveNotes)
+			{
+				aiValidCordIndices[iNumMatchingCords++] = iCordIndex;
+			}
+		}
+
+		// Pick a random cord from the set of one matches
+		int iNewCordIndex = int(random(iNumMatchingCords));
+		println("TEMP_CL picked cord with notes " + m_aiAllCords[aiValidCordIndices[iNewCordIndex]][0] + "," +
+			                                        m_aiAllCords[aiValidCordIndices[iNewCordIndex]][1] + "," +
+													m_aiAllCords[aiValidCordIndices[iNewCordIndex]][2] + ",");
+
+		// Create list of all possible notes across multiple octaves that could be used to voice this cord.
+		// Exclude notes that are already being played
+		int iNumPossibleNotes = 0;
+		int[] aiPossibleNotes = new int[3 * g_iOctaveOffsets.length];
+		for(int iOctave = 0; iOctave < g_iOctaveOffsets.length; ++iOctave)
+		{
+			for(int iCordNote = 0; iCordNote < 3; ++iCordNote)
+			{
+				int iNote = m_aiAllCords[aiValidCordIndices[iNewCordIndex]][iCordNote] + g_iOctaveOffsets[iOctave] * OCTAVE;
+				if(!m_abActiveMidiNotes[g_iBaseNote + iNote])
+				{
+					println("TEMP_CL adding possible note " + iNote);
+					aiPossibleNotes[iNumPossibleNotes++] = iNote;
+				}
+			}
+		}
+
+		// Pick a random note
+		int iNewNote = aiPossibleNotes[int(random(iNumPossibleNotes))];
+
+		PlayNote(iNewNote);
+	}
+
+	public void RemoveNoteFromCord()
+	{
+		// Check to see if we actually have any current notes.  If not, bail
+		if(m_iNumCurNotes <= 0)
+		{
+			return;
+		}
+
+		int iNoteToRemove = m_aiCurNotes[int(random(m_iNumCurNotes))];
+		ReleaseNote(iNoteToRemove);
+	}
+
+	public void PlayNote(int iNote)
+	{
+		println("TEMP_CL PlayNote note=" + iNote + " MIDI=" + (g_iBaseNote + iNote));
+
+		// Save current note info
+		m_aiCurNotes[m_iNumCurNotes++] = iNote;
+		m_abActiveMidiNotes[g_iBaseNote + iNote] = true;
+
+		// Actually send the midi note
+		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 127);
+	}
+
+	public void ReleaseNote(int iNote)
+	{
+		// Check to see if we actually have any current notes.  If not, bail
+		if(m_iNumCurNotes <= 0)
+		{
+			return;
+		}
+
+		// Remove note from current note info
+		boolean bFoundNote = false;
+		for(int i = 0; i < m_iNumCurNotes-1; ++i)
+		{
+			if(iNote == m_aiCurNotes[i])
+			{
+				bFoundNote = true;
+			}
+
+			// Overwrite this note with the next one
+			if(bFoundNote)
+			{
+				m_aiCurNotes[i] = m_aiCurNotes[i+1];
+			}
+		}
+		--m_iNumCurNotes;
+		m_abActiveMidiNotes[g_iBaseNote + iNote] = false;
+
+		// Actually send the midi note off
+		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 0);
 	}
 
 	public void noteOnReceived(Note oNote)
 	{
+		if(!m_bRecordingEnabled)
+		{
+			return;
+		}
+
+		// TEMP_CL - Right now bail on all notes above middle C
+		if(oNote.getPitch() < 60)
+		{
+			return;
+		}
+
 		println("Note on: " + oNote.getPitch() + ", velocity: " + oNote.getVelocity());
 		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, oNote.getPitch(), oNote.getVelocity());
 
@@ -190,6 +387,53 @@ public class MusicGenerator
 
 
 
+		//// TEMP_CL - try new cord system
+		//if(bNoteOnEvent)
+		//{
+		//	AddNoteToCord();
+		//}
+		//else if(bNoteOffEvent)
+		//{
+		//	RemoveNoteFromCord();
+		//}
+
+		int iMaxNumNotes = 5;
+		int iExpectedNumNotes = int(fInput * iMaxNumNotes) + 1;
+		if(fInput < 0.1)
+		{
+			--iExpectedNumNotes;
+		}
+
+		if(m_iNumCurNotes != iExpectedNumNotes)
+		{
+			while(m_iNumCurNotes < iExpectedNumNotes)
+			{
+				AddNoteToCord();
+			}
+			while(m_iNumCurNotes > iExpectedNumNotes)
+			{
+				RemoveNoteFromCord();
+			}
+
+			// Print current notes
+			for(int i = 0; i < g_aiBaseScaleIntervals.length; ++i)
+			{
+				print(m_abActiveMidiNotes[g_iBaseNote + g_aiBaseScaleIntervals[i]] ? "X" : ".");
+			}
+			println("");
+		}
+
+		int iTestControllerValue1 = ClampI(int(fInput * 80) + 30, 0, 127);
+		m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iTestControllerValue1);
+
+		// Apparently we can't just bail here in a simple way...  : (
+		if(iCurTimeMS >= 0)
+		{
+			return;
+		}
+
+
+
 		// TEMP_CL - skip everything complicated for now
 
 		int iTestControllerValue = ClampI(int(fInput * 127), 0, 127);
@@ -205,11 +449,14 @@ public class MusicGenerator
 			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
 			m_iRecordingPlaybackIndex = (m_iRecordingPlaybackIndex + 1) % m_iNumRecordedNotes;
 			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], iNoteVelocity);
+			m_bNoteOn = true;
 		}
-		else if(bNoteOffEvent)
+		//else if(bNoteOffEvent) // TEMP_CL - skip note off for now and just use low input state
+		else if(m_bNoteOn && fInput < 0.1)
 		{
 			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
-		}
+			m_bNoteOn = false;
+		}	
 
 		// Apparently we can't just bail here in a simple way...  : (
 		if(iCurTimeMS >= 0)
@@ -410,6 +657,12 @@ public class MusicGenerator
 		}
 	}
 
+	void ToggleRecording()
+	{
+		m_bRecordingEnabled = !m_bRecordingEnabled;
+		println("m_bRecordingEnabled=" + m_bRecordingEnabled);
+	}
+
 	// If the device isn't initialized, it won't output/input any MIDI
 	boolean m_bInitializedOutput;
 	boolean m_bInitializedInput;
@@ -446,4 +699,14 @@ public class MusicGenerator
 	int m_iNumRecordedNotes;
 	boolean m_bRecording;
 	int m_iRecordingPlaybackIndex;
+	boolean m_bRecordingEnabled;
+
+	boolean m_bNoteOn;
+
+	int[][] m_aiAllCords;
+	int m_iNumCords;
+	int m_iMaxActiveNotes;
+	int[] m_aiCurNotes;
+	int m_iNumCurNotes;
+	boolean[] m_abActiveMidiNotes;
 }
