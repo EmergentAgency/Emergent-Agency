@@ -41,15 +41,25 @@ static int MAX_NUM_SAMPLES = 30;
 //static float g_fMinInput=0.8;
 //static float g_fMaxInput=0.6;
 
-// No capacitor 
+//// No capacitor 
+//static float g_fNode0Exp=0.0;
+//static int   g_iNode0Avg=2;
+//static float g_fNode1Exp=0.3;
+//static int   g_iNode1Avg=10;
+//static float g_fNode2Exp=0.0;
+//static int   g_iNode2Avg=5;
+//static float g_fMinInput=0.5;
+//static float g_fMaxInput=0.3;
+
+// No capacitor w/ person
 static float g_fNode0Exp=0.0;
 static int   g_iNode0Avg=2;
 static float g_fNode1Exp=0.3;
 static int   g_iNode1Avg=10;
 static float g_fNode2Exp=0.0;
 static int   g_iNode2Avg=5;
-static float g_fMinInput=0.5;
-static float g_fMaxInput=0.3;
+static float g_fMinInput=0.55;
+static float g_fMaxInput=0.55;
 
 //// No ground attached 
 //static float g_fNode0Exp=0.5499999;
@@ -344,7 +354,9 @@ void draw ()
 			float fCurValue = fSmoothedInput;
 			//float fTriggerDelta = fCurValue - g_fPreTriggerValue;
 			float fTriggerDelta = fCurValue; // Try this for now because the previous is clearly wrong for second notes.  This is wrong too but might sound better
-			g_iTriggerVelocity = int(ClampF(fTriggerDelta / (g_fMaxSmoothedInput * 0.9), 0.0, 1.0) * 127);
+			float fTriggerVelocity = ClampF(fTriggerDelta / (g_fMaxSmoothedInput * 0.9), 0.0, 1.0);
+			fTriggerVelocity = pow(fTriggerVelocity, 1.0);
+			g_iTriggerVelocity = int(fTriggerVelocity * 127);
 			println("TEMP_CL g_iTriggerVelocity=" + g_iTriggerVelocity);
 			g_bStartTrigger = false;
 			g_bSendTrigger = true;
@@ -481,6 +493,12 @@ void keyPressed()
 	{
 		float fInc = (key == 'i') ? 0.01 : -0.01;
 		g_fMaxInputDetectThreshold = ClampF(g_fMaxInputDetectThreshold + fInc, 0, 1);
+	}
+
+	// Recording mode toggle
+	else if(key == ' ')
+	{
+		g_oMusicGen.ToggleRecording();
 	}
 
 	println("Settings:");
