@@ -205,14 +205,8 @@ public class MusicGenerator
 		++m_iNumCords;
 	}
 
-	public void AddNoteToCord()
+	public int FindNewNoteInCord()
 	{
-		if(m_iNumCurNotes >= m_iMaxActiveNotes)
-		{
-			println("AddNoteToCord called when m_iNumCurNotes=" + m_iNumCurNotes + ".  Full up on notes.  Bailing.");
-			return;
-		}
-
 		int[] aiValidCordIndices = new int[m_aiAllCords.length];
 		int iNumMatchingCords = 0;
 
@@ -270,8 +264,21 @@ public class MusicGenerator
 
 		// Pick a random note
 		int iNewNote = aiPossibleNotes[int(random(iNumPossibleNotes))];
+		println("iNewNote=" + iNewNote);
+		return iNewNote;
+	}
 
-		PlayNote(iNewNote);
+	public void AddNoteToCord()
+	{
+		if(m_iNumCurNotes >= m_iMaxActiveNotes)
+		{
+			println("AddNoteToCord called when m_iNumCurNotes=" + m_iNumCurNotes + ".  Full up on notes.  Bailing.");
+			return;
+		}
+
+		int iNewNote = FindNewNoteInCord();
+
+		PlayCordNote(iNewNote);
 	}
 
 	public void RemoveNoteFromCord()
@@ -283,12 +290,12 @@ public class MusicGenerator
 		}
 
 		int iNoteToRemove = m_aiCurNotes[int(random(m_iNumCurNotes))];
-		ReleaseNote(iNoteToRemove);
+		ReleaseCordNote(iNoteToRemove);
 	}
 
-	public void PlayNote(int iNote)
+	public void PlayCordNote(int iNote)
 	{
-		println("TEMP_CL PlayNote note=" + iNote + " MIDI=" + (g_iBaseNote + iNote));
+		println("TEMP_CL PlayCordNote note=" + iNote + " MIDI=" + (g_iBaseNote + iNote));
 
 		// Save current note info
 		m_aiCurNotes[m_iNumCurNotes++] = iNote;
@@ -298,7 +305,7 @@ public class MusicGenerator
 		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 127);
 	}
 
-	public void ReleaseNote(int iNote)
+	public void ReleaseCordNote(int iNote)
 	{
 		// Check to see if we actually have any current notes.  If not, bail
 		if(m_iNumCurNotes <= 0)
@@ -326,6 +333,18 @@ public class MusicGenerator
 
 		// Actually send the midi note off
 		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 0);
+	}
+
+	public void PlayIndividualNote(int iVelocity)
+	{
+		int iNote = FindNewNoteInCord();
+
+		println("TEMP_CL PlayIndividualNote iNote=" + iNote + " MIDI=" + (g_iBaseNote + iNote + OCTAVE));
+
+		// Send a note off followed by a note off
+		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, iVelocity);
+		delay(20); // Don't work without a delay
+		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, 0);
 	}
 
 	public void noteOnReceived(Note oNote)
@@ -387,15 +406,7 @@ public class MusicGenerator
 
 
 
-		//// TEMP_CL - try new cord system
-		//if(bNoteOnEvent)
-		//{
-		//	AddNoteToCord();
-		//}
-		//else if(bNoteOffEvent)
-		//{
-		//	RemoveNoteFromCord();
-		//}
+		// Cord system shifting system
 
 		int iMaxNumNotes = 5;
 		int iExpectedNumNotes = int(fInput * iMaxNumNotes) + 1;
@@ -408,6 +419,7 @@ public class MusicGenerator
 		{
 			while(m_iNumCurNotes < iExpectedNumNotes)
 			{
+				println("TEMP_CL m_iNumCurNotes=" + m_iNumCurNotes + " iExpectedNumNotes=" + iExpectedNumNotes);
 				AddNoteToCord();
 			}
 			while(m_iNumCurNotes > iExpectedNumNotes)
@@ -426,15 +438,23 @@ public class MusicGenerator
 		int iTestControllerValue1 = ClampI(int(fInput * 80) + 30, 0, 127);
 		m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iTestControllerValue1);
 
+		// Play individual notes of touch events.
+		if(bNoteOnEvent)
+		{
+			PlayIndividualNote(iNoteVelocity);
+		}
+
 		// Apparently we can't just bail here in a simple way...  : (
 		if(iCurTimeMS >= 0)
 		{
 			return;
 		}
 
+		// end - Cord system shifting system
 
 
-		// TEMP_CL - skip everything complicated for now
+
+		// Playback recording
 
 		int iTestControllerValue = ClampI(int(fInput * 127), 0, 127);
 		m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, iTestControllerValue);
@@ -464,7 +484,7 @@ public class MusicGenerator
 			return;
 		}
 
-		// end - skip everything complicated for now
+		// end - Playback recording
 
 
 

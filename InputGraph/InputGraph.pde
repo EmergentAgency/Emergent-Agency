@@ -58,8 +58,8 @@ static float g_fNode1Exp=0.3;
 static int   g_iNode1Avg=10;
 static float g_fNode2Exp=0.0;
 static int   g_iNode2Avg=5;
-static float g_fMinInput=0.55;
-static float g_fMaxInput=0.55;
+static float g_fMinInput=0.4;
+static float g_fMaxInput=0.4;
 
 //// No ground attached 
 //static float g_fNode0Exp=0.5499999;
