@@ -54,6 +54,8 @@ int[][] g_aiCordSet = {
 int g_iNumCordNotes = 3;
 
 int g_iBaseNote = 60;
+int[] g_aiPossibleBaseNotes = {60, 60, 60, 62, 65, 57, 55};
+static int CHANGE_KEY_NO_INPUT_TIME_MS = 2000;
 int[] g_aiBaseScaleIntervals = {0,2,4,5,7,9,11};
 int[][] g_aiCordsScaleIndexOffsets = {
 	//{0,2,4}, // This is more commonly called a 1,3,5 cord
@@ -68,7 +70,7 @@ int[] g_iOctaveOffsets = {-2,-1,0};
 //int[] g_iOctaveOffsets = {0};
 
 // TEMP_CL static float NOTE_OFF_THRESHOLD = 0.02;
-static float NOTE_OFF_THRESHOLD = 0.05;
+static float NOTE_OFF_THRESHOLD = 0.1;
 static int MAX_NOTES = 5;
 static int OCTAVE = 12;
 static int TRANSPOSE = -12;
@@ -151,6 +153,7 @@ public class MusicGenerator
 		// Controllers are 0 indexed in both places.
 
 		m_iCurTimeMS = 0;
+		m_iLastInputEvent = 0;
 
 		// Reason
 		m_iMidiNoteChannelHigh = CHANNEL_HIGH;
@@ -399,6 +402,11 @@ public class MusicGenerator
 			iNote = g_aiBaseScaleIntervals[int(random(g_aiBaseScaleIntervals.length))];
 			println("OUT OF CORD NOTE!");
 		}
+		// Only use one octave here
+		else
+		{
+			iNote = iNote % OCTAVE;
+		}
 
 		println("TEMP_CL PlayIndividualNote iNote=" + iNote + " MIDI=" + (g_iBaseNote + iNote + OCTAVE));
 
@@ -454,10 +462,17 @@ public class MusicGenerator
 
 	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent, int iNoteVelocity)
 	{
+		if(!m_bInitializedOutput)
+		{
+			return;
+		}
+
+		// Get delta time
 		long iLastTimeMS = m_iCurTimeMS;
 		m_iCurTimeMS = iCurTimeMS;
 		long iDeltaTimeMS = m_iCurTimeMS - iLastTimeMS;
 
+		// Deal with NoteIntensity.  This prevents too many notes being sent to the midi system which sometimes causes it to shutdown
 		m_bNoteEventThisFrame = false;
 		if(m_fNoteIntensity > NOTE_INTENSITY_MAX * 1.5)
 		{
@@ -467,11 +482,18 @@ public class MusicGenerator
 		{
 			m_fNoteIntensity -= NOTE_INTENSITY_DROP_PER_SECOND * iDeltaTimeMS / 1000.0;
 		}
-		println("TEMP_CL iDeltaTimeMS=" + iDeltaTimeMS + " m_fNoteIntensity=" + m_fNoteIntensity);
 
-		if(!m_bInitializedOutput)
+		// Change key if we haven't gotten any input recently
+		//println("TEMP_CL bNoteOnEvent=" + bNoteOnEvent + " bNoteOffEvent=" + bNoteOffEvent + " m_iNumCurNotes=" + m_iNumCurNotes);
+		if(fInput > NOTE_OFF_THRESHOLD)
 		{
-			return;
+			//println("TEMP_CL ======================================== Maybe new base note");
+			if(m_iCurTimeMS - m_iLastInputEvent > CHANGE_KEY_NO_INPUT_TIME_MS)
+			{
+				g_iBaseNote = g_aiPossibleBaseNotes[int(random(g_aiPossibleBaseNotes.length))];
+				println("\n\n\n\n============================New base note = " + g_iBaseNote);
+			}
+			m_iLastInputEvent = m_iCurTimeMS;
 		}
 
 		if(bNoteOnEvent && m_bRecording)
@@ -486,7 +508,7 @@ public class MusicGenerator
 
 		int iMaxNumNotes = 5;
 		int iExpectedNumNotes = int(fInput * iMaxNumNotes) + 1;
-		if(fInput < 0.1)
+		if(fInput < NOTE_OFF_THRESHOLD)
 		{
 			--iExpectedNumNotes;
 		}
@@ -769,6 +791,7 @@ public class MusicGenerator
 
 	// Tracking time (used to get delta time)
 	long m_iCurTimeMS;
+	long m_iLastInputEvent;
 
 	// If the device isn't initialized, it won't output/input any MIDI
 	boolean m_bInitializedOutput;
