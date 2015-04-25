@@ -19,7 +19,8 @@ import rwmidi.*;
 
 // Velocity
 static String MIDI_OUT_DEVICE_NAME = "LoopBe";
-static String MIDI_IN_DEVICE_NAME = "Legacy";
+//static String MIDI_IN_DEVICE_NAME = "Legacy";
+static String MIDI_IN_DEVICE_NAME = "SV1";
 static int CHANNEL_HIGH = 1;
 static int CHANNEL_LOW = 2;
 static int CONTROLLER_CHANNEL = 10;
@@ -55,7 +56,9 @@ int g_iNumCordNotes = 3;
 int g_iBaseNote = 60;
 int[] g_aiBaseScaleIntervals = {0,2,4,5,7,9,11};
 int[][] g_aiCordsScaleIndexOffsets = {
-	{0,2,4}, // This is more commonly called a 1,3,5 cord
+	//{0,2,4}, // This is more commonly called a 1,3,5 cord
+	//{0,3,4}, // This is more commonly called a 1,4,5 cord
+	{0,2,4,6}, // This is more commonly called a 1,3,5 cord
 	{0,3,4}, // This is more commonly called a 1,4,5 cord
 };
 //int[] g_iOctaveOffsets = {-1,0,1};
@@ -71,6 +74,8 @@ static int OCTAVE = 12;
 static int TRANSPOSE = -12;
 static int MAX_RECORDED_NOTES = 256;
 
+static float NOTE_INTENSITY_MAX = 50.0;
+static float NOTE_INTENSITY_DROP_PER_SECOND = 50.0;
 
 
 public class MusicGenerator
@@ -145,6 +150,8 @@ public class MusicGenerator
 		// Channel is 1 indexed in Reason and 0 index here so channel 0 = channel 1 there.
 		// Controllers are 0 indexed in both places.
 
+		m_iCurTimeMS = 0;
+
 		// Reason
 		m_iMidiNoteChannelHigh = CHANNEL_HIGH;
 		m_iMidiNoteChannelLow = CHANNEL_LOW;
@@ -177,6 +184,51 @@ public class MusicGenerator
 		m_iNumCurNotes = 0;
 
 		m_abActiveMidiNotes = new boolean[120]; // This is sort of arbitrary but 108 is the top of piano keyboard so we should be safe
+
+		m_fNoteIntensity = 0.0;
+		m_bNoteEventThisFrame = false;
+	}
+
+
+	public void SendNoteOn(int iChannel, int iNote, int iVelocity)
+	{
+		println("TEMP_CL SendNoteOn iNote=" + iNote + "  m_fNoteIntensity="+m_fNoteIntensity);
+		if(!m_bNoteEventThisFrame)
+		{
+			m_fNoteIntensity += 1.0;
+			m_bNoteEventThisFrame = true;
+		}
+		if(m_fNoteIntensity < NOTE_INTENSITY_MAX)
+		{
+			m_oMidiOut.sendNoteOn(iChannel, iNote, iVelocity);
+		}
+		else
+		{
+			println("TEMP_CL Skipping sendNoteOn");
+		}
+	}
+
+
+	public void SendNoteOff(int iChannel, int iNote, int iVelocity)
+	{
+		println("TEMP_CL SendNoteOff m_fNoteIntensity="+m_fNoteIntensity);
+		if(!m_bNoteEventThisFrame)
+		{
+			m_fNoteIntensity += 1.0;
+			m_bNoteEventThisFrame = true;
+		}
+		if(m_fNoteIntensity < NOTE_INTENSITY_MAX)
+		{
+			int iNumOffs = SEND_EXTRA_NOTE_OFF ? 5 : 1;
+			for(int i = 0; i < iNumOffs; i++)
+			{
+				m_oMidiOut.sendNoteOff(iChannel, iNote, iVelocity);
+			}
+		}
+		else
+		{
+			println("TEMP_CL Skipping sendNoteOff");
+		}
 	}
 
 	public void BuildAllCords()
@@ -302,7 +354,9 @@ public class MusicGenerator
 		m_abActiveMidiNotes[g_iBaseNote + iNote] = true;
 
 		// Actually send the midi note
-		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 127);
+		SendNoteOn(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 127);
+
+		println("TEMP_CL Post PlayCordNote");
 	}
 
 	public void ReleaseCordNote(int iNote)
@@ -332,19 +386,26 @@ public class MusicGenerator
 		m_abActiveMidiNotes[g_iBaseNote + iNote] = false;
 
 		// Actually send the midi note off
-		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 0);
+		SendNoteOff(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 0);
 	}
 
 	public void PlayIndividualNote(int iVelocity)
 	{
 		int iNote = FindNewNoteInCord();
 
+		// TEMP_CL - introduce random in key note that isn't in the cord
+		if(random(4) <= 1.0)
+		{
+			iNote = g_aiBaseScaleIntervals[int(random(g_aiBaseScaleIntervals.length))];
+			println("OUT OF CORD NOTE!");
+		}
+
 		println("TEMP_CL PlayIndividualNote iNote=" + iNote + " MIDI=" + (g_iBaseNote + iNote + OCTAVE));
 
 		// Send a note off followed by a note off
-		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, iVelocity);
-		delay(20); // Don't work without a delay
-		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, 0);
+		SendNoteOn(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, iVelocity);
+		delay(20); // Doesn't work without a delay
+		SendNoteOff(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, 0);
 	}
 
 	public void noteOnReceived(Note oNote)
@@ -361,7 +422,7 @@ public class MusicGenerator
 		}
 
 		println("Note on: " + oNote.getPitch() + ", velocity: " + oNote.getVelocity());
-		m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, oNote.getPitch(), oNote.getVelocity());
+		SendNoteOn(m_iMidiNoteChannelHigh, oNote.getPitch(), oNote.getVelocity());
 
 		// If this is a note on event, record the note
 		if(oNote.getVelocity() > 0)
@@ -388,11 +449,26 @@ public class MusicGenerator
 	{
 		// This never seems to be called...
 		println("Note off: " + oNote.getPitch());
-		m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, oNote.getPitch(), 0);
+		SendNoteOff(m_iMidiNoteChannelHigh, oNote.getPitch(), 0);
 	}
 
 	void Update(long iCurTimeMS, float fInput, boolean bNoteOnEvent, boolean bNoteOffEvent, int iNoteVelocity)
 	{
+		long iLastTimeMS = m_iCurTimeMS;
+		m_iCurTimeMS = iCurTimeMS;
+		long iDeltaTimeMS = m_iCurTimeMS - iLastTimeMS;
+
+		m_bNoteEventThisFrame = false;
+		if(m_fNoteIntensity > NOTE_INTENSITY_MAX * 1.5)
+		{
+			m_fNoteIntensity = NOTE_INTENSITY_MAX * 1.5;
+		}
+		if(m_fNoteIntensity > 0)
+		{
+			m_fNoteIntensity -= NOTE_INTENSITY_DROP_PER_SECOND * iDeltaTimeMS / 1000.0;
+		}
+		println("TEMP_CL iDeltaTimeMS=" + iDeltaTimeMS + " m_fNoteIntensity=" + m_fNoteIntensity);
+
 		if(!m_bInitializedOutput)
 		{
 			return;
@@ -428,9 +504,61 @@ public class MusicGenerator
 			}
 
 			// Print current notes
-			for(int i = 0; i < g_aiBaseScaleIntervals.length; ++i)
+			//for(int i = 0; i < g_aiBaseScaleIntervals.length; ++i)
+			//{
+			//	print(m_abActiveMidiNotes[g_iBaseNote + g_aiBaseScaleIntervals[i]] ? "X" : ".");
+			//}
+			for(int i = 21; i < 107; ++i)
 			{
-				print(m_abActiveMidiNotes[g_iBaseNote + g_aiBaseScaleIntervals[i]] ? "X" : ".");
+				int iRelativeNote = (i-21) % 12;
+				//switch(iRelativeNote)
+				//{
+				//case 0:
+				//case 2:
+				//case 3:
+				//case 5:
+				//case 7:
+				//case 8:
+				//case 10:
+				//	print("|");
+				//	break;
+				//default:
+				//	print("#");
+				//	break;
+				//}
+				switch(iRelativeNote)
+				{
+				case 0:
+					print("A");
+					break;
+				case 2:
+					print("B");
+					break;
+				case 3:
+					print("C");
+					break;
+				case 5:
+					print("D");
+					break;
+				case 7:
+					print("E");
+					break;
+				case 8:
+					print("F");
+					break;
+				case 10:
+					print("G");
+					break;
+				default:
+					print("#");
+					break;
+				}
+				//print(char(iRelativeNote+65));
+			}
+			println("");
+			for(int i = 21; i < 107; ++i)
+			{
+				print(m_abActiveMidiNotes[i] ? "X" : ".");
 			}
 			println("");
 		}
@@ -466,15 +594,15 @@ public class MusicGenerator
 
 		if(bNoteOnEvent)
 		{
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
+			SendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
 			m_iRecordingPlaybackIndex = (m_iRecordingPlaybackIndex + 1) % m_iNumRecordedNotes;
-			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], iNoteVelocity);
+			SendNoteOn(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], iNoteVelocity);
 			m_bNoteOn = true;
 		}
 		//else if(bNoteOffEvent) // TEMP_CL - skip note off for now and just use low input state
 		else if(m_bNoteOn && fInput < 0.1)
 		{
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
+			SendNoteOff(m_iMidiNoteChannelHigh, m_aiRecordedNotes[m_iRecordingPlaybackIndex], 0);
 			m_bNoteOn = false;
 		}	
 
@@ -497,36 +625,14 @@ public class MusicGenerator
 			// Turn off high notes
 			for(int i = 0; i <  m_iNumNotesHigh; ++i)
 			{
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
-				if(SEND_EXTRA_NOTE_OFF)
-				{
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
-				}
+				SendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[i] + TRANSPOSE, 0);
 			}
 			m_iNumNotesHigh = 0;
 
 			// Turn off low notes
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-			if(SEND_EXTRA_NOTE_OFF)
-			{
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-			}
+			SendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+			SendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+			SendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
 
 			// Turn down the controller
 			m_oMidiOut.sendController(m_iMidiControllerChannel, m_iMidiControllerIndex, 0);
@@ -539,37 +645,15 @@ public class MusicGenerator
 
 			// Use the note off event to turn off cord notes but not the fundamental
 			m_iNumNotesHigh--;
-			m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
-			if(SEND_EXTRA_NOTE_OFF)
-			{
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
-			}
+			SendNoteOff(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh] + TRANSPOSE, 0);
 
 			// If we aren't playing any notes, turn off the cord
 			if(m_iNumNotesHigh < 1)
 			{
 				// Turn off low notes
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-				m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-				if(SEND_EXTRA_NOTE_OFF)
-				{
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
-					m_oMidiOut.sendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
-				}
+				SendNoteOff(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, 0);
+				SendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, 0);
+				SendNoteOff(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, 0);
 			}
 		}
 
@@ -600,9 +684,9 @@ public class MusicGenerator
 				println("TEMP_CL - cord on");
 
 				// Setup a low cord
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, iNoteVelocity);
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, iNoteVelocity);
-				m_oMidiOut.sendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, iNoteVelocity);
+				SendNoteOn(m_iMidiNoteChannelLow, g_aiNoteSet[m_iFundamentalIndex]    - OCTAVE + TRANSPOSE, iNoteVelocity);
+				SendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][1] - OCTAVE + TRANSPOSE, iNoteVelocity);
+				SendNoteOn(m_iMidiNoteChannelLow, g_aiCordSet[m_iFundamentalIndex][2] - OCTAVE + TRANSPOSE, iNoteVelocity);
 			}
 
 			// If we have fundamental, pick random other notes in the cord
@@ -621,10 +705,10 @@ public class MusicGenerator
 			println("TEMP_CL - note on");
 
 			//println("Note ON node=" + i + " MidiNote=" + MidiNote + " MidiNoteChannel=" + MidiNoteChannel);
-			m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh-1] + TRANSPOSE, iNoteVelocity);
+			SendNoteOn(m_iMidiNoteChannelHigh, m_aiNotesHigh[m_iNumNotesHigh-1] + TRANSPOSE, iNoteVelocity);
 
 			// TEMP_CL - trigger drum kit to test timing
-			//m_oMidiOut.sendNoteOn(m_iMidiNoteChannelHigh, 44, iNoteVelocity);
+			//SendNoteOn(m_iMidiNoteChannelHigh, 44, iNoteVelocity);
 		}
 
 		// If we have notes going, adjust the controller
@@ -683,6 +767,9 @@ public class MusicGenerator
 		println("m_bRecordingEnabled=" + m_bRecordingEnabled);
 	}
 
+	// Tracking time (used to get delta time)
+	long m_iCurTimeMS;
+
 	// If the device isn't initialized, it won't output/input any MIDI
 	boolean m_bInitializedOutput;
 	boolean m_bInitializedInput;
@@ -729,4 +816,7 @@ public class MusicGenerator
 	int[] m_aiCurNotes;
 	int m_iNumCurNotes;
 	boolean[] m_abActiveMidiNotes;
+
+	float m_fNoteIntensity;
+	boolean m_bNoteEventThisFrame;
 }
