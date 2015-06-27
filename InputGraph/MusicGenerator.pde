@@ -18,7 +18,8 @@ import rwmidi.*;
 //static boolean SEND_EXTRA_NOTE_OFF = false;
 
 // Velocity
-static String MIDI_OUT_DEVICE_NAME = "LoopBe";
+//static String MIDI_OUT_DEVICE_NAME = "LoopBe";
+static String MIDI_OUT_DEVICE_NAME = "loopMIDI";
 //static String MIDI_IN_DEVICE_NAME = "Legacy";
 static String MIDI_IN_DEVICE_NAME = "SV1";
 static int CHANNEL_HIGH = 1;
