@@ -221,7 +221,7 @@ public class MusicGenerator
 			m_fNoteIntensity += 1.0;
 			m_bNoteEventThisFrame = true;
 		}
-		if(m_fNoteIntensity < NOTE_INTENSITY_MAX)
+		if(m_fNoteIntensity < NOTE_INTENSITY_MAX || true) // TEMP_CL - always send note off because otherwise things get stuck on
 		{
 			int iNumOffs = SEND_EXTRA_NOTE_OFF ? 5 : 1;
 			for(int i = 0; i < iNumOffs; i++)
@@ -488,13 +488,14 @@ public class MusicGenerator
 		//println("TEMP_CL bNoteOnEvent=" + bNoteOnEvent + " bNoteOffEvent=" + bNoteOffEvent + " m_iNumCurNotes=" + m_iNumCurNotes);
 		if(fInput > NOTE_OFF_THRESHOLD)
 		{
-			//println("TEMP_CL ======================================== Maybe new base note");
-			if(m_iCurTimeMS - m_iLastInputEvent > CHANGE_KEY_NO_INPUT_TIME_MS)
-			{
-				g_iBaseNote = g_aiPossibleBaseNotes[int(random(g_aiPossibleBaseNotes.length))];
-				println("\n\n\n\n============================New base note = " + g_iBaseNote);
-			}
-			m_iLastInputEvent = m_iCurTimeMS;
+			// TEMP_CL - is this causing notes to get stuck
+			////println("TEMP_CL ======================================== Maybe new base note");
+			//if(m_iCurTimeMS - m_iLastInputEvent > CHANGE_KEY_NO_INPUT_TIME_MS)
+			//{
+			//	g_iBaseNote = g_aiPossibleBaseNotes[int(random(g_aiPossibleBaseNotes.length))];
+			//	println("\n\n\n\n============================New base note = " + g_iBaseNote);
+			//}
+			//m_iLastInputEvent = m_iCurTimeMS;
 		}
 
 		if(bNoteOnEvent && m_bRecording)
