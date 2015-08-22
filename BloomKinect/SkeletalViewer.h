@@ -129,6 +129,8 @@ private:
 	bool          m_bRightFootUp;
 	bool		  m_bLeftHandForward;
 	bool		  m_bRightHandForward;
+	bool		  m_bLeftFootForward;
+	bool		  m_bRightFootForward;
 
 	// speed info
 	float         m_vLeftHandSpeed;

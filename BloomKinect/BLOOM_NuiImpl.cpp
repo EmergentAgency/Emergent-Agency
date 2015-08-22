@@ -30,7 +30,7 @@ static const float fHandVelocityScaleHigh = 1.0f; // high threshold for scaling 
 static const float minUpSpeedForFlame = 5.0;	  // min upward/downward speed to trigger flame on/off (meters/sec)
 static const float fBufferForwardInMeters = 0.2f; // distance to be in front of shoulder to be considered forward
 static const float fMinSpeedRatioForColor = 0.3f; // You need to have a speed ratio of at least this for color to happen
-static const int   iMaxSolenoidFrequency = 6;    // max rate we can turn the color solenoids on and off
+static const int   iMaxSolenoidFrequency = 2;    // max rate we can turn the color solenoids on and off
 static const float fMinFootSpeedForColorFlash = 1.f; // must be moving your foot this fast for color cycles
 
 #include <math.h>
@@ -81,6 +81,8 @@ CSkeletalViewerApp::CSkeletalViewerApp()
 	, m_bRightHandUp(false)
 	, m_bLeftHandForward(false)
 	, m_bRightHandForward(false)
+	, m_bLeftFootForward(false)
+	, m_bRightFootForward(false)
 	, m_vLeftHandSpeed(0.f)
 	, m_vRightHandSpeed(0.f)
 	, m_vLeftFootSpeed(0.f)
@@ -797,6 +799,8 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	D3DXVECTOR4 vRightHandPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_HAND_RIGHT];
 	D3DXVECTOR4 vLeftFootPos       = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
 	D3DXVECTOR4 vRightFootPos      = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
+	D3DXVECTOR4 vLeftKneePos       = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_KNEE_LEFT];
+	D3DXVECTOR4 vRightKneePos      = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_KNEE_RIGHT];
 	D3DXVECTOR4 vLeftFootPosPast   = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_LEFT];
 	D3DXVECTOR4 vRightFootPosPast  = m_aSkelHistory[iPastIndex].SkeletonData[m_iCurSkelIndex].SkeletonPositions[NUI_SKELETON_POSITION_FOOT_RIGHT];
 	int iCurTimeStamp              = m_aSkelHistory[iCurIndex].liTimeStamp.LowPart;
@@ -814,6 +818,9 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 	bool bRightFootGood = m_aSkelHistory[iCurIndex].SkeletonData[m_iCurSkelIndex].eSkeletonPositionTrackingState[NUI_SKELETON_POSITION_FOOT_RIGHT] == NUI_SKELETON_POSITION_TRACKED;
 	m_bLeftFootUp  = bLeftFootGood  ? (vLeftFootPos.y > vRightFootPos.y + fHeightAboveOtherFootForUp) : false;
 	m_bRightFootUp = bRightFootGood ? (vRightFootPos.y > vLeftFootPos.y + fHeightAboveOtherFootForUp) : false;
+	// positive z  = away from camera
+	m_bLeftFootForward = vLeftFootPos.z < vLeftKneePos.z - fBufferForwardInMeters;
+	m_bRightFootForward = vRightFootPos.z < vRightKneePos.z - fBufferForwardInMeters;
 
 	//// debug
 	//static char buf[2048];
@@ -912,51 +919,58 @@ void CSkeletalViewerApp::ProcessSkeletonForBloom(NUI_SKELETON_FRAME* pSkelFrame)
 		else if(m_bRightHandUp && m_bRightHandForward)
 			m_bGreenOn = true;
 
-		// Turn on colors if feet are up (only one foot can be up at a time)
-		if(m_bLeftFootUp && m_vLeftFootSpeed > fMinFootSpeedForColorFlash)
-		{
-			if(bCycleColorsNow)
-			{
-				float fRand = (float)rand() / (float)RAND_MAX;
-				if(fRand < 0.333f)
-				{
-					m_bRedOn = false;
-					m_bYellowOn = false;
-				}
-				else if(fRand < 0.666f)
-				{
-					m_bRedOn = true;
-					m_bYellowOn = false;
-				}
-				else
-				{
-					m_bRedOn = false;
-					m_bYellowOn = true;
-				}
-			}
-		}
-		else if(m_bRightFootUp && m_vRightFootSpeed > fMinFootSpeedForColorFlash)
-		{
-			if(bCycleColorsNow)
-			{
-				float fRand = (float)rand() / (float)RAND_MAX;
-				if(fRand < 0.333f)
-				{
-					m_bGreenOn = false;
-					m_bYellowOn = false;
-				}
-				else if(fRand < 0.666f)
-				{
-					m_bGreenOn = true;
-					m_bYellowOn = false;
-				}
-				else
-				{
-					m_bGreenOn = false;
-					m_bYellowOn = true;
-				}
-			}
-		}
+		// Turn of colors if feet are up and forward
+		if(m_bLeftFootUp && m_bLeftFootForward)
+			m_bRedOn = true;
+		else if(m_bRightFootUp && m_bRightFootForward)
+			m_bGreenOn = true;
+
+		// This never worked really well and it cycled too fast for the color changes to be seen.
+		//// Turn on colors if feet are up (only one foot can be up at a time)
+		//if(m_bLeftFootUp && m_vLeftFootSpeed > fMinFootSpeedForColorFlash)
+		//{
+		//	if(bCycleColorsNow)
+		//	{
+		//		float fRand = (float)rand() / (float)RAND_MAX;
+		//		if(fRand < 0.333f)
+		//		{
+		//			m_bRedOn = false;
+		//			m_bYellowOn = false;
+		//		}
+		//		else if(fRand < 0.666f)
+		//		{
+		//			m_bRedOn = true;
+		//			m_bYellowOn = false;
+		//		}
+		//		else
+		//		{
+		//			m_bRedOn = false;
+		//			m_bYellowOn = true;
+		//		}
+		//	}
+		//}
+		//else if(m_bRightFootUp && m_vRightFootSpeed > fMinFootSpeedForColorFlash)
+		//{
+		//	if(bCycleColorsNow)
+		//	{
+		//		float fRand = (float)rand() / (float)RAND_MAX;
+		//		if(fRand < 0.333f)
+		//		{
+		//			m_bGreenOn = false;
+		//			m_bYellowOn = false;
+		//		}
+		//		else if(fRand < 0.666f)
+		//		{
+		//			m_bGreenOn = true;
+		//			m_bYellowOn = false;
+		//		}
+		//		else
+		//		{
+		//			m_bGreenOn = false;
+		//			m_bYellowOn = true;
+		//		}
+		//	}
+		//}
 	}
 
 
