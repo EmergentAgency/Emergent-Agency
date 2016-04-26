@@ -195,7 +195,7 @@ Textfield currentFocusedTf;
 void setup()
 {
   // Draw a blank rectangle
-  size(WINDOW_WIDTH, WINDOW_HEIGHT); 
+  size(WINDOW_WIDTH, WINDOW_HEIGHT);
   noStroke();
   rectMode(CORNER);
 
@@ -274,27 +274,27 @@ void setup()
     .setSize(25, 25)
     .addItem("Link_All_Nodes", LINK_ALL_NODES_CHECKBOX_INDEX);
 
-	// List valid MIDI output devices and look for LoopBe.
-	int iLoopBeMidiIndex = -1;
+	// List valid MIDI output devices and look for looper.
+	int iMidiLooperIndex = -1;
 	println("Available MIDI ouput devices:");
 	for(int i = 0; i < RWMidi.getOutputDeviceNames().length; i++)
 	{
 		println("MIDI output device name " + i + " = " + RWMidi.getOutputDeviceNames()[i]);
-		if(RWMidi.getOutputDeviceNames()[i].startsWith("LoopBe"))
+		if(RWMidi.getOutputDeviceNames()[i].toLowerCase().startsWith("loop"))
 		{
-			iLoopBeMidiIndex = i;
-			println("Found LoopBe!");
+			iMidiLooperIndex = i;
+                        println("Found looper!");
 		}
 	}
 
   // Bail if we can't find LoopBe
-  if(iLoopBeMidiIndex < 0)
+  if(iMidiLooperIndex < 0)
   {
     exit();
   }
 
   // Pick the correct MIDI device.
-  g_midiOut = RWMidi.getOutputDevices()[iLoopBeMidiIndex].createOutput();
+  g_midiOut = RWMidi.getOutputDevices()[iMidiLooperIndex].createOutput();
  
   // List available serial ports
   println("Available serial ports: " + Serial.list().length);
