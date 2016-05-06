@@ -16,20 +16,20 @@
 #define SERIAL_TIMEOUT_TICKS 50
 
 // Controller 0
-#define CONTROLLER_0_CLOCK_PIN 15
-#define CONTROLLER_0_LATCH_PIN 14
-#define CONTROLLER_0_DATA_PIN 13
+#define CONTROLLER_0_CLOCK_PIN 12
+#define CONTROLLER_0_LATCH_PIN 11
+#define CONTROLLER_0_DATA_PIN 10
 
 // Controller 1
-#define CONTROLLER_1_CLOCK_PIN 12
-#define CONTROLLER_1_LATCH_PIN 11
-#define CONTROLLER_1_DATA_PIN 10
+#define CONTROLLER_1_CLOCK_PIN 9
+#define CONTROLLER_1_LATCH_PIN 8
+#define CONTROLLER_1_DATA_PIN 7
 
 // Solenoid control pins
-#define FIRE_0_PIN 8 // Far left
-#define FIRE_1_PIN 7 // Mid left
-#define FIRE_2_PIN 6 // Mid right
-#define FIRE_3_PIN 5 // Far right
+#define FIRE_0_PIN 5 // Far left
+#define FIRE_1_PIN 4 // Mid left
+#define FIRE_2_PIN 3 // Mid right
+#define FIRE_3_PIN 2 // Far right
 
 // Fire bits
 #define FLAME_0_On 0x01
@@ -64,11 +64,11 @@ void setup()
 {
 	Serial.begin(9600);
     
-    // Init fire control pins
-    pinMode(FIRE_0_PIN, OUTPUT);
-    pinMode(FIRE_1_PIN, OUTPUT);
-    pinMode(FIRE_2_PIN, OUTPUT);
-    pinMode(FIRE_3_PIN, OUTPUT);
+    // Init fire control pins (pins are OUTPUT and HIGH to turn on fire and INPUT to turn off fire)
+    pinMode(FIRE_0_PIN, INPUT);
+    pinMode(FIRE_1_PIN, INPUT);
+    pinMode(FIRE_2_PIN, INPUT);
+    pinMode(FIRE_3_PIN, INPUT);
     
     // Init button states
     g_iOldButtons0 = 0;
@@ -148,11 +148,43 @@ void loop()
     byte yOldFireState = g_yFireState;
     g_yFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState;
 
-    // Send fire state to output pins
-    digitalWrite(FIRE_0_PIN, (g_yFireState & FLAME_0_On) ? HIGH : LOW);
-    digitalWrite(FIRE_1_PIN, (g_yFireState & FLAME_1_On) ? HIGH : LOW);
-    digitalWrite(FIRE_2_PIN, (g_yFireState & FLAME_2_On) ? HIGH : LOW);
-    digitalWrite(FIRE_3_PIN, (g_yFireState & FLAME_3_On) ? HIGH : LOW);
+    // Send fire state to output pins (pins are OUTPUT and HIGH to turn on fire and INPUT to turn off fire)
+    if(g_yFireState & FLAME_0_On)
+    {
+        pinMode(FIRE_0_PIN, OUTPUT);
+        digitalWrite(FIRE_0_PIN, HIGH);
+    }
+    else
+    {
+        pinMode(FIRE_0_PIN, INPUT);
+    }
+    if(g_yFireState & FLAME_1_On)
+    {
+        pinMode(FIRE_1_PIN, OUTPUT);
+        digitalWrite(FIRE_1_PIN, HIGH);
+    }
+    else
+    {
+        pinMode(FIRE_1_PIN, INPUT);
+    }
+    if(g_yFireState & FLAME_2_On)
+    {
+        pinMode(FIRE_2_PIN, OUTPUT);
+        digitalWrite(FIRE_2_PIN, HIGH);
+    }
+    else
+    {
+        pinMode(FIRE_2_PIN, INPUT);
+    }
+    if(g_yFireState & FLAME_3_On)
+    {
+        pinMode(FIRE_3_PIN, OUTPUT);
+        digitalWrite(FIRE_3_PIN, HIGH);
+    }
+    else
+    {
+        pinMode(FIRE_3_PIN, INPUT);
+    }
 
     // Write current fire state to serial
     if(g_yFireState != yOldFireState)
