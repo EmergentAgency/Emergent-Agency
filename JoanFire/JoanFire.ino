@@ -13,7 +13,8 @@
 
 // Tuning
 #define TICK_TIME_IN_MS 20
-#define SERIAL_TIMEOUT_TICKS 50
+#define SERIAL_TIMEOUT_TICKS 100
+#define FLAME_COOLDOWN_TICKS 10
 
 // Controller 0
 #define CONTROLLER_0_CLOCK_PIN 12
@@ -25,17 +26,21 @@
 #define CONTROLLER_1_LATCH_PIN 8
 #define CONTROLLER_1_DATA_PIN 7
 
+#define NUM_FLAMES 4
+
 // Solenoid control pins
-#define FIRE_0_PIN 5 // Far left
-#define FIRE_1_PIN 4 // Mid left
-#define FIRE_2_PIN 3 // Mid right
-#define FIRE_3_PIN 2 // Far right
+//#define FIRE_0_PIN 2 // Far left
+//#define FIRE_1_PIN 3 // Mid left
+//#define FIRE_2_PIN 4 // Mid right
+//#define FIRE_3_PIN 5 // Far right
+int FIRE_PINS[] = {2, 3, 4, 5};
 
 // Fire bits
-#define FLAME_0_On 0x01
-#define FLAME_1_On 0x02
-#define FLAME_2_On 0x04
-#define FLAME_3_On 0x08
+//#define FLAME_0_On 0x01
+//#define FLAME_1_On 0x02
+//#define FLAME_2_On 0x04
+//#define FLAME_3_On 0x08
+int FLAME_STATE_ON[] = {0x01, 0x02, 0x04, 0x08};
 
 
 
@@ -55,7 +60,11 @@ uint16_t g_iButtons1;
 byte g_ySerialFireState;
 byte g_yPad0FireState;
 byte g_yPad1FireState;
-byte g_yFireState;
+byte g_yDesiredFireState;
+byte g_yCurrentFireState;
+
+// Cooldowns
+int g_aiFlameChangeCooldown[] = {0, 0, 0, 0};
 
 // Serial timeout counter
 unsigned int g_uSerialTimeoutCounter;
@@ -65,10 +74,10 @@ void setup()
 	Serial.begin(9600);
     
     // Init fire control pins (pins are OUTPUT and HIGH to turn on fire and INPUT to turn off fire)
-    pinMode(FIRE_0_PIN, INPUT);
-    pinMode(FIRE_1_PIN, INPUT);
-    pinMode(FIRE_2_PIN, INPUT);
-    pinMode(FIRE_3_PIN, INPUT);
+    for(int i = 0; i < NUM_FLAMES; i++)
+    {
+		pinMode(FIRE_PINS[i], INPUT);
+	}
     
     // Init button states
     g_iOldButtons0 = 0;
@@ -80,8 +89,9 @@ void setup()
     g_ySerialFireState = 0;
     g_yPad0FireState = 0;
     g_yPad1FireState = 0;
-    g_yFireState = 0;
-    
+    g_yDesiredFireState = 0;
+    g_yCurrentFireState = 0;
+  
     // Init serial timeout counter
     g_uSerialTimeoutCounter = 0;
 }
@@ -99,16 +109,16 @@ byte GetFireStatefromButtons(uint16_t iOldButtons, uint16_t iNewButtons)
     }
     
     // Buttons
-    yFireStateOut |= (iNewButtons & BTN_Y) ? FLAME_0_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_B) ? FLAME_1_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_X) ? FLAME_2_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_A) ? FLAME_3_On : 0;
+    yFireStateOut |= (iNewButtons & BTN_Y) ? FLAME_STATE_ON[0] : 0;
+    yFireStateOut |= (iNewButtons & BTN_B) ? FLAME_STATE_ON[1] : 0;
+    yFireStateOut |= (iNewButtons & BTN_X) ? FLAME_STATE_ON[2] : 0;
+    yFireStateOut |= (iNewButtons & BTN_A) ? FLAME_STATE_ON[3] : 0;
     
     // D-Pad
-    yFireStateOut |= (iNewButtons & BTN_LEFT)  ? FLAME_0_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_UP)    ? FLAME_1_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_DOWN)  ? FLAME_2_On : 0;
-    yFireStateOut |= (iNewButtons & BTN_RIGHT) ? FLAME_3_On : 0;
+    yFireStateOut |= (iNewButtons & BTN_LEFT)  ? FLAME_STATE_ON[0] : 0;
+    yFireStateOut |= (iNewButtons & BTN_UP)    ? FLAME_STATE_ON[1] : 0;
+    yFireStateOut |= (iNewButtons & BTN_DOWN)  ? FLAME_STATE_ON[2] : 0;
+    yFireStateOut |= (iNewButtons & BTN_RIGHT) ? FLAME_STATE_ON[3] : 0;
 
     return yFireStateOut;
 }
@@ -145,54 +155,45 @@ void loop()
     g_yPad1FireState = GetFireStatefromButtons(g_iOldButtons1, g_iButtons1);
     
     // Aggregate fire state
-    byte yOldFireState = g_yFireState;
-    g_yFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState;
+    byte yOldFireState = g_yCurrentFireState;
+    g_yDesiredFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState;
 
     // Send fire state to output pins (pins are OUTPUT and HIGH to turn on fire and INPUT to turn off fire)
-    if(g_yFireState & FLAME_0_On)
+    for(int i = 0; i < NUM_FLAMES; i++)
     {
-        pinMode(FIRE_0_PIN, OUTPUT);
-        digitalWrite(FIRE_0_PIN, HIGH);
-    }
-    else
-    {
-        pinMode(FIRE_0_PIN, INPUT);
-    }
-    if(g_yFireState & FLAME_1_On)
-    {
-        pinMode(FIRE_1_PIN, OUTPUT);
-        digitalWrite(FIRE_1_PIN, HIGH);
-    }
-    else
-    {
-        pinMode(FIRE_1_PIN, INPUT);
-    }
-    if(g_yFireState & FLAME_2_On)
-    {
-        pinMode(FIRE_2_PIN, OUTPUT);
-        digitalWrite(FIRE_2_PIN, HIGH);
-    }
-    else
-    {
-        pinMode(FIRE_2_PIN, INPUT);
-    }
-    if(g_yFireState & FLAME_3_On)
-    {
-        pinMode(FIRE_3_PIN, OUTPUT);
-        digitalWrite(FIRE_3_PIN, HIGH);
-    }
-    else
-    {
-        pinMode(FIRE_3_PIN, INPUT);
+		if(g_aiFlameChangeCooldown[i] > 0)
+		{
+			g_aiFlameChangeCooldown[i]--;
+		}
+		else
+		{
+			if((g_yDesiredFireState & FLAME_STATE_ON[i]) != (g_yCurrentFireState & FLAME_STATE_ON[i]))
+			{
+				// Write state to pin
+				if(g_yDesiredFireState & FLAME_STATE_ON[i])
+				{
+					pinMode(FIRE_PINS[i], OUTPUT);
+					digitalWrite(FIRE_PINS[i], HIGH);
+				}
+				else
+				{
+					pinMode(FIRE_PINS[i], INPUT);
+				}
+
+				// Update the state and start a new cooldown 
+				g_yCurrentFireState = (g_yCurrentFireState & ~FLAME_STATE_ON[i]) | (g_yDesiredFireState & FLAME_STATE_ON[i]);
+				g_aiFlameChangeCooldown[i] = FLAME_COOLDOWN_TICKS;
+			}
+		}
     }
 
     // Write current fire state to serial
-    if(g_yFireState != yOldFireState)
+    if(g_yCurrentFireState != yOldFireState)
     {
-        Serial.print((g_yFireState & FLAME_0_On) ? "1" : "0");
-        Serial.print((g_yFireState & FLAME_1_On) ? "1" : "0");
-        Serial.print((g_yFireState & FLAME_2_On) ? "1" : "0");
-        Serial.print((g_yFireState & FLAME_3_On) ? "1" : "0");
+        Serial.print((g_yCurrentFireState & FLAME_STATE_ON[0]) ? "1" : "0");
+        Serial.print((g_yCurrentFireState & FLAME_STATE_ON[1]) ? "1" : "0");
+        Serial.print((g_yCurrentFireState & FLAME_STATE_ON[2]) ? "1" : "0");
+        Serial.print((g_yCurrentFireState & FLAME_STATE_ON[3]) ? "1" : "0");
         Serial.println();
     }
 
