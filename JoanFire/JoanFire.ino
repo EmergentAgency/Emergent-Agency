@@ -14,7 +14,7 @@
 // Tuning
 #define TICK_TIME_IN_MS 20
 #define SERIAL_TIMEOUT_TICKS 100
-#define FLAME_COOLDOWN_TICKS 10
+#define FLAME_COOLDOWN_TICKS 4
 
 // Controller 0
 #define CONTROLLER_0_CLOCK_PIN 12
@@ -29,19 +29,24 @@
 #define NUM_FLAMES 4
 
 // Solenoid control pins
-//#define FIRE_0_PIN 2 // Far left
-//#define FIRE_1_PIN 3 // Mid left
-//#define FIRE_2_PIN 4 // Mid right
-//#define FIRE_3_PIN 5 // Far right
-int FIRE_PINS[] = {2, 3, 4, 5};
+static const int FIRE_PINS[] = {2, 3, 4, 5};
 
 // Fire bits
-//#define FLAME_0_On 0x01
-//#define FLAME_1_On 0x02
-//#define FLAME_2_On 0x04
-//#define FLAME_3_On 0x08
-int FLAME_STATE_ON[] = {0x01, 0x02, 0x04, 0x08};
+static const byte FLAME_STATE_ON[] = {0x01, 0x02, 0x04, 0x08};
 
+static const byte RAPID_FIRE_SEQ_LEFT[] = {
+	FLAME_STATE_ON[0], FLAME_STATE_ON[0], FLAME_STATE_ON[0], FLAME_STATE_ON[0],
+	0, 0, 0, 0,
+	FLAME_STATE_ON[1], FLAME_STATE_ON[1], FLAME_STATE_ON[1], FLAME_STATE_ON[1],
+	0, 0, 0, 0,
+};
+
+static const byte RAPID_FIRE_SEQ_RIGHT[] = {
+	FLAME_STATE_ON[3], FLAME_STATE_ON[3], FLAME_STATE_ON[3], FLAME_STATE_ON[3],
+	0, 0, 0, 0,
+	FLAME_STATE_ON[2], FLAME_STATE_ON[2], FLAME_STATE_ON[2], FLAME_STATE_ON[2],
+	0, 0, 0, 0,
+};
 
 
 // Global vars
@@ -62,6 +67,8 @@ byte g_yPad0FireState;
 byte g_yPad1FireState;
 byte g_yDesiredFireState;
 byte g_yCurrentFireState;
+int g_bRapidFireCounterLeft;
+int g_bRapidFireCounterRight;
 
 // Cooldowns
 int g_aiFlameChangeCooldown[] = {0, 0, 0, 0};
@@ -91,6 +98,8 @@ void setup()
     g_yPad1FireState = 0;
     g_yDesiredFireState = 0;
     g_yCurrentFireState = 0;
+	g_bRapidFireCounterLeft = 0;
+	g_bRapidFireCounterRight = 0;
   
     // Init serial timeout counter
     g_uSerialTimeoutCounter = 0;
@@ -119,6 +128,29 @@ byte GetFireStatefromButtons(uint16_t iOldButtons, uint16_t iNewButtons)
     yFireStateOut |= (iNewButtons & BTN_UP)    ? FLAME_STATE_ON[1] : 0;
     yFireStateOut |= (iNewButtons & BTN_DOWN)  ? FLAME_STATE_ON[2] : 0;
     yFireStateOut |= (iNewButtons & BTN_RIGHT) ? FLAME_STATE_ON[3] : 0;
+
+	// Button presses start the sequences over
+	if((iNewButtons & BTN_L) && !(iOldButtons & BTN_L))
+	{
+		g_bRapidFireCounterLeft = 0;
+	}
+	if((iNewButtons & BTN_R) && !(iOldButtons & BTN_R))
+	{
+		g_bRapidFireCounterRight = 0;
+	}
+
+	// TEMP_CL
+	//iNewButtons |= BTN_L | BTN_R;
+
+	// Run the sequences if the button is pressed
+	if(iNewButtons & BTN_L)
+	{
+		yFireStateOut |= RAPID_FIRE_SEQ_LEFT[g_bRapidFireCounterLeft];
+	}
+	if(iNewButtons & BTN_R)
+	{
+		yFireStateOut |= RAPID_FIRE_SEQ_RIGHT[g_bRapidFireCounterRight];
+	}
 
     return yFireStateOut;
 }
@@ -153,7 +185,19 @@ void loop()
     // Update fire state based on buttons
     g_yPad0FireState = GetFireStatefromButtons(g_iOldButtons0, g_iButtons0);
     g_yPad1FireState = GetFireStatefromButtons(g_iOldButtons1, g_iButtons1);
-    
+
+	// Update sequences
+	g_bRapidFireCounterLeft++;
+	if(g_bRapidFireCounterLeft >= (int)sizeof(RAPID_FIRE_SEQ_LEFT))
+	{
+		g_bRapidFireCounterLeft = 0;
+	}
+	g_bRapidFireCounterRight++;
+	if(g_bRapidFireCounterRight >= (int)sizeof(RAPID_FIRE_SEQ_RIGHT))
+	{
+		g_bRapidFireCounterRight = 0;
+	}
+
     // Aggregate fire state
     byte yOldFireState = g_yCurrentFireState;
     g_yDesiredFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState;
@@ -165,7 +209,8 @@ void loop()
 		{
 			g_aiFlameChangeCooldown[i]--;
 		}
-		else
+
+		if(g_aiFlameChangeCooldown[i] <= 0)
 		{
 			if((g_yDesiredFireState & FLAME_STATE_ON[i]) != (g_yCurrentFireState & FLAME_STATE_ON[i]))
 			{
