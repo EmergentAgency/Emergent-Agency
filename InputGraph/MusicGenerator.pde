@@ -196,7 +196,7 @@ public class MusicGenerator
 
 	public void SendNoteOn(int iChannel, int iNote, int iVelocity)
 	{
-		println("TEMP_CL SendNoteOn iNote=" + iNote + "  m_fNoteIntensity="+m_fNoteIntensity);
+		println("SendNoteOn iNote=" + iNote + "  m_fNoteIntensity="+m_fNoteIntensity);
 		if(!m_bNoteEventThisFrame)
 		{
 			m_fNoteIntensity += 1.0;
@@ -208,14 +208,14 @@ public class MusicGenerator
 		}
 		else
 		{
-			println("TEMP_CL Skipping sendNoteOn");
+			println("Skipping sendNoteOn");
 		}
 	}
 
 
 	public void SendNoteOff(int iChannel, int iNote, int iVelocity)
 	{
-		println("TEMP_CL SendNoteOff m_fNoteIntensity="+m_fNoteIntensity);
+		println("SendNoteOff m_fNoteIntensity="+m_fNoteIntensity);
 		if(!m_bNoteEventThisFrame)
 		{
 			m_fNoteIntensity += 1.0;
@@ -231,7 +231,7 @@ public class MusicGenerator
 		}
 		else
 		{
-			println("TEMP_CL Skipping sendNoteOff");
+			println("Skipping sendNoteOff");
 		}
 	}
 
@@ -254,9 +254,9 @@ public class MusicGenerator
 		m_aiAllCords[m_iNumCords][1] = iNote2 % OCTAVE;
 		m_aiAllCords[m_iNumCords][2] = iNote3 % OCTAVE;
 
-		println("TEMP_CL added cord " + m_aiAllCords[m_iNumCords][0] + "," +
-			                            m_aiAllCords[m_iNumCords][1] + "," +
-										m_aiAllCords[m_iNumCords][2]);
+		//println("TEMP_CL added cord " + m_aiAllCords[m_iNumCords][0] + "," +
+		//	                            m_aiAllCords[m_iNumCords][1] + "," +
+		//								m_aiAllCords[m_iNumCords][2]);
 
 		++m_iNumCords;
 	}
@@ -297,9 +297,9 @@ public class MusicGenerator
 
 		// Pick a random cord from the set of one matches
 		int iNewCordIndex = int(random(iNumMatchingCords));
-		println("TEMP_CL picked cord with notes " + m_aiAllCords[aiValidCordIndices[iNewCordIndex]][0] + "," +
-			                                        m_aiAllCords[aiValidCordIndices[iNewCordIndex]][1] + "," +
-													m_aiAllCords[aiValidCordIndices[iNewCordIndex]][2] + ",");
+		//println("TEMP_CL picked cord with notes " + m_aiAllCords[aiValidCordIndices[iNewCordIndex]][0] + "," +
+		//	                                        m_aiAllCords[aiValidCordIndices[iNewCordIndex]][1] + "," +
+		//											m_aiAllCords[aiValidCordIndices[iNewCordIndex]][2] + ",");
 
 		// Create list of all possible notes across multiple octaves that could be used to voice this cord.
 		// Exclude notes that are already being played
@@ -312,7 +312,7 @@ public class MusicGenerator
 				int iNote = m_aiAllCords[aiValidCordIndices[iNewCordIndex]][iCordNote] + g_iOctaveOffsets[iOctave] * OCTAVE;
 				if(!m_abActiveMidiNotes[g_iBaseNote + iNote])
 				{
-					println("TEMP_CL adding possible note " + iNote);
+					//println("TEMP_CL adding possible note " + iNote);
 					aiPossibleNotes[iNumPossibleNotes++] = iNote;
 				}
 			}
@@ -320,7 +320,7 @@ public class MusicGenerator
 
 		// Pick a random note
 		int iNewNote = aiPossibleNotes[int(random(iNumPossibleNotes))];
-		println("iNewNote=" + iNewNote);
+		//println("TEMP_CL iNewNote=" + iNewNote);
 		return iNewNote;
 	}
 
@@ -328,7 +328,7 @@ public class MusicGenerator
 	{
 		if(m_iNumCurNotes >= m_iMaxActiveNotes)
 		{
-			println("AddNoteToCord called when m_iNumCurNotes=" + m_iNumCurNotes + ".  Full up on notes.  Bailing.");
+			//println("AddNoteToCord called when m_iNumCurNotes=" + m_iNumCurNotes + ".  Full up on notes.  Bailing.");
 			return;
 		}
 
@@ -351,7 +351,7 @@ public class MusicGenerator
 
 	public void PlayCordNote(int iNote)
 	{
-		println("TEMP_CL PlayCordNote note=" + iNote + " MIDI=" + (g_iBaseNote + iNote));
+		//println("TEMP_CL PlayCordNote note=" + iNote + " MIDI=" + (g_iBaseNote + iNote));
 
 		// Save current note info
 		m_aiCurNotes[m_iNumCurNotes++] = iNote;
@@ -360,7 +360,7 @@ public class MusicGenerator
 		// Actually send the midi note
 		SendNoteOn(m_iMidiNoteChannelLow, g_iBaseNote + iNote, 127);
 
-		println("TEMP_CL Post PlayCordNote");
+		//println("TEMP_CL Post PlayCordNote");
 	}
 
 	public void ReleaseCordNote(int iNote)
@@ -409,7 +409,7 @@ public class MusicGenerator
 			iNote = iNote % OCTAVE;
 		}
 
-		println("TEMP_CL PlayIndividualNote iNote=" + iNote + " MIDI=" + (g_iBaseNote + iNote + OCTAVE));
+		//println("TEMP_CL PlayIndividualNote iNote=" + iNote + " MIDI=" + (g_iBaseNote + iNote + OCTAVE));
 
 		// Send a note off followed by a note off
 		SendNoteOn(m_iMidiNoteChannelHigh, g_iBaseNote + iNote + OCTAVE, iVelocity);
@@ -519,7 +519,7 @@ public class MusicGenerator
 		{
 			while(m_iNumCurNotes < iExpectedNumNotes)
 			{
-				println("TEMP_CL m_iNumCurNotes=" + m_iNumCurNotes + " iExpectedNumNotes=" + iExpectedNumNotes);
+				//println("TEMP_CL m_iNumCurNotes=" + m_iNumCurNotes + " iExpectedNumNotes=" + iExpectedNumNotes);
 				AddNoteToCord();
 			}
 			while(m_iNumCurNotes > iExpectedNumNotes)
@@ -527,6 +527,7 @@ public class MusicGenerator
 				RemoveNoteFromCord();
 			}
 
+                        /*
 			// Print current notes
 			//for(int i = 0; i < g_aiBaseScaleIntervals.length; ++i)
 			//{
@@ -585,6 +586,7 @@ public class MusicGenerator
 				print(m_abActiveMidiNotes[i] ? "X" : ".");
 			}
 			println("");
+                        */
 		}
 
 		int iTestControllerValue1 = ClampI(int(fInput * 80) + 30, 0, 127);
