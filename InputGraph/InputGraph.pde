@@ -272,7 +272,7 @@ MusicGenerator g_oMusicGen;
 void setup ()
 {
 	// set the window size:
-	size(1200, 1000);        
+	size(600, 600);        
  
 	// List all the available serial ports
 	println(Serial.list());
@@ -280,7 +280,11 @@ void setup ()
 	// I know that the first port in the serial list on my mac
 	// is always my  Arduino, so I open Serial.list()[0].
 	// Open whatever port is the one you're using.
-	g_port = new Serial(this, Serial.list()[0], 9600);
+        //g_port = new Serial(this, Serial.list()[0], 9600);
+        
+        // On MiniTone, it looks like the second com port is the one we should use
+        g_port = new Serial(this, Serial.list()[1], 9600);
+
 
 	// set inital background:
 	background(0);
