@@ -14,7 +14,7 @@
 // Tuning
 #define TICK_TIME_IN_MS 20
 #define SERIAL_TIMEOUT_TICKS 100
-#define FLAME_COOLDOWN_TICKS 4
+#define FLAME_COOLDOWN_TICKS 3
 
 // Controller 0
 #define CONTROLLER_0_CLOCK_PIN 12
@@ -65,10 +65,20 @@ uint16_t g_iButtons1;
 byte g_ySerialFireState;
 byte g_yPad0FireState;
 byte g_yPad1FireState;
+byte g_yPatternFireState;
 byte g_yDesiredFireState;
 byte g_yCurrentFireState;
 int g_bRapidFireCounterLeft;
 int g_bRapidFireCounterRight;
+
+// Programmable pattern
+#define PROG_BUFFER_SIZE 1024
+byte g_ayProgPattern[PROG_BUFFER_SIZE];
+int g_iPatternLength;
+int g_iActiveProgPadIndex; // -1 if not actively programming
+boolean g_bRunningProg;
+int g_iCurPatternIndex;
+bool g_bRecordedAnythingInPattern;
 
 // Cooldowns
 int g_aiFlameChangeCooldown[] = {0, 0, 0, 0};
@@ -96,6 +106,7 @@ void setup()
     g_ySerialFireState = 0;
     g_yPad0FireState = 0;
     g_yPad1FireState = 0;
+	g_yPatternFireState = 0;
     g_yDesiredFireState = 0;
     g_yCurrentFireState = 0;
 	g_bRapidFireCounterLeft = 0;
@@ -103,6 +114,13 @@ void setup()
   
     // Init serial timeout counter
     g_uSerialTimeoutCounter = 0;
+
+	// Init pattern
+	g_iPatternLength = 0;
+	g_iActiveProgPadIndex = -1;
+	g_bRunningProg = false;
+	g_iCurPatternIndex = 0;
+	g_bRecordedAnythingInPattern = false;
 }
 
 
@@ -138,9 +156,6 @@ byte GetFireStatefromButtons(uint16_t iOldButtons, uint16_t iNewButtons)
 	{
 		g_bRapidFireCounterRight = 0;
 	}
-
-	// TEMP_CL
-	//iNewButtons |= BTN_L | BTN_R;
 
 	// Run the sequences if the button is pressed
 	if(iNewButtons & BTN_L)
@@ -198,9 +213,74 @@ void loop()
 		g_bRapidFireCounterRight = 0;
 	}
 
+
+	// Pattern
+
+	// First check to see if anyone wants to start programming
+	if(!g_bRunningProg)
+	{
+		g_yPatternFireState = 0;
+
+		if(g_iActiveProgPadIndex < 0)
+		{
+			if(g_iButtons0 & BTN_SELECT)
+			{
+				g_iActiveProgPadIndex = 0;
+				g_iPatternLength = 0;
+			}
+			else if(g_iButtons1 & BTN_SELECT)
+			{
+				g_iActiveProgPadIndex = 1;
+				g_iPatternLength = 0;
+			}
+		}
+		else
+		{
+			if( (g_iActiveProgPadIndex == 0 && !(g_iButtons0 & BTN_SELECT)) ||
+				(g_iActiveProgPadIndex == 1 && !(g_iButtons1 & BTN_SELECT)) )
+			{
+				g_iActiveProgPadIndex = -1;
+				g_bRunningProg = true;
+				g_iCurPatternIndex = 0;
+			}
+		}
+
+		if(g_iActiveProgPadIndex == 0)
+		{
+			g_ayProgPattern[g_iPatternLength] = g_yPad0FireState;
+			g_iPatternLength = (g_iPatternLength + 1) % PROG_BUFFER_SIZE;
+			g_bRecordedAnythingInPattern = g_bRecordedAnythingInPattern || g_yPad0FireState != 0;
+		}
+		else if(g_iActiveProgPadIndex == 1)
+		{
+			g_ayProgPattern[g_iPatternLength] = g_yPad1FireState;
+			g_iPatternLength = (g_iPatternLength + 1) % PROG_BUFFER_SIZE;
+			g_bRecordedAnythingInPattern = g_bRecordedAnythingInPattern || g_yPad0FireState != 0;
+		}
+	}
+	// If we're running the program
+	else if(g_iPatternLength > 0)
+	{
+		g_yPatternFireState = g_ayProgPattern[g_iCurPatternIndex];
+		g_iCurPatternIndex = (g_iCurPatternIndex + 1) % g_iPatternLength;
+
+		if( (g_iButtons0 & BTN_SELECT) || (g_iButtons1 & BTN_SELECT) )
+		{
+			// This will immediately fall through to starting to program again which is fine.
+			// If the user taps the button it is just programming a very short empty loop.
+			g_bRunningProg = false;
+		}
+	}
+	// If we somehow ended up entering a 0 length pattern (which can happen if the pattern wraps PROG_BUFFER_SIZE just as you stop programming), turn it off
+	else
+	{
+		g_bRunningProg = false;
+		g_yPatternFireState = 0;
+	}
+
     // Aggregate fire state
     byte yOldFireState = g_yCurrentFireState;
-    g_yDesiredFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState;
+    g_yDesiredFireState = g_ySerialFireState | g_yPad0FireState | g_yPad1FireState | g_yPatternFireState;
 
     // Send fire state to output pins (pins are OUTPUT and HIGH to turn on fire and INPUT to turn off fire)
     for(int i = 0; i < NUM_FLAMES; i++)
