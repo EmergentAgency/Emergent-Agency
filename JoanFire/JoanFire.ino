@@ -35,17 +35,17 @@ static const int FIRE_PINS[] = {2, 3, 4, 5};
 static const byte FLAME_STATE_ON[] = {0x01, 0x02, 0x04, 0x08};
 
 static const byte RAPID_FIRE_SEQ_LEFT[] = {
-	FLAME_STATE_ON[0], FLAME_STATE_ON[0], FLAME_STATE_ON[0], FLAME_STATE_ON[0],
-	0, 0, 0, 0,
-	FLAME_STATE_ON[1], FLAME_STATE_ON[1], FLAME_STATE_ON[1], FLAME_STATE_ON[1],
-	0, 0, 0, 0,
+	FLAME_STATE_ON[0], FLAME_STATE_ON[0], FLAME_STATE_ON[0],
+	0, 0, 0,
+	FLAME_STATE_ON[3], FLAME_STATE_ON[3], FLAME_STATE_ON[3],
+	0, 0, 0,
 };
 
 static const byte RAPID_FIRE_SEQ_RIGHT[] = {
-	FLAME_STATE_ON[3], FLAME_STATE_ON[3], FLAME_STATE_ON[3], FLAME_STATE_ON[3],
-	0, 0, 0, 0,
-	FLAME_STATE_ON[2], FLAME_STATE_ON[2], FLAME_STATE_ON[2], FLAME_STATE_ON[2],
-	0, 0, 0, 0,
+	FLAME_STATE_ON[1], FLAME_STATE_ON[1], FLAME_STATE_ON[1],
+	0, 0, 0,
+	FLAME_STATE_ON[2], FLAME_STATE_ON[2], FLAME_STATE_ON[2],
+	0, 0, 0,
 };
 
 
@@ -302,6 +302,7 @@ void loop()
 				}
 				else
 				{
+					digitalWrite(FIRE_PINS[i], LOW);
 					pinMode(FIRE_PINS[i], INPUT);
 				}
 
