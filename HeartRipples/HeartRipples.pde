@@ -2,6 +2,16 @@
  * TEMP_CL 
  */
 
+import processing.serial.*;  // serial library lets us talk to Arduino
+
+Serial port;
+
+int Sensor;      // HOLDS PULSE SENSOR DATA FROM ARDUINO
+int IBI;         // HOLDS TIME BETWEN HEARTBEATS FROM ARDUINO
+int BPM;         // HOLDS HEART RATE VALUE FROM ARDUINO
+
+
+
 PShape g_oRippleCircleShape;
  
 int g_iNumRipples = 50;
@@ -18,11 +28,14 @@ void setup() {
   size(800, 600);
   background(0);
   
-  g_iSourceDelay[0] = 15;
-  g_iSourceDelay[1] = 15;
+  // make sure Arduino is talking serial at this baud rate
+  port = new Serial(this, Serial.list()[0], 115200);
   
-  g_oRippleCircleShape = createShape(ELLIPSE,0,0,10,10);
-  g_oRippleCircleShape.setFill(color(255, 127));
+  g_iSourceDelay[0] = 9999;
+  g_iSourceDelay[1] = 9999;
+  
+  //g_oRippleCircleShape = createShape(ELLIPSE,0,0,10,10);
+  //g_oRippleCircleShape.setFill(color(255, 127));
  
    /*
   g_oRippleCircleShape = createShape();  
@@ -169,7 +182,7 @@ class Ripple
     
     if(m_bActive)
     {
-      m_fRadius += 10;
+      m_fRadius += 7;
       
       if(m_fRadius > width*2)
       {
