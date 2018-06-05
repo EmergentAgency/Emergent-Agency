@@ -9,7 +9,7 @@
 #include <TimerOne.h>                    
 
 // Setting for using serial for debugging or communicating with the PC
-bool bUseSerialForDebugging = false;
+bool bUseSerialForDebugging = true;
 
 // Input pin to read from
 #define SENSOR_PIN A8
@@ -49,8 +49,12 @@ volatile int g_iDimmerCounter = 0;
 // Boolean to store a "switch" to tell us if we have crossed zero
 volatile boolean g_bZeroCross = false;
 
-// PowerSSR Tail connected to digital pin 4
-#define PSSR1 4
+// PowerSSR Tail connected to digital pin 
+#define PSSR1_PIN 4
+#define PSSR2_PIN 5
+
+// Zero cross pin
+#define ZERO_CROSS_PIN 2
 
 // Default dimming level (0-127)  0 = off, 127 = on
 int g_iDimmerBrightness = 32;
@@ -123,19 +127,35 @@ void setup()
 	pinMode(LED_OUT_PIN, OUTPUT);
 	digitalWrite(LED_OUT_PIN, LOW);
 
-/*
+
 	// Dimmer setup
 
 	// Set SSR1 pin as output
-	pinMode(PSSR1, OUTPUT);
+  pinMode(PSSR1_PIN, OUTPUT);
+  pinMode(PSSR2_PIN, OUTPUT);
 
-	// Attach an Interupt to digital pin 2 (interupt 0),
-	attachInterrupt(0, ZeroCrossDetect, RISING);
+  // TEMP_CL - test light
+  digitalWrite(PSSR1_PIN, HIGH);
+  digitalWrite(PSSR2_PIN, HIGH);
+  delay(1000);
+  digitalWrite(PSSR1_PIN, LOW);
+  digitalWrite(PSSR2_PIN, LOW);
+  delay(1000);
+  digitalWrite(PSSR1_PIN, LOW);
+  digitalWrite(PSSR2_PIN, LOW);
+  delay(1000);
+  digitalWrite(PSSR1_PIN, LOW);
+  digitalWrite(PSSR2_PIN, LOW);
+  delay(1000);
+
+	// Attach an Interupt to digital pin
+  //pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);
+  pinMode(ZERO_CROSS_PIN, INPUT);
+  attachInterrupt(ZERO_CROSS_PIN, ZeroCrossDetect, RISING);
 
 	// Init timer
 	Timer1.initialize(g_iFreqStep);
 	Timer1.attachInterrupt(DimmerCheck, g_iFreqStep);
- */
 }
 
 
@@ -238,21 +258,27 @@ void loop()
 	delay(5);
 }
 
-/*
+
 // This function will fire the triac at the proper time
 void DimmerCheck()
 {
+  cli();
 	// First check to make sure the zero-cross has happened else do nothing
 	if(g_bZeroCross)
 	{
-		if( g_iDimmerCounter < 120 && // If too much time has passed, don't fire the tail at all. This is because if we fire too late, it will get stuck on the whole next cycle and cause a flash in brightness
-			g_iDimmerCounter >= (127-g_iDimmerBrightness)) // The brighter the light should be, the sooner we should fire the tail to turn on the rest of this cycle
+    // If too much time has passed (g_iDimmerCounter >= 120), don't fire the tail at all. This is because if we fire too late,
+    // it will get stuck on the whole next cycle and cause a flash in brightness.
+    // The brighter the light should be, the sooner we should fire the tail to turn on the rest of this cycle
+		if( g_iDimmerCounter < 120 && g_iDimmerCounter >= (127-g_iDimmerBrightness)) 
 		{
 			//These values will fire the PSSR Tail.  When the tail fires, it will stay on till the next zero cross.
 			//delayMicroseconds(100); // I'm not sure why there was this delay in the example code so I'm taking it out because it made the tail fire late sometimes which caused the light to flicker
-			digitalWrite(PSSR1, HIGH);
-			delayMicroseconds(50);
-			digitalWrite(PSSR1, LOW);
+			digitalWrite(PSSR1_PIN, HIGH);
+      digitalWrite(PSSR2_PIN, HIGH);
+      delayMicroseconds(50);
+      //delay(100);
+      digitalWrite(PSSR1_PIN, LOW);
+      digitalWrite(PSSR2_PIN, LOW);
 
 			// Reset the accumulator
 			g_iDimmerCounter = 0;                         
@@ -266,6 +292,7 @@ void DimmerCheck()
 			g_iDimmerCounter++;
 		}
 	}
+  sei();
 }
 
 
@@ -275,4 +302,4 @@ void ZeroCrossDetect()
 	g_bZeroCross = true;
 	g_iDimmerCounter = 0;
 } 
-*/
+
