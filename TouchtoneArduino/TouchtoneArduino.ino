@@ -1,7 +1,8 @@
 /**
  * File: TouchtoneArduino.ino
  *
- * Description: Reading conductance of skin and sending it to the PC
+ * Description: Reading conductance of skin and sending it to the PC.
+ * Also dimming AC lights based on skin reading.
  * 
  * Copyright: 2018 Chris Linder
  */
@@ -11,14 +12,24 @@
 // Setting for using serial for debugging or communicating with the PC
 bool bUseSerialForDebugging = true;
 
-// Input pin to read from
-#define SENSOR_PIN A8
+// The numbers of dimmers in this setup
+#define NUM_DIMMERS 2
+
+// Pin defines
+#define SENSOR_PIN A8    // Input pin to read from
+#define LED_OUT_PIN 10   // LED output pin to visualize current reading
+#define PSSR1_PIN 4      // Dimmer 1
+#define PSSR2_PIN 5      // Dimmer 2
+#define ZERO_CROSS_PIN 2 // Zero cross pin
+
+// PowerSSR Tails connected to digital pins 
+static const int pssrPins[] = {PSSR1_PIN, PSSR2_PIN};
 
 // Current sensor value
 int g_iSensorValue = 0;
 
-// LED output pin to visualize current reading
-#define LED_OUT_PIN 10
+// Smoothied float value of the sensor
+float g_fSmoothedSensor = 0;
 
 // Lookup map used to linearize LED brightness
 static const unsigned char exp_map[256]={
@@ -43,63 +54,20 @@ static const unsigned char exp_map[256]={
 
 // Dimmer vars
 
-// Variable to use as a counter
+// Variable to use as a counter between zero crossing events. Runs from 0 to 127.
 volatile int g_iDimmerCounter = 0;
 
-// Boolean to store a "switch" to tell us if we have crossed zero
+// Flag set by the interupt when a zero cross on the AC power occurs.
 volatile boolean g_bZeroCross = false;
 
-// PowerSSR Tail connected to digital pin 
-#define PSSR1_PIN 4
-#define PSSR2_PIN 5
-
-// Zero cross pin
-#define ZERO_CROSS_PIN 2
-
 // Default dimming level (0-127)  0 = off, 127 = on
-int g_iDimmerBrightness = 32;
+int g_iDimmerBrightness[NUM_DIMMERS];
 
-// This 66 microseconds.  AC power runs at 60 hz and crosses zero twice in a since cycle.  Our brightness runs from 0 to 127 so there are 128 different
+// This is 66 microseconds.  AC power runs at 60 hz and crosses zero twice in a since cycle.  Our brightness runs from 0 to 127 so there are 128 different
 // brightness levels in a single half cycle.  This means our counter should count to 128 twice (256) every full power cycle.
 // 1,000,000 microseconds / 60 / 256 = 65.1 microseconds
 // And we rounded up to 66 because that ensures that we don't over count.
-int g_iFreqStep = 66;
-
-// smoothing
-float g_fSmoothedBrightness = 0;
-
-// Last activity time in milliseconds
-unsigned long g_iLastActivityTimeMS = 0;
-
-// Time at which to engage the inactvity / attract mode
-unsigned long g_iTimeTillAttactModeMS = 10000;
-
-// True if we are in attract mode
-bool g_bAttractModeActive = false;
-
-// Attract mode single sin pulse period in seconds - This is randomize for each pulse
-float g_fAttractPeriodSec = 0.5;
-
-// Attract mode period min / max
-float g_fAttackPeriodSecMin = 0.2;
-float g_fAttackPeriodSecMax = 10.0;
-
-// Start time in MS of attract pulse
-unsigned long g_iAttractPeriodPulseStartTimeMS = 0;
-
-// Attract mode peak brightness - This is randomized each pulse
-float g_iAttractBrightness = 64;
-
-// Attract mode peak brightness min / max
-float g_iAttractBrightnessMin = 64;
-float g_iAttractBrightnessMax = 127;
-
-// Attrack mode pulse repeats
-int g_iAttractRepeats = 1;
-
-// Attract mode repeats min / max
-int g_iAttractRepeatsMin = 2;
-int g_iAttractRepeatsMax = 4;
+#define FREQ_STEP 66
 
 
 
@@ -122,7 +90,6 @@ void setup()
   //pinMode(SENSOR_PIN, INPUT);
   //pinMode(SENSOR_PIN, INPUT_PULLUP);
 
-
 	// LED output pin
 	pinMode(LED_OUT_PIN, OUTPUT);
 	digitalWrite(LED_OUT_PIN, LOW);
@@ -130,43 +97,28 @@ void setup()
 
 	// Dimmer setup
 
-	// Set SSR1 pin as output
-  pinMode(PSSR1_PIN, OUTPUT);
-  pinMode(PSSR2_PIN, OUTPUT);
-
-  // TEMP_CL - test light
-  digitalWrite(PSSR1_PIN, HIGH);
-  digitalWrite(PSSR2_PIN, HIGH);
-  delay(1000);
-  digitalWrite(PSSR1_PIN, LOW);
-  digitalWrite(PSSR2_PIN, LOW);
-  delay(1000);
-  digitalWrite(PSSR1_PIN, LOW);
-  digitalWrite(PSSR2_PIN, LOW);
-  delay(1000);
-  digitalWrite(PSSR1_PIN, LOW);
-  digitalWrite(PSSR2_PIN, LOW);
-  delay(1000);
+	// Set PSSR pins as output and set initial brightness levels
+  for(int i = 0; i < NUM_DIMMERS; ++i) 
+  {
+    pinMode(pssrPins[i], OUTPUT);
+    g_iDimmerBrightness[i] = 0;
+  }
 
 	// Attach an Interupt to digital pin
-  //pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);
   pinMode(ZERO_CROSS_PIN, INPUT);
   attachInterrupt(ZERO_CROSS_PIN, ZeroCrossDetect, RISING);
 
 	// Init timer
-	Timer1.initialize(g_iFreqStep);
-	Timer1.attachInterrupt(DimmerCheck, g_iFreqStep);
+	Timer1.initialize(FREQ_STEP);
+	Timer1.attachInterrupt(DimmerCheck, FREQ_STEP);
 }
-
 
 
 void loop()
 {
 	// Read the current sensor value
-  // TEMP_CL analogRead(SENSOR_PIN); 
   g_iSensorValue = analogRead(SENSOR_PIN); 
 
-	// Write the current sensor value to serial
 	if(bUseSerialForDebugging)
 	{
 		Serial.print("g_iSensorValue=");
@@ -174,20 +126,19 @@ void loop()
 	}
 
 	// Take raw sensor value and turn it unto a useful input value called fInput
-	float fBrightness = 0;
+	float fSensor = 0;
 	if(g_iSensorValue > 100)
 	{
-		fBrightness = g_iSensorValue / 1000.0;
-		if(fBrightness > 1.0)
+		fSensor = g_iSensorValue / 1000.0;
+		if(fSensor > 1.0)
 		{
-			fBrightness = 1.0;
+			fSensor = 1.0;
 		}
 	}
 	float fSmoothAmount = 0.8;
-	g_fSmoothedBrightness = g_fSmoothedBrightness * fSmoothAmount + fBrightness * (1 - fSmoothAmount);
-	float fInput = pow(g_fSmoothedBrightness, 1.5);
+	g_fSmoothedSensor = g_fSmoothedSensor * fSmoothAmount + fSensor * (1 - fSmoothAmount);
+	float fInput = pow(g_fSmoothedSensor, 1.5);
  
-  // Write fInput
   if(bUseSerialForDebugging)
   {
     Serial.print("fInput=");
@@ -195,46 +146,24 @@ void loop()
   }
 
 	// Set dimmer brightness
-	g_iDimmerBrightness = 0;
+  g_iDimmerBrightness[0] = 0;
+  g_iDimmerBrightness[1] = 0;
 	if(fInput > 0.05)
 	{
-		g_iDimmerBrightness = fInput * 107 + 20; // Incandecent lights don't turn on right away so we need to start above 0
+    g_iDimmerBrightness[0] = fInput * 107 + 20; // Incandecent lights don't turn on right away so we need to start above 0
+    if(fInput < 0.5) {
+      g_iDimmerBrightness[1] = fInput * 50 + 20; // Incandecent lights don't turn on right away so we need to start above 0
+    }
+    else {
+      g_iDimmerBrightness[1] = (1.0-fInput) * 50 + 20; // Incandecent lights don't turn on right away so we need to start above 0
+    }
 	}
 
-	// Write the current sensor value to serial
 	if(bUseSerialForDebugging)
 	{
 		Serial.print("g_iDimmerBrightness=");
-		Serial.println(g_iDimmerBrightness);
+		Serial.println(g_iDimmerBrightness[0]);
 	}
-
-/*
-	// Override g_iDimmerBrightness if there hasn't been activity for a while.  This will not effect the LEDS or the data sent to the computer
-	unsigned long iCurTimeMS = millis();
-	if(g_iDimmerBrightness > 0)
-	{
-		g_iLastActivityTimeMS = iCurTimeMS;
-		g_bAttractModeActive = false;
-	}
-	if(!g_bAttractModeActive && iCurTimeMS - g_iLastActivityTimeMS > g_iTimeTillAttactModeMS)
-	{
-		g_bAttractModeActive = true;
-		g_iAttractPeriodPulseStartTimeMS = iCurTimeMS;
-	}
-	if(g_bAttractModeActive)
-	{
-		float fPeriodRatio = (float(iCurTimeMS - g_iAttractPeriodPulseStartTimeMS) / 1000.0) / g_fAttractPeriodSec;
-		if(fPeriodRatio > g_iAttractRepeats)
-		{
-			g_iAttractPeriodPulseStartTimeMS = iCurTimeMS;
-			fPeriodRatio = 0;
-			g_fAttractPeriodSec = g_fAttackPeriodSecMin + random(g_fAttackPeriodSecMax - g_fAttackPeriodSecMin + 1);
-			g_iAttractBrightness = g_iAttractBrightnessMin + random(g_iAttractBrightnessMax - g_iAttractBrightnessMin + 1);
-			g_iAttractRepeats = g_iAttractRepeatsMin + random(g_iAttractRepeatsMax - g_iAttractRepeatsMin + 1);
-		}
-		g_iDimmerBrightness = 1.0 - (cos(2 * 3.14 * fPeriodRatio) + 0.0) / 2.0 * g_iAttractBrightness; // TEMP_CL - This is wrong and I don't know why the +0.0 works (it should be +1.0) but it does so I'm leaving it.
-	}
- */
 
 	// The output LED is based on fInput not g_iDimmerBrightness
 	int iLEDValue = fInput * 255;
@@ -253,53 +182,53 @@ void loop()
   }
 
 	// Delay a bit before reading again
-	// Oddly if this is too short the analog read seems to read non-zero...  um, what?
+	// Oddly if this is too short the analog read seems have more noise near zero.
 	// Both 5 and 10 have worked well in the past
 	delay(5);
 }
 
 
-// This function will fire the triac at the proper time
+// This function will fire the triac in the PSSR Tail at the proper time based on g_iDimmerBrightness
 void DimmerCheck()
 {
-  cli();
-	// First check to make sure the zero-cross has happened else do nothing
+	// If we cross zero, reset the counter of how far along we are to the next zero cross.
+  // The counter runs from 0 to 127.
 	if(g_bZeroCross)
 	{
+    g_iDimmerCounter = 0;  
+    g_bZeroCross = false;
+	}
+
+  // Loop through all dimmers
+  for(int i = 0; i < NUM_DIMMERS; ++i) 
+  {
     // If too much time has passed (g_iDimmerCounter >= 120), don't fire the tail at all. This is because if we fire too late,
     // it will get stuck on the whole next cycle and cause a flash in brightness.
-    // The brighter the light should be, the sooner we should fire the tail to turn on the rest of this cycle
-		if( g_iDimmerCounter < 120 && g_iDimmerCounter >= (127-g_iDimmerBrightness)) 
+    // The brighter the light should be, the sooner we should fire the tail to turn on for the rest of this cycle
+		if( g_iDimmerCounter < 120)
 		{
-			//These values will fire the PSSR Tail.  When the tail fires, it will stay on till the next zero cross.
-			//delayMicroseconds(100); // I'm not sure why there was this delay in the example code so I'm taking it out because it made the tail fire late sometimes which caused the light to flicker
-			digitalWrite(PSSR1_PIN, HIGH);
-      digitalWrite(PSSR2_PIN, HIGH);
-      delayMicroseconds(50);
-      //delay(100);
-      digitalWrite(PSSR1_PIN, LOW);
-      digitalWrite(PSSR2_PIN, LOW);
+		  if (g_iDimmerCounter >= (127-g_iDimmerBrightness[i])) 
+  		{
+  			//These values will fire the PSSR Tail. 
+  			digitalWrite(pssrPins[i], HIGH);
+  		}
+    }
+    else {
+      // Turn the tail off before the next zero cross. Even though we're setting the control pin low,
+      // the tail will stay on till the next zero cross.
+      digitalWrite(pssrPins[i], LOW);
+    }
+  }
 
-			// Reset the accumulator
-			g_iDimmerCounter = 0;                         
-
-			// Reset the zero_cross so it may be turned on again at the next zero_cross_detect    
-			g_bZeroCross = false;                
-		}
-		else
-		{
-			// If the dimming value has not been reached, increment the counter
-			g_iDimmerCounter++;
-		}
-	}
-  sei();
+  // Increment the counter
+  ++g_iDimmerCounter;
 }
 
 
 void ZeroCrossDetect() 
 {
-	// set the boolean to true to tell our dimming function that a zero cross has occured
+	// Set the boolean to true to tell our dimming function that a zero cross has occured.
+  // This will be reset in the dimming function
 	g_bZeroCross = true;
-	g_iDimmerCounter = 0;
 } 
 
