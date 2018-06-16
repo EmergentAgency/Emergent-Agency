@@ -25,6 +25,22 @@ bool bUseSerialForDebugging = false;
 // PowerSSR Tails connected to digital pins 
 static const int pssrPins[] = {PSSR1_PIN, PSSR2_PIN};
 
+
+// Tuning vars for touch light
+#define TOUCH_TRIGGER_FRAMES 10
+#define MIN_TOUCH_BRIGHTNESS 0.3
+#define DEAFULT_BRIGHTNESS_LIGHT_1 50
+#define TOUCH_SMOOTH_ATTACK 0.80
+#define TOUCH_SMOOTH_DECAY 0.95
+
+// Tuning vars for singal processing
+static float g_fNode0Exp=0.0;
+static int   g_iNode0Avg=2;
+static float g_fNode1Exp=0.3;
+static int   g_iNode1Avg=10;
+static float g_fDetectThreshold=0.4;
+
+
 // Current sensor value
 int g_iSensorValue = 0;
 
@@ -70,8 +86,7 @@ int g_iDimmerBrightness[NUM_DIMMERS];
 #define FREQ_STEP 66
 
 
-
-// TEMP_CL - Add PC singal processing nodes from "InputGraph" program
+// PC singal processing nodes from "InputGraph" program
 #define MAX_NUM_SAMPLES 30
 
 class ProcessingNode
@@ -89,10 +104,6 @@ class ProcessingNode
   float m_fExponentialSmoothedInput;
   float m_fAvgSmoothedInput;
 
-  // TEMP_CL
-  //float m_afPastBuffer[MAX_NUM_SAMPLES];
-  //int m_iPastBufferIndex;
-
   float m_afAvgBuffer[MAX_NUM_SAMPLES];
   int m_iBufferIndex;
   float m_fOutput;
@@ -109,24 +120,6 @@ class ProcessingNode
 
     m_iBufferIndex = 0;
   }
-
-  /* - TEMP_CL - only used on PC to live tune values
-  float GetExponentialSmoothingWeight()
-  {
-    return m_fExponentialSmoothingWeight;
-  }
-
-  int GetAvgSmoothingNumSamples()
-  {
-    return m_iAvgSmoothingNumSamples;
-  }
-
-  void AdjustSmoothing(float fExponentialSmoothingWeight, int iAvgSmoothingNumSamples)
-  {
-    m_fExponentialSmoothingWeight = fExponentialSmoothingWeight;
-    m_iAvgSmoothingNumSamples = iAvgSmoothingNumSamples;
-  }
-  */
 
   void UpdateFromInput(int iDeltaTimeMS, float fInput)
   {
@@ -150,11 +143,6 @@ class ProcessingNode
     {
       m_fExponentialSmoothedInput = m_fProcessingVar;
     }
-
-    // TENP_CL
-    //// Past buffer - very much like avg buffer but not variable in number of samples
-    // = (m_iPastBufferIndex + 1) % MAX_NUM_SAMPLES;
-    //m_afPastBuffer[m_iPastBufferIndex] = m_fExponentialSmoothedInput;
 
     // Smooth the input using the last n samples (which have already been smoothed with the Exponential smoothing)
     if(m_iAvgSmoothingNumSamples > 1)
@@ -186,45 +174,17 @@ class ProcessingNode
   {
     return m_fOutput;
   }
-
-/* TEMP_CL - I don't think we need this
-  // 0 = new, 1 = one sample is the past
-  float GetOutputInPast(int iHistoryIndex)
-  {
-    int iPastIndex = m_iPastBufferIndex - iHistoryIndex;
-    while(iPastIndex < 0)
-    {
-      iPastIndex += MAX_NUM_SAMPLES;
-    }
-    return m_afPastBuffer[iPastIndex];
-  }
-  */
 };
-
-
-
-// Tuning vars for singal processing
-static float g_fNode0Exp=0.0;
-static int   g_iNode0Avg=2;
-static float g_fNode1Exp=0.3;
-static int   g_iNode1Avg=10;
-static float g_fDetectThreshold=0.4;
 
 // Signal processing node setup
 ProcessingNode g_oNode0(NULL,     false, g_fNode0Exp, g_iNode0Avg, 1.0); // Input
 ProcessingNode g_oNode1(&g_oNode0, true,  g_fNode1Exp, g_iNode1Avg, 0.6); // 1st serivative
 
-bool g_bDetectOn = false;
-float g_fTriggerVelocity = 0.0;
-bool g_bTriggerNow = false;
-
-// Max of the smoothed input so far
-float g_fMaxSmoothedInput = 0.1;
-
-// Smoothed value for touch light
-float g_fTouchBrightness = 0.0;
-float g_iTriggerCountdown = 0;
-float g_fTargetTouchBrightness = 0;
+// Touch vars
+bool g_bDetectOn = false; // If we are actively detecting a touch. This can be TRUE for multiple frames in a row.
+bool g_bTriggerNow = false; // This is only true for the first frame of detecting a touch.
+float g_fTriggerVelocity = 0.0; // The velocity (0.0-1.0) of the last touch
+float g_fMaxSmoothedInput = 0.1; // Max of the smoothed input so far which is used to set g_fTriggerVelocity
 
 // Clamp function - float
 float ClampF(float fVal, float fMin, float fMax)
@@ -237,10 +197,10 @@ float ClampF(float fVal, float fMin, float fMax)
   {
     fVal = fMax;
   }
-
   return fVal;
 }
 
+// This reads the input nodes and sets g_bDetectOn, g_bTriggerNow, g_fTriggerVelocity, and g_fMaxSmoothedInput
 void ProcessSignal()
 {
   float fRawInput = float(g_iSensorValue) / 1024.0; 
@@ -272,6 +232,11 @@ void ProcessSignal()
   }
 }
 
+
+// Touch light vars
+float g_fTouchBrightness = 0.0; 
+float g_iTriggerCountdown = 0;
+float g_fTargetTouchBrightness = 0;
 
 
 void setup()
@@ -333,8 +298,8 @@ void loop()
   // Process the raw sensor value
   ProcessSignal();
 
-  // TEMP_CL - show trigger for now
-  if(g_bDetectOn)
+  // Show touches
+  if(g_bTriggerNow)
   {
     if(bUseSerialForDebugging)
     {
@@ -364,20 +329,15 @@ void loop()
     Serial.println(fInput);
   }
 
-	// Set dimmer brightness
+	// Set main light brightness
   g_iDimmerBrightness[0] = 0;
-  g_iDimmerBrightness[1] = 0;
 	if(fInput > 0.05)
 	{
     g_iDimmerBrightness[0] = fInput * 107 + 20; // Incandecent lights don't turn on right away so we need to start above 0
  	}
-
-  float MIN_TOUCH_BRIGHTNESS = 0.3;
-  int TOUCH_TRIGGER_FRAMES = 10;
-  float DEAFULT_BRIGHTNESS_LIGHT_1 = 50; // TEMP_CL
-  float TOUCH_SMOOTH_ATTACK = 0.80; // TEMP_CL
-  float TOUCH_SMOOTH_DECAY = 0.95; // TEMP_CL
   
+  // Set touch light light brightness
+  g_iDimmerBrightness[1] = 0;
   if(g_bTriggerNow)
   {
     g_iTriggerCountdown = TOUCH_TRIGGER_FRAMES;
@@ -391,7 +351,6 @@ void loop()
       g_fTargetTouchBrightness = 0;
     }
   }
-   
   float g_fTouchSmoothAmount = TOUCH_SMOOTH_ATTACK;
   if(g_fTargetTouchBrightness < g_fTouchBrightness)
   {
@@ -400,11 +359,12 @@ void loop()
   g_fTouchBrightness = g_fTouchBrightness * g_fTouchSmoothAmount + g_fTargetTouchBrightness * (1.0 - g_fTouchSmoothAmount);
   g_iDimmerBrightness[1] = DEAFULT_BRIGHTNESS_LIGHT_1 + g_fTouchBrightness * (127 - DEAFULT_BRIGHTNESS_LIGHT_1);
   
-
 	if(bUseSerialForDebugging)
 	{
-		Serial.print("g_iDimmerBrightness=");
-		Serial.println(g_iDimmerBrightness[0]);
+		Serial.print("g_iDimmerBrightness0=");
+    Serial.print(g_iDimmerBrightness[0]);
+    Serial.print(" g_iDimmerBrightness1=");
+    Serial.println(g_iDimmerBrightness[1]);
 	}
 
 	// The output LED is based on fInput not g_iDimmerBrightness
