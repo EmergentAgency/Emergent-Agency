@@ -10,13 +10,13 @@
 #include <TimerOne.h>                    
 
 // Setting for using serial for debugging or communicating with the PC
-bool bUseSerialForDebugging = true;
+bool bUseSerialForDebugging = false;
 
 // The numbers of dimmers in this setup
 #define NUM_DIMMERS 2
 
 // Pin defines
-#define SENSOR_PIN A8    // Input pin to read from
+#define SENSOR_PIN A0    // Input pin to read from
 #define LED_OUT_PIN 10   // LED output pin to visualize current reading
 #define PSSR1_PIN 4      // Dimmer 1
 #define PSSR2_PIN 5      // Dimmer 2
@@ -216,9 +216,15 @@ ProcessingNode g_oNode1(&g_oNode0, true,  g_fNode1Exp, g_iNode1Avg, 0.6); // 1st
 
 bool g_bDetectOn = false;
 float g_fTriggerVelocity = 0.0;
+bool g_bTriggerNow = false;
 
 // Max of the smoothed input so far
 float g_fMaxSmoothedInput = 0.1;
+
+// Smoothed value for touch light
+float g_fTouchBrightness = 0.0;
+float g_iTriggerCountdown = 0;
+float g_fTargetTouchBrightness = 0;
 
 // Clamp function - float
 float ClampF(float fVal, float fMin, float fMax)
@@ -250,6 +256,7 @@ void ProcessSignal()
   float fSmoothedInput = g_oNode0.GetOutput();
   float fSmoothedFirstDeriv = g_oNode1.GetOutput();
   
+  g_bTriggerNow = false;
   boolean bOldDetectOn = g_bDetectOn;
   g_bDetectOn = fSmoothedFirstDeriv > g_fDetectThreshold;
   if(!bOldDetectOn && g_bDetectOn)
@@ -261,11 +268,7 @@ void ProcessSignal()
     }
   
     g_fTriggerVelocity = ClampF(fSmoothedInput / (g_fMaxSmoothedInput * 0.9), 0.0, 1.0);
-  }
-
-  if(!g_bDetectOn)
-  {
-    g_fTriggerVelocity = 0;
+    g_bTriggerNow = true;
   }
 }
 
@@ -367,19 +370,36 @@ void loop()
 	if(fInput > 0.05)
 	{
     g_iDimmerBrightness[0] = fInput * 107 + 20; // Incandecent lights don't turn on right away so we need to start above 0
-
-    // TEMP_CL
-    /*
-    if(fInput < 0.5) {
-      g_iDimmerBrightness[1] = fInput * 50 + 20; // Incandecent lights don't turn on right away so we need to start above 0
-    }
-    else {
-      g_iDimmerBrightness[1] = (1.0-fInput) * 50 + 20; // Incandecent lights don't turn on right away so we need to start above 0
-    }
-    */
  	}
-  float g_iDefaultBrightnessLight1 = 50; // TEMP_CL
-  g_iDimmerBrightness[1] = g_iDefaultBrightnessLight1 + g_fTriggerVelocity * (127-g_iDefaultBrightnessLight1);
+
+  float MIN_TOUCH_BRIGHTNESS = 0.3;
+  int TOUCH_TRIGGER_FRAMES = 10;
+  float DEAFULT_BRIGHTNESS_LIGHT_1 = 50; // TEMP_CL
+  float TOUCH_SMOOTH_ATTACK = 0.80; // TEMP_CL
+  float TOUCH_SMOOTH_DECAY = 0.95; // TEMP_CL
+  
+  if(g_bTriggerNow)
+  {
+    g_iTriggerCountdown = TOUCH_TRIGGER_FRAMES;
+    g_fTargetTouchBrightness = MIN_TOUCH_BRIGHTNESS + (1.0 - MIN_TOUCH_BRIGHTNESS) * g_fTriggerVelocity;
+  }
+  if(g_iTriggerCountdown > 0)
+  {
+    --g_iTriggerCountdown;
+    if(g_iTriggerCountdown == 0)
+    {
+      g_fTargetTouchBrightness = 0;
+    }
+  }
+   
+  float g_fTouchSmoothAmount = TOUCH_SMOOTH_ATTACK;
+  if(g_fTargetTouchBrightness < g_fTouchBrightness)
+  {
+    g_fTouchSmoothAmount = TOUCH_SMOOTH_DECAY;
+  }
+  g_fTouchBrightness = g_fTouchBrightness * g_fTouchSmoothAmount + g_fTargetTouchBrightness * (1.0 - g_fTouchSmoothAmount);
+  g_iDimmerBrightness[1] = DEAFULT_BRIGHTNESS_LIGHT_1 + g_fTouchBrightness * (127 - DEAFULT_BRIGHTNESS_LIGHT_1);
+  
 
 	if(bUseSerialForDebugging)
 	{
