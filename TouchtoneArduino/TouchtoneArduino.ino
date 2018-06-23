@@ -25,6 +25,9 @@ bool bUseSerialForDebugging = false;
 // PowerSSR Tails connected to digital pins 
 static const int pssrPins[] = {PSSR1_PIN, PSSR2_PIN};
 
+// Global tuning
+# define MIN_SENSOR_VALUE 90
+# define MIN_INPUT_VALUE 10
 
 // Tuning vars for touch light
 #define TOUCH_TRIGGER_FRAMES 10
@@ -289,6 +292,18 @@ void loop()
 	// Read the current sensor value
   g_iSensorValue = analogRead(SENSOR_PIN); 
 
+  // Sometimes this system has noise, particularlly if people are near the touch lights
+  // and are only holding the sensor read handled (as opposed to the postive voltage handle).
+  // This helps removed that noise.
+  if(g_iSensorValue < MIN_SENSOR_VALUE)
+  {
+    g_iSensorValue = 0;
+  }
+  else
+  {
+    g_iSensorValue = g_iSensorValue - MIN_SENSOR_VALUE;
+  }
+
 	if(bUseSerialForDebugging)
 	{
 		Serial.print("g_iSensorValue=");
@@ -311,7 +326,7 @@ void loop()
 
 	// Take raw sensor value and turn it unto a useful input value called fInput
 	float fSensor = 0;
-	if(g_iSensorValue > 100)
+	if(g_iSensorValue > MIN_INPUT_VALUE)
 	{
 		fSensor = g_iSensorValue / 1000.0;
 		if(fSensor > 1.0)
