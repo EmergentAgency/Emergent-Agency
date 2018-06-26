@@ -297,7 +297,22 @@ a {
         // TEMP_CL
         //gl_FragColor = vec4(max(colour.r,0.0)*5.0,max(colour.r,0.0)*5.0,max(colour.r,0.0)*5.0,1);
         //gl_FragColor = vec4(colour.r*5.0,colour.r*5.0,colour.r*5.0,1);
-        gl_FragColor = vec4(colour.r*2.0+0.5,colour.r*2.0+0.5,colour.r*2.0+0.5,1);
+        
+        // Works well
+        //gl_FragColor = vec4(colour.r*2.0+0.5,colour.r*2.0+0.5,colour.r*2.0+0.5,1);
+        
+        // Inverse
+        //gl_FragColor = vec4(,0.5-colour.r*4.0,0.5-colour.r*4.0,1);
+        
+        // Add fade on edges
+        mediump float fIntensity = 0.5 - colour.r * 4.0;
+        //fIntensity = fIntensity * (1.0 - v_texcoord.x) / 1.0;
+        mediump vec2 vFocusPoint = vec2(0.5, 0.2);
+        mediump float fDistToFocusSqr = (v_texcoord.x - vFocusPoint.x) * (v_texcoord.x - vFocusPoint.x) +
+                                        (v_texcoord.y - vFocusPoint.y) * (v_texcoord.y - vFocusPoint.y);
+        fIntensity *= (1.2 - fDistToFocusSqr*5.0);                                    
+        gl_FragColor = vec4(fIntensity,fIntensity,fIntensity,1);
+        
 
 	  if (colour.b>.1) discard;
       }
@@ -386,7 +401,8 @@ a {
     } else {
         SerialPort = require("serialport");
     }
-    var serialPort = new SerialPort.SerialPort("COM28", {
+    //var serialPort = new SerialPort.SerialPort("COM28", {
+    var serialPort = new SerialPort.SerialPort("COM32", {
         baudrate: 115200
     }, false); // this is the openImmediately flag [default is true]
 
@@ -401,10 +417,10 @@ a {
                 for (var i = 0; i < data.length; i++) {
                     if (data[i] == "B".charCodeAt(0)) {
                         console.log("Beat 1!");
-                        addDropAtScreenPos(gl.viewportWidth / 2 - gl.viewportWidth * 0.1, gl.viewportHeight * 0.8, false)
+                        addDropAtScreenPos(gl.viewportWidth / 2 - gl.viewportWidth * 0.15, gl.viewportHeight * 1.01, false)
                     } else if (data[i] == "b".charCodeAt(0)) {
                         console.log("Beat 2!");
-                        addDropAtScreenPos(gl.viewportWidth / 2 + gl.viewportWidth * 0.1, gl.viewportHeight * 0.8, false)
+                        addDropAtScreenPos(gl.viewportWidth / 2 + gl.viewportWidth * 0.15, gl.viewportHeight * 1.01, false)
                     }
                 }
             });
@@ -623,7 +639,8 @@ a {
     var waterVelFramebuffer;
     var waterHeight1TX;
     var waterHeight1Framebuffer;
-    var WaterBufferSize = 256; // TEMP_CL - Scale 512
+    var WaterBufferWidth = 512; // TEMP_CL - Scale 512
+    var WaterBufferHeight = 256; // TEMP_CL - Scale 512
     var cvTX;
 
 
@@ -661,13 +678,13 @@ a {
         gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferWidth, WaterBufferHeight, 0, gl.RGBA, floatEnum, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         waterHeightFramebuffer = gl.createFramebuffer();
         gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterHeightTX, 0);
-        gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+        gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
         framebufferStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
         if (framebufferStatus != gl.FRAMEBUFFER_COMPLETE) {
             console.error("Framebuffer Error 1");
@@ -690,14 +707,14 @@ a {
         gl.bindTexture(gl.TEXTURE_2D, waterVelTX);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferWidth, WaterBufferHeight, 0, gl.RGBA, floatEnum, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 
         waterVelFramebuffer = gl.createFramebuffer();
         gl.bindFramebuffer(gl.FRAMEBUFFER, waterVelFramebuffer);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterVelTX, 0);
-        gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+        gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
         if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE) {
             console.error("Framebuffer Error 2");
             framebufferError = true;
@@ -711,13 +728,13 @@ a {
         gl.bindTexture(gl.TEXTURE_2D, waterHeight1TX);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferWidth, WaterBufferHeight, 0, gl.RGBA, floatEnum, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         waterHeight1Framebuffer = gl.createFramebuffer();
         gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeight1Framebuffer);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterHeight1TX, 0);
-        gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+        gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
         if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE) {
             console.error("Framebuffer Error 4");
             framebufferError = true;
@@ -954,7 +971,7 @@ a {
     var rotX = -1;
     var rotZ = 3.14 / 4;
     var zoom = 1;
-    var useBumpmap = true;
+    var useBumpmap = false;
     var slits = 0;
     var dipper = false;
     var clearOnNextFrame = false;
@@ -991,9 +1008,9 @@ a {
             checkError();
             console.log("Preparing to add new drops");
             gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
-            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
             gl.useProgram(dropShaderProgram);
-            gl.uniform2f(dropShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.uniform2f(dropShaderProgram.windowSizeUniform, WaterBufferWidth, WaterBufferHeight);
             gl.uniform1f(dropShaderProgram.radiusUniform, DropSize / 2.0); // TEMP_CL - 2.0
             // 	    if (frameNumber==1)
             // 		gl.uniform4f(dropShaderProgram.channelMaskUniform, 0,1,0,0);
@@ -1049,21 +1066,21 @@ a {
                 //Set Edge values
                 gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
                 gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeight1Framebuffer);
-                gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+                gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
                 gl.useProgram(edgeShaderProgram);
                 gl.enableVertexAttribArray(edgeShaderProgram.vertexAttribute);
                 gl.enableVertexAttribArray(edgeShaderProgram.inDirectionAttribute);
                 gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
                 gl.vertexAttribPointer(edgeShaderProgram.vertexAttribute, WallPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
                 gl.bindBuffer(gl.ARRAY_BUFFER, inDirectionBuffer);
-                gl.uniform2f(edgeShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+                gl.uniform2f(edgeShaderProgram.windowSizeUniform, WaterBufferWidth, WaterBufferHeight);
                 gl.vertexAttribPointer(edgeShaderProgram.inDirectionAttribute, 2, gl.FLOAT, false, 0, 0);
                 gl.drawArrays(gl.LINES, 0, WallPositionBuffer.numItems);
                 gl.disableVertexAttribArray(edgeShaderProgram.inDirectionAttribute);
                 gl.bindFramebuffer(gl.FRAMEBUFFER, null);
                 gl.bindTexture(gl.TEXTURE_2D, waterHeight1TX);
                 gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
-                gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+                gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
                 gl.useProgram(integrateShaderProgram);
                 gl.enableVertexAttribArray(integrateShaderProgram.vertexAttribute);
                 gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
@@ -1076,7 +1093,7 @@ a {
             gl.bindFramebuffer(gl.FRAMEBUFFER, waterVelFramebuffer);
             if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE)
                 console.error("Framebuffer Error 4");
-            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
             //         gl.clearColor(1.0, 1.0, 0.0, 1.0);
             //         gl.clear(gl.COLOR_BUFFER_BIT); 
 
@@ -1092,7 +1109,7 @@ a {
             gl.vertexAttribPointer(fcShader.vertexAttribute, VertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
             gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBuffer);
             gl.vertexAttribPointer(fcShader.texcoordAttribute, TexCoordPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
-            gl.uniform2f(fcShader.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.uniform2f(fcShader.windowSizeUniform, WaterBufferWidth, WaterBufferHeight);
             gl.enable(gl.BLEND);
             gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.ONE, gl.ONE);
@@ -1102,7 +1119,7 @@ a {
             //Integrate water velocity:	
             gl.bindTexture(gl.TEXTURE_2D, waterVelTX);
             gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
-            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.viewport(0, 0, WaterBufferWidth, WaterBufferHeight);
             //         gl.clearColor(1.0, 0.0, 0.0, 1.0);
             //         gl.clear(gl.COLOR_BUFFER_BIT); 
             gl.useProgram(integrateShaderProgram);
@@ -1181,7 +1198,7 @@ a {
             gl.useProgram(dipperShaderProgram);
             gl.uniform1f(dipperShaderProgram.frameNumberUniform, frameNumber / 10); // TEMP_CL - This is part scale and part time
             gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPositionBuffer);
-            gl.uniform2f(dipperShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.uniform2f(dipperShaderProgram.windowSizeUniform, WaterBufferWidth, WaterBufferHeight);
             gl.vertexAttribPointer(dipperShaderProgram.vertexAttribute, 2, gl.FLOAT, false, 0, 0);
             gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPropsBuffer);
             gl.vertexAttribPointer(dipperShaderProgram.propsAttribute, 3, gl.FLOAT, false, 0, 0);
@@ -1229,8 +1246,11 @@ a {
             mat4.rotateZ(mMatrix, mMatrix, rotZ * rotateProgressNL);
             // 	    mat4.translate(mvMatrix, mvMatrix, [0,0, .5*rotateProgressNL]);   	
         } else {
-            var ratio = gl.viewportWidth / gl.viewportHeight;
-            mat4.ortho(pMatrix, -ratio, ratio, -1, 1, -1, 1);
+            //var ratio = gl.viewportWidth / gl.viewportHeight;
+            var ratio = 1;
+            // TEMP_CL mat4.ortho(pMatrix, -ratio, ratio, -1, 1, -1, 1);
+            //mat4.ortho(pMatrix, -ratio, ratio, -1, 0.5, -0.8, 0.8);
+            mat4.ortho(pMatrix, -ratio, ratio, -1, 0.25, -0.4, 0.4);
         }
 
         mat4.multiply(mvMatrix, vMatrix, mMatrix);
@@ -1247,7 +1267,7 @@ a {
             gl.useProgram(renderShaderProgram);
             gl.uniformMatrix4fv(renderShaderProgram.matrixUniform, false, mvpMatrix);
             gl.uniformMatrix3fv(renderShaderProgram.mmatrixUniform, false, mMatrix3);
-            gl.uniform2f(renderShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.uniform2f(renderShaderProgram.windowSizeUniform, WaterBufferWidth, WaterBufferHeight);
             gl.enableVertexAttribArray(renderShaderProgram.vertexAttribute);
             gl.enableVertexAttribArray(renderShaderProgram.texcoordAttribute);
             gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBufferR);
@@ -1643,9 +1663,9 @@ a {
             pointDippers.push(pointDipper);
         } else if (pointDipperMode == 2) {
             // TEMP_CL
-            pointDipper = [pointDistance / 2, -0.95, 0, 1.3, 2]; //X, Y, Phase, Frequency, Amplitude
+            pointDipper = [pointDistance / 3, -0.95, 0, 1.3, 2]; //X, Y, Phase, Frequency, Amplitude
             pointDippers.push(pointDipper);
-            pointDipper = [-pointDistance / 2, -0.95, 0, 1, 2];
+            pointDipper = [-pointDistance / 3, -0.95, 0, 1, 2];
             pointDippers.push(pointDipper);
         } else if (pointDipperMode == 3) {
             pointDipper = [0, pointDistance / 2, 0, 1, 1]; //X, Y, Phase, Frequency, Amplitude
@@ -1742,7 +1762,7 @@ a {
             render3D = (query["3D"] == "true");
             rotateAnim = true;
         }
-        useBumpmap = !(query["shader"] == "height");
+        useBumpmap = query["shader"] == "light";
         renderStyle = query["renderStyle"];
         if (query["edgeReflections"] == "Soft")
             edgeReflections = 1;
@@ -1773,7 +1793,7 @@ a {
         else if (query["pointDipperMode"] == "Doppler")
             pointDipperMode = 4;
         else
-            pointDipperMode = 2;
+            pointDipperMode = 0; // TEMP_CL - initial dipper state 
         pointDistance = parseFloat(query["pointDistance"]);
         if (isNaN(pointDistance))
             pointDistance = 1;
@@ -1869,7 +1889,8 @@ a {
     }
 </script>
 </head>
-<body bgcolor="#444444" onpageshow="webGLStart();" onresize="layout()">
+<!-- #000000 or #444444 -->
+<body bgcolor="#000000" onpageshow="webGLStart();" onresize="layout()">
     <!--<div id="mainbody">
 	<h1>Matthew Wellings</h1>
 	<p id ="subtitle">Software Developer</p>
@@ -1900,8 +1921,10 @@ a {
 	For my full CV please contact me.
 	on <a href="tel:+441212888633">+44(0)1212888633</a><br>
     </div>-->
+    
     <div id="tablescroll" style="overflow:auto">
     <table  style="height:70" align=center><tr  align=center>
+    <!-- TEMP_CL - No buttons for now
     <td><button id = "runButton" type="button" onclick="runButtonPressed();" style="height:60px; width:60px">Pause</button></td>
     <td><button id = "clearButton" type="button" onclick="clearButtonPressed();" style="height:60px; width:60px">Clear</button>
     <td><button id = "projectionButton" type="button" onclick="projectionButtonPressed();" style="height:40px; width:60px">2D/3D</button> <br>
@@ -1948,17 +1971,19 @@ a {
      <td style="border: 1px solid black;"><span  style="white-space: nowrap;">&#9426;<a href="http://matthewwellings.com/">Matthew Wellings</a></span><br><span  style="white-space: nowrap;">2015-17 Licence: <a href = "https://matthewwellings.com/rippletank/LICENSE">MIT</a></span><br>
      <a href="http://matthewwellings.com/rippletank/help">Help</a>&nbsp;&nbsp;&nbsp;<a href="http://matthewwellings.com/rippletank/source">Source</a>
      </td>
+    TEMP_CL -->
+    <!-- TEMP_CL - Put end comment before this line -->
     </tr></table>
     <div>
     <canvas id="water-canvas" style="border: none; width: 100%;"></canvas>
     
     <!-- TEMP_CL
+    -->
     <script>
     var ngui = require('nw.gui');
     var nwin = ngui.Window.get();
     nwin.enterFullscreen();
     </script>
-    -->
 
 </body>
 </html>
