@@ -193,7 +193,7 @@ void loop()
     
     // Get button states
     g_iOldButtons0 = g_iButtons0;
-    g_iOldButtons1 = g_iButtons0;
+    g_iOldButtons1 = g_iButtons1;
     g_iButtons0 = g_pad0.getButtons();
     g_iButtons1 = g_pad1.getButtons();
     
