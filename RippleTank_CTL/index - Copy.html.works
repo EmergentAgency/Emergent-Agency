@@ -1,0 +1,2013 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Ripple Tank Sim</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+<script type="text/javascript" src="gl-matrix.js"></script>
+<script type="text/javascript" src="Stats.js"></script>
+<!--<script type="text/javascript" src="html2canvas.js"></script>-->
+<style>
+body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+a {
+    color: green;
+}
+</style>
+
+<script id="drop-fs" type="x-shader/x-fragment">
+    varying mediump vec2 pos;
+    uniform lowp float radius;
+    uniform lowp vec2 windowSize;
+    uniform lowp vec4 channelMask;
+    varying mediump vec2 screenPos;
+    void main(void)
+    {
+	lowp float r = distance(gl_FragCoord.xy, screenPos);
+	if( r > radius ) discard;
+// 	gl_FragColor = vec4(0,1,0,1);
+	highp float dropheight = cos(r/radius*3.141)/4.0 +.25;
+	gl_FragColor = -channelMask*dropheight;
+    }
+</script>
+
+<script id="drop-vs" type="x-shader/x-vertex">
+    attribute highp vec4 vertex;
+    varying mediump vec2 screenPos;
+    uniform lowp float radius;
+    uniform lowp vec2 windowSize;
+    void main(void)
+    {
+	gl_PointSize = radius*2.0;
+//        gl_PointSize = 80.0;
+	// Convert position to window coordinates
+	screenPos = (vertex.xy/2.0+vec2(0.5,0.5)) * windowSize.xy;
+	gl_Position = vertex;
+    }
+</script>
+
+<script id="forcecalc1-fs" type="x-shader/x-fragment">
+    uniform sampler2D waterLevelTex;
+    uniform mediump vec2 windowSize;
+//     uniform mediump float time;
+//     varying mediump vec2 pos;
+    varying mediump vec2 v_texcord;
+    void main(void)
+    {
+	  mediump vec2 currentpos = v_texcord; //Componant-wise division.
+      // TEMP_CL - something to do with prop speed
+	  //mediump vec2 windowSizeR = vec2(1.0/windowSize.x, 1.0/windowSize.y);
+	  //mediump vec2 windowSizeR = vec2(0.01, 0.01);
+	  mediump vec2 windowSizeR = vec2(2.0/windowSize.x, 2.0/windowSize.y);
+	  mediump vec4 r = texture2D(waterLevelTex, vec2(currentpos.x+windowSizeR.x, currentpos.y));
+	  mediump vec4 l = texture2D(waterLevelTex, vec2(currentpos.x-windowSizeR.x, currentpos.y));
+	  mediump vec4 u = texture2D(waterLevelTex, vec2(currentpos.x, currentpos.y-windowSizeR.y));
+	  mediump vec4 d = texture2D(waterLevelTex, vec2(currentpos.x, currentpos.y+windowSizeR.y));
+	  mediump vec4 t = texture2D(waterLevelTex, currentpos);
+	  // TEMP_CL mediump vec4 t = vec4(-1.0);
+	  //if (r.b > 0.5) r=t;
+	  //if (l.b > 0.5) l=t;
+	  //if (u.b > 0.5) u=t;
+	  //if (d.b > 0.5) d=t;
+ 	  //if (currentpos.x+windowSizeR.x*2.0>1.0){
+ 	  //    highp float wavespeed = 0.1;
+ 	  //    r=(wavespeed*t+r)/(1.0+wavespeed);
+ 	  //    //r=vec4(0.0);
+ 	  //}
+	  mediump vec4 averageNeighbourLevel = (r + l + u + d)/4.0;
+	  mediump vec4 leveldiff=averageNeighbourLevel-t;
+	  mediump vec4 k=vec4(1,1,0,1);
+	  mediump vec4 force = leveldiff*k; //Hooke's law	  
+	  if (t.b < -0.5) force=vec4(0.0);
+      
+      // TEMP_CL
+      //if(currentpos.x > 0.9) force=vec4(0.0);
+      //if(currentpos.x < 0.1) force=vec4(0.0);
+      if(currentpos.x > 0.9) force = t;
+      if(currentpos.x < 0.1) force = t;
+      
+      
+      //    gl_FragColor=vec4(0,1,0,1);
+	  gl_FragColor = force;   //Integrating on Newton2 done by blending.
+      //    gl_FragColor = texture2D(waterLevelTex, currentpos);
+    }
+</script>
+
+<script id="forcecalc-fs" type="x-shader/x-fragment">
+    uniform sampler2D waterLevelTex;
+    uniform mediump vec2 windowSize;
+//     uniform mediump float time;
+//     varying mediump vec2 pos;
+    varying mediump vec2 v_texcord;
+    void main(void)
+    {
+	  mediump vec2 currentpos = v_texcord; //Componant-wise division.
+	  mediump vec2 windowSizeR = vec2(1.0/windowSize.x, 1.0/windowSize.y); // TEMP_CL
+	  mediump vec4 r = texture2D(waterLevelTex, vec2(currentpos.x+windowSizeR.x, currentpos.y));
+	  mediump vec4 l = texture2D(waterLevelTex, vec2(currentpos.x-windowSizeR.x, currentpos.y));
+	  mediump vec4 u = texture2D(waterLevelTex, vec2(currentpos.x, currentpos.y-windowSizeR.y));
+	  mediump vec4 d = texture2D(waterLevelTex, vec2(currentpos.x, currentpos.y+windowSizeR.y));
+	  mediump vec4 t = texture2D(waterLevelTex, currentpos);
+
+	  mediump vec4 averageNeighbourLevel = (r + l + u + d)/4.0;
+	  mediump vec4 leveldiff=averageNeighbourLevel-t;
+	  mediump vec4 k=vec4(1,1,0,1);
+	  mediump vec4 force = leveldiff*k; //Hooke's law
+	  if (t.b < -0.5) force=vec4(0.0);
+      //    gl_FragColor=vec4(0,1,0,1);
+	  gl_FragColor = force;   //Integrating on Newton2 dobe by blending.
+      //    gl_FragColor = texture2D(waterLevelTex, currentpos);
+    }
+</script>
+
+<script id="forcecalc-vs" type="x-shader/x-vertex">
+      attribute highp vec2 vertex;
+      attribute highp vec2 texcord;
+//       varying mediump vec2 pos;
+      varying mediump vec2 v_texcord;
+
+      void main(void)
+      {
+// 	  pos = vertex.xy;
+	  v_texcord = texcord;
+	  gl_Position = vec4(vertex,0,1);
+      }
+</script>
+
+
+<script id="edgecalc-fs" type="x-shader/x-fragment">
+//Handles calculating the edge values for tanks with no outer walls (infinite tanks).
+//waterlevel[wavebuffer][0][y]=(wavespeed*waterlevel[wavebuffer][1][y]+waterlevel[wavebuffer][0][y])/(1+wavespeed);
+    uniform sampler2D waterLevelTex;
+    uniform highp vec2 windowSize;
+    varying highp vec2 v_texcord;
+    varying highp vec2 v_inDirection;
+    void main(void)
+    {
+	  highp vec2 currentpos = v_texcord;
+	  // TEMP_CL highp vec2 windowSizeR = vec2(1.0/windowSize.x, 1.0/windowSize.y);
+	  highp vec2 windowSizeR = vec2(2.0/windowSize.x, 2.0/windowSize.y);
+	  highp vec4 thisColour = texture2D(waterLevelTex, currentpos);
+	  highp float thisLevel = thisColour.x;
+	  highp float inLevel = texture2D(waterLevelTex, vec2(currentpos.x+windowSizeR.x*v_inDirection.x, currentpos.y+windowSizeR.y*v_inDirection.y)).x;
+	  highp float wavespeed = 0.45; // TEMP_CL - something about edge ripples
+	  gl_FragColor = vec4((wavespeed*inLevel+thisLevel)/(1.0+wavespeed),thisColour.y,-1.0,thisColour.w);
+    }
+</script>
+
+<script id="edgecalc-vs" type="x-shader/x-vertex">
+      attribute highp vec2 vertex;
+      attribute highp vec2 inDirection;
+      varying highp vec2 v_texcord;
+      varying highp vec2 v_inDirection;
+      void main(void)
+      {
+	  v_inDirection = inDirection;
+	  v_texcord = vertex/2.0+0.5;
+	  gl_Position = vec4(vertex,0,1);
+      }
+</script>
+
+<script id="integrate-fs" type="x-shader/x-fragment">
+      uniform sampler2D waterVelTex;
+      varying highp vec2 v_texcord;
+
+      void main(void)
+      {
+	  gl_FragColor = texture2D(waterVelTex, v_texcord);
+      }
+</script>
+
+<script id="integrate-vs" type="x-shader/x-vertex">
+      attribute highp vec4 vertex;
+      varying highp vec2 v_texcord;  
+      void main(void)
+      {	        
+	  v_texcord = vertex.xy/2.0+0.5;
+	  gl_Position = vertex;
+      }
+</script>
+
+<script id="render-fs" type="x-shader/x-fragment">
+      uniform sampler2D s_texture;
+      varying mediump vec2 v_texcoord;
+      uniform mediump vec2 windowSize;
+      uniform highp mat3 mmatrix;
+      void main() {
+	  highp vec4 colour = texture2D(s_texture, v_texcoord);
+	  //In WebGL transparency is not ignored, so discard it now:
+// 	  gl_FragColor = vec4(colour.r,0,colour.b,1);
+// 	  gl_FragColor = vec4(0, 0,(colour.r*0.8+0.25)+(colour.g*0.2+0.25),  1.0);
+
+	  
+	  mediump vec2 currentpos = v_texcoord; //Componant-wise division.
+	  mediump vec2 windowSizeR = vec2(1.0/windowSize.x, 1.0/windowSize.y);
+	  mediump vec2 diffs = vec2(
+		    texture2D(s_texture, vec2(currentpos.x+windowSizeR.x, currentpos.y)).x
+		  - texture2D(s_texture, vec2(currentpos.x-windowSizeR.x, currentpos.y)).x,
+		    texture2D(s_texture, vec2(currentpos.x, currentpos.y+windowSizeR.y)).x
+		  - texture2D(s_texture, vec2(currentpos.x, currentpos.y-windowSizeR.y)).x);
+	  mediump vec3 va = vec3(1, 0, diffs.x*2.0);
+          mediump vec3 vb = vec3(0, 1, diffs.y*2.0);
+          mediump vec3 normalMS = normalize(cross(va,vb));
+          mediump vec3 normalWS = normalize(mmatrix*normalMS);
+          
+//           gl_FragColor =  vec4(normalWS.xy,0, 1.0);
+          mediump vec4 color = vec4(0,0,0.4,1);
+	  //As we are not rotating the view camera direction is always (0,0,1) and with light in (-1,1,1) halfvec is normalize(-1,1,2).
+// 	  mediump vec3 toLightWS = normalize(vec3(-1,1,1));
+	  mediump vec3 toLightWS = vec3(-.57735,.57735,.57735);
+// 	  mediump vec3 halfVectorWS = normalize(vec3(-1,1,3));
+	  mediump vec3 halfVectorWS = vec3(-0.301511,0.301511,0.904534);
+	  mediump float cosLightAngle = max(dot(normalWS, toLightWS), 0.0);
+	  mediump float cosSpecAngle = max(dot(normalWS, halfVectorWS), 0.0);      
+	  mediump vec4 surfacecolour = color + cosLightAngle * 0.4 + pow(cosSpecAngle, 50.0);
+// 	  surfacecolour.r = max(surfacecolour.r, colour.b);
+	  if (colour.b>.1) discard;
+          gl_FragColor = surfacecolour;
+      }
+</script>
+
+<script id="render1-fs" type="x-shader/x-fragment">
+      #define M_PI_2 1.57079632679489661923
+      uniform sampler2D s_texture;
+      varying mediump vec2 v_texcoord;
+      uniform mediump vec2 windowSize;
+      void main() {
+	  highp vec4 colour = texture2D(s_texture, v_texcoord);
+//           gl_FragColor = vec4(sin(max(colour.r,0.0)*M_PI_2),colour.b,sin(-min(colour.r,0.0)*M_PI_2),1);
+//          gl_FragColor = vec4(max(colour.r,0.0)*5.0,0.0*colour.b,(-min(colour.r,0.0)*5.0),1);
+//           gl_FragColor = vec4(1.0-max(colour.r,0.0)*2.0,1.0-(-min(colour.r,0.0)*2.0),1.0-colour.b,1);
+
+        // TEMP_CL
+        //gl_FragColor = vec4(max(colour.r,0.0)*5.0,max(colour.r,0.0)*5.0,max(colour.r,0.0)*5.0,1);
+        //gl_FragColor = vec4(colour.r*5.0,colour.r*5.0,colour.r*5.0,1);
+        gl_FragColor = vec4(colour.r*2.0+0.5,colour.r*2.0+0.5,colour.r*2.0+0.5,1);
+
+	  if (colour.b>.1) discard;
+      }
+</script>
+
+<script id="render-vs" type="x-shader/x-vertex">
+    uniform sampler2D s_texture;
+    attribute highp vec2 posAttr;
+    attribute highp vec2 texcoordAttr;
+    varying highp vec2 v_texcoord;
+    uniform highp mat4 matrix;
+    void main() {
+	v_texcoord=texcoordAttr;
+	highp vec4 height = texture2D(s_texture, v_texcoord);
+	gl_PointSize = 1.0;
+	gl_Position = matrix * vec4(posAttr.xy, height.x*.2, 1);
+    }
+</script>
+
+<script id="wall-fs" type="x-shader/x-fragment">
+      uniform mediump vec4 colour;
+      void main(void)
+      {
+	  gl_FragColor = colour;//vec4(0,0,1,0);
+      }
+</script>
+
+<script id="wall-vs" type="x-shader/x-vertex">
+      attribute highp vec4 vertex;   
+      void main(void)
+      {	  
+	  gl_PointSize = 1.0;
+	  gl_Position = vertex;
+      }
+</script>
+
+<script id="dipper-fs" type="x-shader/x-fragment">
+      varying highp float height;
+      uniform mediump float frameNumber;
+      uniform mediump vec2 windowSize;
+      varying mediump vec2 screenPos;
+      void main(void)
+      {
+          lowp float r = distance(gl_FragCoord.xy, screenPos);
+          lowp float radius = 5.0;
+	  if( r > radius ) discard;
+	  highp float dropheight = cos(r/radius*3.141)/4.0 +.25;
+	  gl_FragColor = vec4(height,0,0,dropheight);
+      }
+</script>
+
+<script id="dipper-vs" type="x-shader/x-vertex">
+      uniform mediump float frameNumber;
+      uniform mediump vec2 windowSize;
+      attribute highp vec2 vertex;  //PosX, PosY
+      attribute highp vec3 props;   //Phase, Frequency, Amplitude
+      varying highp float height;
+      varying mediump vec2 screenPos;
+      void main(void)
+      {	  
+	  gl_PointSize = 10.0;
+	  height = sin(props.y*frameNumber + props.x)*props.z;
+	  screenPos = (vertex.xy/2.0+vec2(0.5,0.5)) * windowSize.xy;
+	  gl_Position = vec4(vertex.x, vertex.y ,0,1);
+      }
+</script>
+
+<script type="text/javascript">
+
+    function checkError() {
+        var glerror = gl.getError()
+        if (glerror!=gl.NO_ERROR)
+        {
+    // 	    console.error("GL Error " + WebGLDebugUtils.glEnumToString(glerror));
+            if (glerror==gl.INVALID_ENUM)
+              glerror="GL_INVALID_ENUM";
+            else if (glerror==gl.INVALID_OPERATION)
+              glerror="GL_INVALID_OPERATION";
+            console.error("GL Error " + glerror);
+        }
+    }
+    
+    // TEMP_CL
+    var SerialPort;
+    if (parseFloat(process.versions.nw) >= 0.13) {
+        SerialPort = require("browser-serialport");
+    } else {
+        SerialPort = require("serialport");
+    }
+    var serialPort = new SerialPort.SerialPort("COM28", {
+        baudrate: 115200
+    }, false); // this is the openImmediately flag [default is true]
+    
+    serialPort.open(function (error) {
+        console.log("TEMP_CL 8");
+        if ( error ) {
+            console.log('failed to open: '+error);
+        } else {
+            console.log('open');
+            serialPort.on('data', function(data) {
+                //console.log('data:' + data);
+                for(var i = 0; i < data.length; i ++) {
+                    if(data[i] == "B".charCodeAt(0)) {
+                        console.log("Beat 1!");
+                        addDropAtScreenPos(gl.viewportWidth/2 - gl.viewportWidth*0.1, gl.viewportHeight*0.9, false)
+                    }
+                    else if(data[i] == "b".charCodeAt(0)) {
+                        console.log("Beat 2!");
+                        addDropAtScreenPos(gl.viewportWidth/2 + gl.viewportWidth*0.1, gl.viewportHeight*0.9, false)
+                    }
+                }
+            });
+        }
+    });
+    
+    
+    
+    var gl;
+    var minmaxExt, texturefloatext, debug_renderer_infoExt;
+    var gpuvendor, gpurenderer, glvendor, glrenderer, glversion; 
+    
+    function initGL(canvas) {
+        try {
+// 	    gl = WebGLDebugUtils.makeDebugContext(canvas.getContext("experimental-webgl"));
+            gl = canvas.getContext("experimental-webgl");
+        } catch (e) {
+        }
+        if (gl) {
+        glvendor=gl.getParameter(gl.VENDOR);
+        glrenderer=gl.getParameter(gl.RENDERER);
+        glversion=gl.getParameter(gl.VERSION);
+	    console.log("GL_VENDOR: " + glvendor);
+	    console.log("GL_VERSION: " + glversion);
+	    console.log("GL_RENDERER: " + glrenderer);	    
+	    debug_renderer_infoExt = gl.getExtension('WEBGL_debug_renderer_info');
+	    if (debug_renderer_infoExt) {
+                gpuvendor=gl.getParameter(debug_renderer_infoExt.UNMASKED_VENDOR_WEBGL);
+                gpurenderer=gl.getParameter(debug_renderer_infoExt.UNMASKED_RENDERER_WEBGL);
+		console.log("UNMASKED_VENDOR_WEBGL: " + gpuvendor);
+		console.log("UNMASKED_RENDERER_WEBGL: " + gpurenderer);
+	    }
+	    minmaxExt = gl.getExtension('EXT_blend_minmax');	    
+	    texturefloatext = gl.getExtension('OES_texture_float');
+	    sendMessageHome("Init OK");
+            return true;
+	}else{
+	    alert("This page requires WebGL but it cannot be accessed, try upgrading your browser or graphics drivers.");
+	    sendMessageHome("No WebGL");
+            return false;
+        }
+    }
+
+    function sendMessageHome(message)
+    {
+        var messageObj = {
+            gpu: {
+                vendor: gpuvendor,
+                renderer: gpurenderer,
+            },
+            browser: {
+                glvendor: glvendor,
+                glversion: glversion,
+                glrenderer: glrenderer,
+                minmaxExt: (minmaxExt != null),
+                texturefloatExt: (texturefloatext != null)
+            },
+            state: {
+                location: window.location,
+                canvasWidth: canvas.clientWidth,
+                canvasHeight: canvas.clientHeight,
+                frameNumber: frameNumber
+            },
+            body: message
+        };
+        var json = JSON.stringify(messageObj);
+        console.log("Sending message home: "+message);
+        xmlhttp=new XMLHttpRequest();
+        xmlhttp.open("POST","https://matthewwellings.com/rippletank/report/",true);
+//         xmlhttp.onreadystatechange=function()
+// 	{
+// 	  if (xmlhttp.readyState==4 && xmlhttp.status==200)
+// 	  {
+// 	    console.log("response: " + xmlhttp.responseText);	   
+// 	  }
+// 	}
+        xmlhttp.send(json);
+    }
+    
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var str = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                str += k.textContent;
+            }
+            k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+    function getShaderProgram(gl, vertexShader, fragmentShader) {
+	var shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("Could not initialise shaders");
+        }
+        return shaderProgram;
+    }
+    
+    var dropShaderProgram;
+    var forcecalcShaderProgram;
+    var forcecalc1ShaderProgram;
+    var integrateShaderProgram;
+    var renderShaderProgram;
+    var render1ShaderProgram;
+    var wallShaderProgram;
+    var edgeShaderProgram;
+
+    function initShaders() {
+        var dropFragmentShader = getShader(gl, "drop-fs");
+        var dropVertexShader = getShader(gl, "drop-vs");
+        var forcecalcFragmentShader = getShader(gl, "forcecalc-fs");
+        var forcecalc1FragmentShader = getShader(gl, "forcecalc1-fs");
+        var forcecalcVertexShader = getShader(gl, "forcecalc-vs");
+        var integrateFragmentShader = getShader(gl, "integrate-fs");
+        var integrateVertexShader = getShader(gl, "integrate-vs");
+        var render1FragmentShader = getShader(gl, "render1-fs");
+        var renderFragmentShader = getShader(gl, "render-fs");
+        var renderVertexShader = getShader(gl, "render-vs");
+        var wallFragmentShader = getShader(gl, "wall-fs");
+        var wallVertexShader = getShader(gl, "wall-vs");
+        var dipperFragmentShader = getShader(gl, "dipper-fs");
+        var dipperVertexShader = getShader(gl, "dipper-vs");
+        var edgeFragmentShader = getShader(gl, "edgecalc-fs");
+        var edgeVertexShader = getShader(gl, "edgecalc-vs");
+
+	dropShaderProgram = getShaderProgram(gl, dropFragmentShader, dropVertexShader);
+	forcecalcShaderProgram = getShaderProgram(gl, forcecalcFragmentShader, forcecalcVertexShader);
+	forcecalc1ShaderProgram = getShaderProgram(gl, forcecalc1FragmentShader, forcecalcVertexShader);
+	integrateShaderProgram = getShaderProgram(gl, integrateFragmentShader, integrateVertexShader);
+	renderShaderProgram = getShaderProgram(gl, renderFragmentShader, renderVertexShader);
+	render1ShaderProgram = getShaderProgram(gl, render1FragmentShader, renderVertexShader);
+	wallShaderProgram = getShaderProgram(gl, wallFragmentShader, wallVertexShader);
+	dipperShaderProgram = getShaderProgram(gl, dipperFragmentShader, dipperVertexShader);
+	edgeShaderProgram = getShaderProgram(gl, edgeFragmentShader, edgeVertexShader);
+
+        gl.useProgram(dropShaderProgram);
+        dropShaderProgram.vertexAttribute = gl.getAttribLocation(dropShaderProgram, "vertex");
+        dropShaderProgram.radiusUniform = gl.getUniformLocation(dropShaderProgram, "radius");
+        dropShaderProgram.windowSizeUniform = gl.getUniformLocation(dropShaderProgram, "windowSize");
+        dropShaderProgram.channelMaskUniform = gl.getUniformLocation(dropShaderProgram, "channelMask");
+                
+        gl.useProgram(forcecalcShaderProgram);
+        forcecalcShaderProgram.vertexAttribute = gl.getAttribLocation(forcecalcShaderProgram, "vertex");
+        forcecalcShaderProgram.texcoordAttribute = gl.getAttribLocation(forcecalcShaderProgram, "texcord");
+        forcecalcShaderProgram.windowSizeUniform = gl.getUniformLocation(forcecalcShaderProgram, "windowSize");        
+                
+        gl.useProgram(forcecalc1ShaderProgram);
+        forcecalc1ShaderProgram.vertexAttribute = gl.getAttribLocation(forcecalc1ShaderProgram, "vertex");
+        forcecalc1ShaderProgram.texcoordAttribute = gl.getAttribLocation(forcecalc1ShaderProgram, "texcord");
+        forcecalc1ShaderProgram.windowSizeUniform = gl.getUniformLocation(forcecalc1ShaderProgram, "windowSize");
+        
+        gl.useProgram(integrateShaderProgram);
+        integrateShaderProgram.vertexAttribute = gl.getAttribLocation(integrateShaderProgram, "vertex");
+        integrateShaderProgram.texcoordAttribute = gl.getAttribLocation(integrateShaderProgram, "texcord");
+        
+        gl.useProgram(renderShaderProgram);
+        renderShaderProgram.vertexAttribute = gl.getAttribLocation(renderShaderProgram, "posAttr");
+        renderShaderProgram.texcoordAttribute = gl.getAttribLocation(renderShaderProgram, "texcoordAttr");
+        renderShaderProgram.matrixUniform = gl.getUniformLocation(renderShaderProgram, "matrix");     
+        renderShaderProgram.mmatrixUniform = gl.getUniformLocation(renderShaderProgram, "mmatrix");
+        renderShaderProgram.windowSizeUniform = gl.getUniformLocation(renderShaderProgram, "windowSize");  
+        
+        gl.useProgram(render1ShaderProgram);
+        render1ShaderProgram.vertexAttribute = gl.getAttribLocation(render1ShaderProgram, "posAttr");
+        render1ShaderProgram.texcoordAttribute = gl.getAttribLocation(render1ShaderProgram, "texcoordAttr");
+        render1ShaderProgram.matrixUniform = gl.getUniformLocation(render1ShaderProgram, "matrix");     
+        
+        gl.useProgram(wallShaderProgram); 
+        wallShaderProgram.colourUniform = gl.getUniformLocation(wallShaderProgram, "colour");
+        wallShaderProgram.vertexAttribute = gl.getAttribLocation(wallShaderProgram, "vertex");
+        
+        gl.useProgram(dipperShaderProgram); 
+        dipperShaderProgram.frameNumberUniform = gl.getUniformLocation(dipperShaderProgram, "frameNumber");
+        dipperShaderProgram.windowSizeUniform = gl.getUniformLocation(dipperShaderProgram, "windowSize");
+        dipperShaderProgram.vertexAttribute = gl.getAttribLocation(dipperShaderProgram, "vertex");
+        dipperShaderProgram.propsAttribute = gl.getAttribLocation(dipperShaderProgram, "props");
+        
+        gl.useProgram(edgeShaderProgram); 
+        edgeShaderProgram.windowSizeUniform = gl.getUniformLocation(edgeShaderProgram, "windowSize");
+        edgeShaderProgram.vertexAttribute = gl.getAttribLocation(edgeShaderProgram, "vertex");
+        edgeShaderProgram.inDirectionAttribute = gl.getAttribLocation(edgeShaderProgram, "inDirection");
+        
+        return true;
+    }
+    
+    var waterHeightTX;
+    var waterHeightFramebuffer;    
+    var waterVelTX;
+    var waterVelFramebuffer;
+    var waterHeight1TX;
+    var waterHeight1Framebuffer;   
+    var WaterBufferSize=256; // TEMP_CL - Scale 512
+    var cvTX;
+    
+    
+    function initFrameBuffers(forceHalfFloat) {
+    
+	var floatEnum;
+	var framebufferError = false;
+	var usingOES_texture_float = false;
+	if (typeof(forceHalfFloat)==='undefined') forceHalfFloat = false;
+	//Do not try to use OES_texture_float on older Adrenos, it does not work with blending.
+	//Newer Adrenos however will not work with OES_texture_half_float.
+	if(debug_renderer_infoExt && gpurenderer.indexOf("Adreno")>-1)
+	{
+	    if (gpurenderer.split(" ")[2] < 400)
+	    {
+		//This is a 2** or 3** series Adreno.
+		forceHalfFloat=true;
+	    }
+	}
+	if (!texturefloatext || forceHalfFloat) 
+	{	
+	    var ext1 = gl.getExtension('OES_texture_half_float');
+	    if (!ext1)
+	    {
+		alert("This page requires ether the 'OES_texture_half_float' or the 'OES_texture_float' extension, try upgrading your browser or graphics drivers.");
+		return false;
+	    }else{
+		console.log("Using OES_texture_half_float");
+		floatEnum=0x8D61;
+	    }
+	}
+	else
+	{
+	    console.log("Using OES_texture_float");
+	    usingOES_texture_float=true;
+	    floatEnum=gl.FLOAT;
+	}
+	
+	checkError();
+	waterHeightTX = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	waterHeightFramebuffer = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterHeightTX, 0);
+	gl.viewport(0, 0, WaterBufferSize, WaterBufferSize); 
+	framebufferStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+	if (framebufferStatus!=gl.FRAMEBUFFER_COMPLETE)
+	{
+	  console.error("Framebuffer Error 1");
+	  if (forceHalfFloat)
+	  {
+	    alert("There was a problem creating a floating point framebuffer.");
+	    if (framebufferStatus == gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
+	    {
+	        sendMessageHome("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+	        console.error("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+	    }
+	    sendMessageHome("framebufferStatus!=gl.FRAMEBUFFER_COMPLETE framebufferStatus:" + framebufferStatus);
+	  }
+	  framebufferError=true;
+	}
+	gl.clearColor(0.0, 0.0, 0.0, 1.0);  
+        gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	checkError();
+
+	waterVelTX = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, waterVelTX);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	
+	waterVelFramebuffer = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, waterVelFramebuffer);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterVelTX, 0);
+	gl.viewport(0, 0, WaterBufferSize, WaterBufferSize); 
+	if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!=gl.FRAMEBUFFER_COMPLETE)
+	{
+	  console.error("Framebuffer Error 2");
+	  framebufferError=true;
+	}
+	gl.clearColor(0.0, 0.0, 0.0, 1.0);   
+        gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        
+        checkError();
+	waterHeight1TX = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, waterHeight1TX);	
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, WaterBufferSize, WaterBufferSize, 0, gl.RGBA, floatEnum, null);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	waterHeight1Framebuffer = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeight1Framebuffer);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, waterHeight1TX, 0);
+	gl.viewport(0, 0, WaterBufferSize, WaterBufferSize); 
+	if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!=gl.FRAMEBUFFER_COMPLETE)
+	{
+	  console.error("Framebuffer Error 4");
+	  framebufferError=true;
+	}
+	gl.clearColor(0.0, 0.0, 0.0, 1.0);  
+        gl.clear(gl.COLOR_BUFFER_BIT);       
+        
+        
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!=gl.FRAMEBUFFER_COMPLETE)
+	  console.error("Framebuffer Error 3");
+	if (framebufferError)
+	{
+	    if (usingOES_texture_float && !forceHalfFloat)
+	    {
+		//We tried using full float but got framebuffer incomplete error, this happens with Firefox for Android.
+		//Try again using half float.
+		//TODO: clean up these unwanted textures and framebuffers.		
+		return initFrameBuffers(true);
+	    }else return false;		
+	}
+	return true;
+    }    
+    
+    var meshVertices = [];
+    var meshTexCoords = [];
+    var meshIndices = [];
+    
+    function buildMesh()
+    {        
+	var meshSize = 128;
+	for (var i=0; i<meshSize; i++)
+	{	
+	    for (var j=0; j<meshSize; j++)
+	    {
+		meshVertices.push(i/(meshSize-1)*2-1);
+		meshVertices.push(j/(meshSize-1)*2-1);
+		meshTexCoords.push(i/(meshSize-1)/**0.96+0.02*/);//Do not show the edges which do not move
+		meshTexCoords.push(j/(meshSize-1)/**0.96+0.02*/);
+	    }
+	}
+	for (var i=0; i<meshSize-1; i++)
+	{	
+	    for (var j=0; j<meshSize-1; j++)
+	    {
+		meshIndices.push(j+i*meshSize);
+		meshIndices.push(j+1+i*meshSize);
+		meshIndices.push(j+(i+1)*meshSize);
+		
+		meshIndices.push(j+1+i*meshSize);
+		meshIndices.push(j+(i+1)*meshSize);
+		meshIndices.push(j+1+(i+1)*meshSize);
+		
+	    }
+	}
+    }
+    
+    var VertexPositionBuffer;
+    var TexCoordPositionBuffer;
+    var VertexPositionBufferR;
+    var TexCoordPositionBufferR;
+    var IndexBufferR;
+    var WallPositionBuffer;
+    var Bar1GPositionBuffer;
+    var Bar2GPositionBuffer;
+    var DropPositionBuffer;
+    var inDirectionBuffer;
+   
+    var gapDistance = .4;
+    var wallPos = .5;
+    var gapWidth = .1;
+    
+    function initBuffers() {    
+      VertexPositionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBuffer);
+      var vertices = [
+	  -1, 1,
+	  -1, -1,
+	  1, -1,
+
+	  1, 1,
+	  1, -1,
+	  -1, 1
+      ];
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      VertexPositionBuffer.itemSize = 2;
+      VertexPositionBuffer.numItems = 6;
+// 
+      TexCoordPositionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBuffer);
+      var texcords = [
+	  0, 1,
+	  0, 0,
+	  1, 0,
+
+	  1, 1,
+	  1, 0,
+	  0, 1
+      ];
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texcords), gl.STATIC_DRAW);
+      TexCoordPositionBuffer.itemSize = 2;
+      TexCoordPositionBuffer.numItems = 6;
+      
+      buildMesh();
+      VertexPositionBufferR = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBufferR);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshVertices), gl.STATIC_DRAW);
+      VertexPositionBufferR.itemSize = 2;
+      VertexPositionBufferR.numItems = meshVertices.length/VertexPositionBufferR.itemSize;
+      TexCoordPositionBufferR = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBufferR);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshTexCoords), gl.STATIC_DRAW);
+      TexCoordPositionBufferR.itemSize = 2;
+      TexCoordPositionBufferR.numItems = meshTexCoords.length/TexCoordPositionBufferR.itemSize;
+      IndexBufferR = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IndexBufferR);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(meshIndices), gl.STATIC_DRAW);
+      IndexBufferR.numItems = meshIndices.length;
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+      
+//       var wallvertices = [
+// 	  -1, 1,
+// 	  -1, -1,
+// 	  -1, -1,
+// 	  1, -1,
+// 	  1, -1,
+// 	  1, 1,
+// 	  1, 1,
+// 	  -1, 1,
+//       ];
+      
+      var a = 1 - 1/512;
+      var wallvertices = [
+	  -a, a,
+	  -a, -a,
+ 	  -a, -a,
+ 	  a, -a,
+ 	  a, -a,
+ 	  a, a,
+ 	  a, a,
+ 	  -a, a,
+      ];      
+      var inDirections = [
+	  1, 0,
+	  1, 0,
+ 	  0, 1,
+ 	  0, 1,
+ 	  -1, 0,
+ 	  -1, 0,
+ 	  0, -1,
+ 	  0, -1,
+      ];
+      
+      
+      WallPositionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(wallvertices), gl.STATIC_DRAW);
+      WallPositionBuffer.itemSize = 2;
+      WallPositionBuffer.numItems = 8;   
+      inDirectionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, inDirectionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(inDirections), gl.STATIC_DRAW);     
+                  
+      //Dipper
+      DipperPositionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, DipperPositionBuffer);
+      var dippervertices = [
+	  .9,1,
+	  .9,-1
+      ];
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(dippervertices), gl.STATIC_DRAW);
+      DipperPositionBuffer.itemSize = 2;
+      DipperPositionBuffer.numItems = 2;  
+
+      DropPositionBuffer = gl.createBuffer();
+      PointDipperPositionBuffer = gl.createBuffer(); 
+      PointDipperPropsBuffer = gl.createBuffer(); 
+      Bar1GPositionBuffer = gl.createBuffer();      
+      Bar2GPositionBuffer = gl.createBuffer();
+      initWallBuffers();      
+      return true;
+    }
+    
+    function initWallBuffers() {    
+	      //1 Gap Wall
+	  gl.bindBuffer(gl.ARRAY_BUFFER, Bar1GPositionBuffer);
+	  var barvertices = [
+	      wallPos+-.025, 1,
+	      wallPos+-.025, gapWidth/2,
+	      wallPos+.025, gapWidth/2,
+
+	      wallPos+.025, 1,
+	      wallPos+.025, gapWidth/2,
+	      wallPos+-.025, 1,
+	      
+	      wallPos+-.025, -1,
+	      wallPos+-.025, -gapWidth/2,
+	      wallPos+.025, -gapWidth/2,
+
+	      wallPos+.025, -1,
+	      wallPos+.025, -gapWidth/2,
+	      wallPos+-.025, -1
+	  ];
+	  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(barvertices), gl.DYNAMIC_DRAW);
+	  Bar1GPositionBuffer.itemSize = 2;
+	  Bar1GPositionBuffer.numItems = 12;          
+	  
+	  //2 Gap Wall
+	  gl.bindBuffer(gl.ARRAY_BUFFER, Bar2GPositionBuffer);
+	  var barvertices = [
+	      //Top
+	      wallPos+-.025, 1,
+	      wallPos+-.025, gapDistance+(gapWidth/2),
+	      wallPos+.025, gapDistance+(gapWidth/2),
+
+	      wallPos+.025, 1,
+	      wallPos+.025, gapDistance+(gapWidth/2),
+	      wallPos+-.025, 1,
+	      //Centre
+	      wallPos+-.025, -(gapDistance-(gapWidth/2)),
+	      wallPos+-.025, gapDistance-(gapWidth/2),
+	      wallPos+.025, gapDistance-(gapWidth/2),
+
+	      wallPos+.025, -(gapDistance-(gapWidth/2)),
+	      wallPos+.025, gapDistance-(gapWidth/2),
+	      wallPos+-.025, -(gapDistance-(gapWidth/2)),
+	      //Bottom
+	      wallPos+-.025, -1,
+	      wallPos+-.025, -(gapDistance+(gapWidth/2)),
+	      wallPos+.025, -(gapDistance+(gapWidth/2)),
+
+	      wallPos+.025, -1,
+	      wallPos+.025, -(gapDistance+(gapWidth/2)),
+	      wallPos+-.025, -1
+	  ];
+	  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(barvertices), gl.DYNAMIC_DRAW);
+	  Bar2GPositionBuffer.itemSize = 2;
+	  Bar2GPositionBuffer.numItems = 18;
+      }
+    
+    var mvpMatrix;
+    var frameNumber=0;
+    var newDrops = [];
+    var DropSize = 20; // Mouse click size thing
+    var render3D = false;
+    var rotateAnim = false;
+    var rotateProgress = 0;
+    var running = true;
+    var renderStyle;
+    var rotX = -1;
+    var rotZ = 3.14/4;
+    var zoom=1;
+    var useBumpmap = true;
+    var slits = 2;
+    var dipper = true;
+    var clearOnNextFrame = false;
+    var clearWallsOnNextFrame = false;
+    var softWallReflections = false;
+    var edgeReflections = 0;
+    var pointDippers = [];
+    var pointDippersChanged = false;    
+    var pointDipperMode = 0;
+    var startTime;
+
+    function drawScene() {
+// 
+// //         mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+// 
+        frameInQueue = false;
+	gl.disable(gl.DEPTH_TEST);
+	gl.disable(gl.CULL_FACE);
+	//Sent home the time it takes to draw 180 frames:
+        if (frameNumber==60)
+        {
+            var d = new Date();
+            startTime = d.getTime(); 
+        }
+        if (frameNumber==240)
+        {
+            var d = new Date();
+            var message = "Perf: 180 Frames " + (d.getTime() - startTime) + "ms";
+            sendMessageHome(message);
+        }
+        //frameNumber is used for stats and calculating dipper phase 
+	if (running)
+	  frameNumber++;   
+	//Add the drops that are in the queue to the framebuffer:
+        if (newDrops.length)
+        {        
+            checkError();
+            console.log("Preparing to add new drops");
+            gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
+            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.useProgram(dropShaderProgram);
+            gl.uniform2f(dropShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.uniform1f(dropShaderProgram.radiusUniform, DropSize/2.0); // TEMP_CL - 2.0
+            // 	    if (frameNumber==1)
+            // 		gl.uniform4f(dropShaderProgram.channelMaskUniform, 0,1,0,0);
+            // 	    else
+            gl.uniform4f(dropShaderProgram.channelMaskUniform, 5.5,0,0,0); // TEMP_CL - drop intensity! - 1 is normal
+            //Add drops
+            var posArray = [];
+            for(var drop =0; drop < newDrops.length; drop++)
+            {        
+                // 		  console.log("Adding drop " + drop + " " +newDrops[drop][0] + " " + newDrops[drop][1]);
+                posArray[drop*2+0]=newDrops[drop][0];
+                posArray[drop*2+1]=newDrops[drop][1];
+            }	    
+            console.log(posArray.toString());
+            checkError();
+            gl.enableVertexAttribArray(dropShaderProgram.vertexAttribute);
+            gl.bindBuffer(gl.ARRAY_BUFFER, DropPositionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(posArray), gl.DYNAMIC_DRAW);	    
+            gl.vertexAttribPointer(dropShaderProgram.vertexAttribute, 2, gl.FLOAT, false, 0, 0);
+            checkError();
+            if (minmaxExt)
+            {
+                gl.enable(gl.BLEND);
+                gl.blendEquation(minmaxExt.MIN_EXT);
+            }
+            gl.drawArrays(gl.POINTS, 0, newDrops.length);
+            gl.disable(gl.BLEND);
+            checkError();
+            newDrops = [];
+        }
+        
+        if(clearOnNextFrame)
+        {
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
+	    gl.clearColor(0.0, 0.0, 0.0, 1.0);  
+	    gl.clear(gl.COLOR_BUFFER_BIT);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, waterVelFramebuffer);
+	    gl.clearColor(0.0, 0.0, 0.0, 1.0);  
+	    gl.clear(gl.COLOR_BUFFER_BIT);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	    clearOnNextFrame=false;
+	}
+	
+        if(clearWallsOnNextFrame)
+        {
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
+	    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+	    gl.colorMask(false, false, true, false);
+	    gl.clear(gl.COLOR_BUFFER_BIT);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	    gl.colorMask(true, true, true, true);
+	    clearWallsOnNextFrame=false;
+	}
+        if (running)
+        {        
+	    gl.activeTexture(gl.TEXTURE0);
+	    if(edgeReflections==0)
+	    {
+            //Set Edge values
+            gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeight1Framebuffer);
+            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.useProgram(edgeShaderProgram);
+            gl.enableVertexAttribArray(edgeShaderProgram.vertexAttribute);
+            gl.enableVertexAttribArray(edgeShaderProgram.inDirectionAttribute);
+            gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
+            gl.vertexAttribPointer(edgeShaderProgram.vertexAttribute, WallPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            gl.bindBuffer(gl.ARRAY_BUFFER, inDirectionBuffer);
+            gl.uniform2f(edgeShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+            gl.vertexAttribPointer(edgeShaderProgram.inDirectionAttribute, 2, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.LINES, 0, WallPositionBuffer.numItems);		
+            gl.disableVertexAttribArray(edgeShaderProgram.inDirectionAttribute);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.bindTexture(gl.TEXTURE_2D, waterHeight1TX);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer);
+            gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+            gl.useProgram(integrateShaderProgram);
+            gl.enableVertexAttribArray(integrateShaderProgram.vertexAttribute);
+            gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
+            gl.vertexAttribPointer(integrateShaderProgram.vertexAttribute, WallPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.LINES, 0, WallPositionBuffer.numItems);
+    // 		gl.disableVertexAttribArray(integrateShaderProgram.vertexAttribute);
+	    }
+	    //Calc water velocity:	
+	    gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, waterVelFramebuffer);  
+	    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!=gl.FRAMEBUFFER_COMPLETE)
+		console.error("Framebuffer Error 4");
+	    gl.viewport(0, 0, WaterBufferSize, WaterBufferSize);
+    //         gl.clearColor(1.0, 1.0, 0.0, 1.0);
+    //         gl.clear(gl.COLOR_BUFFER_BIT); 
+    
+	    var fcShader;
+	    if (softWallReflections)
+            fcShader=forcecalc1ShaderProgram;
+	    else
+            fcShader=forcecalcShaderProgram;	
+	    gl.useProgram(fcShader);		
+	    gl.enableVertexAttribArray(fcShader.vertexAttribute);
+	    gl.enableVertexAttribArray(fcShader.texcoordAttribute);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBuffer);
+	    gl.vertexAttribPointer(fcShader.vertexAttribute, VertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBuffer);
+	    gl.vertexAttribPointer(fcShader.texcoordAttribute, TexCoordPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.uniform2f(fcShader.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+	    gl.enable(gl.BLEND);
+	    gl.blendEquation(gl.FUNC_ADD);
+	    gl.blendFunc(gl.ONE,gl.ONE);
+	    gl.drawArrays(gl.TRIANGLES, 0, VertexPositionBuffer.numItems);
+	    checkError();
+	    
+	    //Integrate water velocity:	
+	    gl.bindTexture(gl.TEXTURE_2D, waterVelTX);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, waterHeightFramebuffer); 
+	    gl.viewport(0, 0, WaterBufferSize, WaterBufferSize); 
+    //         gl.clearColor(1.0, 0.0, 0.0, 1.0);
+    //         gl.clear(gl.COLOR_BUFFER_BIT); 
+	    gl.useProgram(integrateShaderProgram);
+	    gl.enableVertexAttribArray(integrateShaderProgram.vertexAttribute);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBuffer);
+	    gl.vertexAttribPointer(integrateShaderProgram.vertexAttribute, VertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.enable(gl.BLEND);
+	    // TEMP_CL gl.blendColor(0.995,1,1,1);
+	    gl.blendColor(0.999,1,1,1); // TEMP_CL - Attenuation!
+	    gl.blendEquation(gl.FUNC_ADD);
+	    gl.blendFunc(gl.CONSTANT_COLOR,gl.CONSTANT_COLOR);
+	    gl.drawArrays(gl.TRIANGLES, 0, VertexPositionBuffer.numItems);
+	}
+	
+	//Reset areas that are walls:
+	gl.bindTexture(gl.TEXTURE_2D, null);
+	gl.disable(gl.BLEND);	
+	gl.useProgram(wallShaderProgram);     
+        //Outer Walls
+        if (edgeReflections==2)
+        {
+            //We do not want the shader treating this as an internal wall:
+            gl.uniform4f(wallShaderProgram.colourUniform, 0,0,0,0);   
+            gl.enableVertexAttribArray(wallShaderProgram.vertexAttribute);	
+            gl.bindBuffer(gl.ARRAY_BUFFER, WallPositionBuffer);
+            gl.vertexAttribPointer(wallShaderProgram.vertexAttribute, WallPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.LINES, 0, WallPositionBuffer.numItems);
+        } //Soft reflections on outer wall handled by CLAMP_TO_EDGE.
+	
+        //Clamp value to 0 and tell shader to treat as an internal wall:
+        gl.uniform4f(wallShaderProgram.colourUniform, 0,0,1,0);    
+	if (slits==1)
+	{
+	    gl.bindBuffer(gl.ARRAY_BUFFER, Bar1GPositionBuffer);
+	    gl.vertexAttribPointer(wallShaderProgram.vertexAttribute, Bar1GPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.drawArrays(gl.TRIANGLES, 0, Bar1GPositionBuffer.numItems);
+	}else if (slits==2)
+	{
+	    gl.bindBuffer(gl.ARRAY_BUFFER, Bar2GPositionBuffer);
+	    gl.vertexAttribPointer(wallShaderProgram.vertexAttribute, Bar2GPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.drawArrays(gl.TRIANGLES, 0, Bar2GPositionBuffer.numItems);
+	}
+	if (dipper)
+	{
+	    gl.bindBuffer(gl.ARRAY_BUFFER, DipperPositionBuffer);        
+	    gl.uniform4f(wallShaderProgram.colourUniform, Math.sin(frameNumber/10)*.5,0,0,0);
+	    gl.vertexAttribPointer(wallShaderProgram.vertexAttribute, DipperPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.drawArrays(gl.LINES, 0, DipperPositionBuffer.numItems);
+	}
+	if(pointDippersChanged && pointDippers.length)
+	{
+	    gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPositionBuffer);
+	    var posArray = [];
+	    for(var drop =0; drop < pointDippers.length; drop++)
+	    {
+		  posArray[drop*2+0]=pointDippers[drop][0];
+		  posArray[drop*2+1]=pointDippers[drop][1];
+	    }
+	    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(posArray), gl.DYNAMIC_DRAW);
+	    
+	    gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPropsBuffer);
+// 	    var posArray1 = [];
+	    for(var drop =0; drop < pointDippers.length; drop++)
+	    {
+		  posArray[drop*3+0]=pointDippers[drop][2];
+		  posArray[drop*3+1]=pointDippers[drop][3];
+		  posArray[drop*3+2]=pointDippers[drop][4];
+	    }
+	    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(posArray), gl.DYNAMIC_DRAW);
+	    
+	    PointDipperPositionBuffer.numItems = pointDippers.length;
+	    pointDippersChanged=false;
+	}
+	if (pointDipperMode==4){
+	    //Doppler
+	    pointDippers=[];
+	    pointDipper = [Math.sin(frameNumber/500)*0.5, Math.cos(frameNumber/500)*0.5, 0, 1, 1];
+	    pointDippers.push(pointDipper);
+	    pointDippersChanged=true;
+	    clearWallsOnNextFrame=true;
+	}
+	if (pointDippers.length)
+	{
+            gl.useProgram(dipperShaderProgram);
+	    gl.uniform1f(dipperShaderProgram.frameNumberUniform, frameNumber/10); // TEMP_CL - This is part scale and part time
+	    gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPositionBuffer);
+	    gl.uniform2f(dipperShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);    
+	    gl.vertexAttribPointer(dipperShaderProgram.vertexAttribute, 2, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, PointDipperPropsBuffer);        
+	    gl.vertexAttribPointer(dipperShaderProgram.propsAttribute, 3, gl.FLOAT, false, 0, 0);
+	    gl.enable(gl.BLEND);
+	    gl.blendEquation(gl.FUNC_ADD);
+	    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+	    gl.drawArrays(gl.POINTS, 0, PointDipperPositionBuffer.numItems);
+	}	
+	gl.disable(gl.BLEND);	
+        
+        //Render to screen
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);   
+	gl.bindTexture(gl.TEXTURE_2D, waterVelTX); 
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        
+	gl.bindTexture(gl.TEXTURE_2D, waterHeightTX);
+    
+	mvpMatrix = mat4.create();
+        
+	if (render3D && rotateProgress < 1) 
+	{
+	    rotateProgress+=1.0/60.0;
+	    requestFrame();
+	}
+	else if (!render3D && rotateProgress > 0)
+	{
+	    rotateProgress-=1.0/60.0;
+	    requestFrame();
+	}
+
+	var pMatrix = mat4.create();
+
+	var mvMatrix = mat4.create();
+	var vMatrix = mat4.create();
+	var mMatrix = mat4.create();  	    
+	if (rotateProgress>0)
+	{	
+// 	    var ratio = gl.viewportWidth/gl.viewportHeight;
+// 	    mat4.ortho(pMatrix,-ratio,ratio,-1,1,-1,5);
+	    mat4.perspective(pMatrix, 1.005, gl.viewportWidth/gl.viewportHeight, 0.1, 5.0);
+	    mat4.translate(vMatrix, vMatrix, [0.0, 0.0, -1.82]); 
+	    var rotateProgressNL = (Math.sin((rotateProgress+1.5)*Math.PI)+1)/2;
+	    mat4.translate(vMatrix, vMatrix, [0,0, -(1.25-zoom)*rotateProgressNL]);
+	    mat4.translate(vMatrix, vMatrix, [0,.4*rotateProgressNL*-Math.sin(rotX*2), 0]);
+	    mat4.rotateX(vMatrix, vMatrix, rotX*rotateProgressNL);
+	    mat4.rotateZ(mMatrix, mMatrix, rotZ*rotateProgressNL);
+// 	    mat4.translate(mvMatrix, mvMatrix, [0,0, .5*rotateProgressNL]);   	
+	}
+	else
+	{
+	    var ratio = gl.viewportWidth/gl.viewportHeight;
+	    mat4.ortho(pMatrix,-ratio,ratio,-1,1,-1,1);
+	}
+	
+	mat4.multiply(mvMatrix, vMatrix, mMatrix);
+	mat4.multiply(mvpMatrix, pMatrix, mvMatrix);
+	
+	mat4.multiply(mvpMatrix, pMatrix, mvMatrix);
+	//We only want the upper left of mMatrix:
+	var mMatrix3 = mat3.create();
+	mat3.fromMat4(mMatrix3, mMatrix);	
+	
+        gl.disableVertexAttribArray(2);
+        gl.disableVertexAttribArray(3);
+	if(useBumpmap)
+	{
+	    gl.useProgram(renderShaderProgram);
+	    gl.uniformMatrix4fv(renderShaderProgram.matrixUniform, false, mvpMatrix);
+	    gl.uniformMatrix3fv(renderShaderProgram.mmatrixUniform, false, mMatrix3);
+	    gl.uniform2f(renderShaderProgram.windowSizeUniform, WaterBufferSize, WaterBufferSize);
+	    gl.enableVertexAttribArray(renderShaderProgram.vertexAttribute);
+	    gl.enableVertexAttribArray(renderShaderProgram.texcoordAttribute);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBufferR);
+	    gl.vertexAttribPointer(renderShaderProgram.vertexAttribute, VertexPositionBufferR.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBufferR);
+	    gl.vertexAttribPointer(renderShaderProgram.texcoordAttribute, TexCoordPositionBufferR.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IndexBufferR);
+	}
+	else
+	{
+	    gl.useProgram(render1ShaderProgram);
+	    gl.uniformMatrix4fv(render1ShaderProgram.matrixUniform, false, mvpMatrix);
+	    gl.enableVertexAttribArray(render1ShaderProgram.vertexAttribute);
+	    gl.enableVertexAttribArray(render1ShaderProgram.texcoordAttribute);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, VertexPositionBufferR);
+	    gl.vertexAttribPointer(render1ShaderProgram.vertexAttribute, VertexPositionBufferR.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ARRAY_BUFFER, TexCoordPositionBufferR);
+	    gl.vertexAttribPointer(render1ShaderProgram.texcoordAttribute, TexCoordPositionBufferR.itemSize, gl.FLOAT, false, 0, 0);
+	    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IndexBufferR);
+	}
+	gl.disable(gl.BLEND);
+	gl.enable(gl.DEPTH_TEST);	
+	if (renderStyle=="Grid")
+	    gl.drawElements(gl.LINES, IndexBufferR.numItems, gl.UNSIGNED_SHORT, 0);//TODO: When rendering grid use an EAB suited for the purpose.
+	else if (renderStyle=="Points")
+	    gl.drawElements(gl.POINTS, IndexBufferR.numItems, gl.UNSIGNED_SHORT, 0);
+	else
+	    gl.drawElements(gl.TRIANGLES, IndexBufferR.numItems, gl.UNSIGNED_SHORT, 0);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+	
+// 	gl.useProgram(integrateShaderProgram);
+// 	gl.bindTexture(gl.TEXTURE_2D, cvTX);
+// 	gl.enable(gl.BLEND);
+// 	gl.blendFunc (gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+// 	gl.drawArrays(gl.TRIANGLES, 0, VertexPositionBuffer.numItems);
+
+//         gl.enableVertexAttribArray(dropShaderProgram.vertexAttribute);
+//         mat4.translate(mvMatrix, [-1.5, 0.0, -7.0]);
+//         gl.bindBuffer(gl.ARRAY_BUFFER, triangleVertexPositionBuffer);
+//         gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, triangleVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+//         setMatrixUniforms();
+//         gl.drawArrays(gl.TRIANGLES, 0, triangleVertexPositionBuffer.numItems);
+// 
+// 
+//         mat4.translate(mvMatrix, [3.0, 0.0, 0.0]);
+//         gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+//         gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+//         setMatrixUniforms();
+//         gl.drawArrays(gl.TRIANGLE_STRIP, 0, squareVertexPositionBuffer.numItems);
+    }
+    
+    
+    var stats;
+    
+    function renderLoop()
+    {        
+	stats.begin();
+	drawScene();
+	stats.end();
+	if (running)
+	    requestFrame();
+    }
+
+    //Call requestAnimationFrame() once per frame (not strictly necessary):
+    var frameInQueue = false;
+    function requestFrame() 
+    {  
+	if (frameInQueue)
+	    return;
+	frameInQueue=true;
+	requestAnimationFrame( renderLoop );
+    }
+    
+//     function test(canvas1)
+//     {    
+// 
+// 	console.log("test");
+//     }
+    
+    var mouseDragStart = new Object();
+    var lastdrop = null;
+    var canvas;
+    
+    function webGLStart() {
+    
+// 	mouseDragStart.x=null;
+// 	mouseDragStart.y=null;
+	var isIE = (navigator.userAgent.indexOf("MSIE") != -1 || navigator.userAgent.indexOf("Trident/7") != -1);
+	if (isIE)
+	  alert("Please note that this simulation does not function correctly in Internet Explorer due to IE's limited WebGL support. Please use a modern browser such as Chrome or Firefox.");
+	stats = new Stats();	
+	stats.setMode( 0 ); // 0: fps, 1: ms, 2: mb
+	// align top-left
+        canvas = document.getElementById("water-canvas");	       
+
+        if (!initGL(canvas))
+	    return;
+        if (!initShaders())
+	    return;
+        if (!initFrameBuffers())
+	    return;
+        if (!initBuffers())
+	    return;
+	    	    
+	setOptionsFromQuery();
+	layout();
+	document.body.appendChild( stats.domElement );	
+        
+        
+        canvas.addEventListener('touchstart', function(event) {        
+// 	    console.log("touchstart");	
+	    if (event.touches.length==2)
+	    {
+		if (render3D)
+		{
+		    mouseDragStart.angle = Math.atan2((event.touches[0].clientY-event.touches[1].clientY),(event.touches[0].clientX-event.touches[1].clientX));
+		    mouseDragStart.x=(event.touches[0].clientX+event.touches[1].clientX)/2;
+		    mouseDragStart.y=(event.touches[0].clientY+event.touches[1].clientY)/2;
+		    mouseDragStart.distance=Math.sqrt(Math.pow((event.touches[0].clientX-event.touches[1].clientX),2)+Math.pow((event.touches[0].clientY-event.touches[1].clientY),2));
+		    mouseDragStart.rotX=rotX;
+		    mouseDragStart.rotZ=rotZ;
+		    mouseDragStart.zoom=zoom;
+// 		    console.log("mouseDragStart x:" + mouseDragStart.x + " y:" + mouseDragStart.y + " " + mouseDragStart.distance+ " " + mouseDragStart.angle + " " + zoom);
+		}
+	    }else if (event.touches.length==1)
+	    { 	    
+                var x = event.touches[0].pageX - canvas.offsetLeft,
+		    y = event.touches[0].pageY - canvas.offsetTop;
+                lastdrop = screentoMeshMap(x, y);
+            }
+        });      
+        
+        canvas.addEventListener('touchmove', function(event) {        
+// 	    console.log("touchmove");		    	
+	    if (event.touches.length==2 && render3D)
+	    {
+		var angle = Math.atan2((event.touches[0].clientY-event.touches[1].clientY),(event.touches[0].clientX-event.touches[1].clientX));
+// 		if (angle>0.9 && mouseDragStart.lastAngle
+// 		mouseDragStart.lastAngle = angle;
+		var x=(event.touches[0].clientX+event.touches[1].clientX)/2;
+		var y=(event.touches[0].clientY+event.touches[1].clientY)/2;
+		var distance=Math.sqrt(Math.pow((event.touches[0].clientX-event.touches[1].clientX),2)+Math.pow((event.touches[0].clientY-event.touches[1].clientY),2));
+		zoom=mouseDragStart.zoom*(distance/mouseDragStart.distance);
+		zoom=Math.max(zoom, 0.5);
+		zoom=Math.min(zoom, 2.0);		
+		rotZ=mouseDragStart.rotZ-(angle-mouseDragStart.angle);
+		rotX=mouseDragStart.rotX+(y-mouseDragStart.y)/300;
+// 		console.log("Touch Dragging " + x + " " + y + " " + angle + " startzoom:" +mouseDragStart.zoom + " zoom:" +zoom+ " " + distance+ " " + mouseDragStart.distance);
+		requestFrame();
+		lastdrop=null;
+	    }else if (event.touches.length==1 && lastdrop!=null)
+	    { 	    
+                var x = event.touches[0].pageX - canvas.offsetLeft,
+		    y = event.touches[0].pageY - canvas.offsetTop;
+                addDropAtScreenPos(x, y, true);
+            }
+// 	    console.log("event.preventDefault()");
+	    event.preventDefault();
+        }); 
+        
+        canvas.addEventListener('touchend', function(event) {        
+// 	    console.log("touchend");		    
+	    if (event.touches.length<2)
+	    {
+		mouseDragStart.x=null;
+		mouseDragStart.y=null;
+		console.log("Touch Dragging End zoom:" + zoom);
+	    }
+        }); 
+        
+        
+        canvas.addEventListener('wheel', function(event) {        
+// 	    console.log("wheel x:" + event.deltaX + " y:" + event.deltaY);	
+	    zoom-=event.deltaY/500;
+	    rotZ+=event.deltaX/500;
+	    zoom=Math.max(zoom, 0.5);
+	    zoom=Math.min(zoom, 2.0);
+	    requestFrame();
+        }); 
+        
+        canvas.addEventListener('mousedown', function(event) {
+	    var x = event.pageX - canvas.offsetLeft,
+		y = event.pageY - canvas.offsetTop;
+// 	    console.log("mousedown " + x +" " + y + " which:" + event.which+" button:"+event.button + " buttons:" + event.buttons);
+	    if (event.buttons&1) 
+	    {
+    // 	    x = (x / 2.0 + 0.5) * WaterBufferSize;
+		if (event.ctrlKey || event.shiftKey)
+		{
+		    if (render3D)
+		    {
+			mouseDragStart.x=x;
+			mouseDragStart.y=y;
+			mouseDragStart.rotX=rotX;
+			mouseDragStart.rotZ=rotZ;
+		    }
+		}else{
+		    addDropAtScreenPos(x, y, false); // TEMP_CL - Create new point!
+		}		
+	    }
+            if (event.buttons&3) 
+		rotateAnim=true;
+        });      
+        
+        canvas.addEventListener('mousemove', function(event) {     
+	    var x = event.pageX - canvas.offsetLeft,
+		y = event.pageY - canvas.offsetTop;
+// 	    console.log("mousemove " + x +" " + y + " which:" + event.which+" button:"+event.button + " buttons:" + event.buttons);
+	    if (mouseDragStart.x!=null)
+	    {
+// 		console.log("Dragging " + event.which + x + " " + y);
+		if (event.buttons&1)   
+		{
+		    rotZ=mouseDragStart.rotZ+(x-mouseDragStart.x)/300;
+		    rotX=mouseDragStart.rotX+(y-mouseDragStart.y)/300;
+		    requestFrame();
+// 		    setURL(true);
+		}
+	    }else if (event.buttons&1 && lastdrop)   
+                addDropAtScreenPos(x, y, true);
+        });
+                
+        canvas.addEventListener('mouseup', function(event) {     
+	    var x = event.pageX - canvas.offsetLeft,
+		y = event.pageY - canvas.offsetTop;
+// 	    console.log("mouseup " + x +" " + y + " which:" + event.which+" button:"+event.button + " buttons:" + event.buttons);
+	    if (mouseDragStart.x!=null)
+	    {
+		mouseDragStart.x=null;
+		mouseDragStart.y=null;
+	    }
+	    if (lastdrop)
+		lastdrop = null;
+        });
+	
+	window.onpopstate = onPopState;
+	
+	requestFrame();
+    }	   
+    
+    function screentoMeshMap(x, y)
+    {
+	x = (x / canvas.clientWidth - 0.5) * 2;
+        y = -(y / canvas.clientHeight - 0.5) * 2;
+        
+        var invmat = mat4.create();
+        mat4.invert(invmat, mvpMatrix);
+        var depth=1;
+        var z=-.9;
+        while (depth>.0)
+        {
+            z=z+.0005;
+            var point = vec4.fromValues(x,y,z,1);
+// 		    console.log("point " + point[0] + " " + point[1]+ " " + point[2]+ " " + point[3]);
+            vec4.transformMat4(point, point, invmat);
+// 		console.log("point " + point[0] + " " + point[1]+ " " + point[2]+ " " + point[3]);
+// 		    console.log("point " + point[0]/point[3] + " " + point[1]/point[3]+ " " + point[2]/point[3]);
+            depth=point[2]/point[3];
+        }
+        var drop = [point[0]/point[3],point[1]/point[3]];
+	return drop;
+    }
+    
+    function addDropAtScreenPos(x, y, line) {
+        console.log("addDropAtScreenPos x=" + x + " y=" + y + " line=" + line);
+        var drop = screentoMeshMap(x, y);
+        newDrops.push(drop);
+        
+        if (line)
+        {            
+            var dist = [drop[0]-lastdrop[0], drop[1]-lastdrop[1]];
+            var maxDist = Math.max(Math.abs(dist[0]), Math.abs(dist[1]));
+               
+            var steps = maxDist/2*gl.viewportWidth;console.log("addDropAtScreenPos " + line + " " + lastdrop + " " + drop + " " +dist + " " + steps); 
+            for (var i=0; i<steps; i++)
+            {
+                y=i/steps;
+                ndrop = [dist[0]*y+lastdrop[0],dist[1]*y+lastdrop[1]];
+                newDrops.push(ndrop);          
+            }
+        }
+        lastdrop=drop;     
+        requestFrame();    
+    }
+        
+    var firstlayout = true;
+    function layout() {
+	console.log("layout");
+	var topBarHeight = tablescroll.offsetHeight;
+// 	console.log(topBarHeight);
+// 	if (topBarHeight>100)
+// 	  topBarHeight=90;
+	console.log(topBarHeight);
+	stats.domElement.style.position = 'absolute';
+	stats.domElement.style.left = '8px';
+	stats.domElement.style.top = (window.innerHeight-56) + "px";
+// 	
+	canvas.style.position = 'absolute';
+	canvas.style.left = '8px';
+	canvas.style.top = (topBarHeight + 16) + "px";
+	
+	canvas.style.height=(window.innerHeight-(topBarHeight+24))+ "px";
+	canvas.style.width = (window.innerWidth-20)+ "px";
+	var width = canvas.clientWidth;
+	var height = canvas.clientHeight;
+	if (canvas.width != width ||
+	    canvas.height != height) {
+	  canvas.width = width;
+	  canvas.height = height;}
+// 	canvas.width = window.innerWidth-20;
+// 	canvas.height = window.innerHeight-(topBarHeight+20);	
+// // 	canvas.style.zIndex = '-1';
+// 
+	gl.viewportWidth = canvas.clientWidth;
+	gl.viewportHeight = canvas.clientHeight;
+	//This does not work the first time as tablescroll.offsetHeight is not correct. It may be a bad hack but calling this function a second time fixes this.
+	if (firstlayout)
+	{
+	  firstlayout=false;
+	  layout();
+	  return;
+	}
+	requestFrame();
+    }
+    
+    function runButtonPressed() {
+	running=!running;
+	if (running)
+	{
+	    runButton.innerHTML="Pause";
+	    requestFrame();
+	}
+	else
+	    runButton.innerHTML="Run";	
+    }
+    
+    function renderButtonPressed(){
+	console.log("renderButtonPressed");
+	if (renderStyle=="Grid")
+	    renderStyle="Points"  	
+	else if (renderStyle=="Points")
+	    renderStyle=null;
+	else
+	    renderStyle="Grid"
+	requestFrame();
+	updateLabels();
+	setURL();
+    }
+    
+    function projectionButtonPressed()
+    {
+	render3D = !render3D;	
+	rotateAnim=true;
+	updateLabels();
+	requestFrame();
+	setURL();
+    }    
+    
+    function shadingButtonPressed()
+    {  	
+	useBumpmap = !useBumpmap;
+	updateLabels();
+	requestFrame();
+	setURL();
+    }
+            
+    function wallButtonPressed()
+    { 	
+	slits++;
+	if (slits > 2) 
+	    slits=0;	   
+	clearWallsOnNextFrame=true;
+	updateLabels();
+	requestFrame();
+	setURL();
+    }
+                
+    function wallBehaviourButtonPressed()
+    { 	
+	softWallReflections=!softWallReflections;
+	updateLabels();
+	setURL();	
+    }
+             
+    function edgeBehaviourButtonPressed()
+    { 	
+	edgeReflections++;
+	if (edgeReflections>2)
+	{//TODO: Clear the heightmap
+	    edgeReflections=0;
+	}
+	updateLabels();
+	clearWallsOnNextFrame=true;
+	setURL();
+    }    
+    
+    function dipperButtonPressed()
+    { 	
+	dipper = !dipper;
+	updateLabels();	
+	setURL();
+    }
+    
+    function pointDipperButtonPressed()
+    { 	
+	pointDipperMode++;
+	if(pointDipperMode>4)
+	    pointDipperMode=0;
+	updatePointDippers();
+	updateLabels();	
+	setURL();
+    }
+    
+    pointDistance = 1;
+    
+    function updatePointDippers()
+    {
+	pointDippers=[];
+	if (pointDipperMode==1)
+	{
+	    pointDipper = [0, 0, 0, 1, 1]; //X, Y, Phase, Frequency, Amplitude
+	    pointDippers.push(pointDipper);
+	}else if(pointDipperMode==2)
+	{
+        // TEMP_CL
+	    pointDipper = [pointDistance/2, -0.95, 0, 1.3, 2]; //X, Y, Phase, Frequency, Amplitude
+	    pointDippers.push(pointDipper);
+	    pointDipper = [-pointDistance/2, -0.95, 0, 1, 2];
+	    pointDippers.push(pointDipper);
+	}
+	else if(pointDipperMode==3)
+	{
+	    pointDipper = [0,pointDistance/2, 0, 1, 1]; //X, Y, Phase, Frequency, Amplitude
+	    pointDippers.push(pointDipper);
+	    pointDipper = [0, -pointDistance/2, 3.1415, 1, 1];
+	    pointDippers.push(pointDipper);
+	}
+	if (pointDipperMode)
+	    frameNumber=0;
+	pointDippersChanged=true;
+	clearWallsOnNextFrame=true;
+    }
+    
+    function pointDistancePressed(ds)
+    {
+	pointDistance+=(ds*0.05);
+	updateLabels();	
+	updatePointDippers();
+	setURL();	
+    }
+    
+    function gapWidthPressed(ds)
+    { 	
+	gapWidth+=(ds*0.05);
+	updateLabels();	
+	initWallBuffers();
+	clearWallsOnNextFrame=true;
+	requestFrame();
+	setURL();	
+    }
+    
+    function gapDistancePressed(ds)
+    {
+	gapDistance+=(ds*0.05);
+	updateLabels();	
+	initWallBuffers();
+	clearWallsOnNextFrame=true;
+	requestFrame();
+	setURL();	
+    }
+    
+    function clearButtonPressed()
+    {
+	clearOnNextFrame=true;
+	frameNumber=0;
+	requestFrame();
+	setURL();
+    }
+    
+    function setURL(raplace)
+    {
+	var urlstrings = [];
+	if (render3D)
+	    urlstrings.push("3D=true&rotX="+rotX.toFixed(2)+"&rotZ="+rotZ.toFixed(2));
+	if (!useBumpmap)
+	    urlstrings.push("shader=height");
+	if (renderStyle)
+	    urlstrings.push("renderStyle="+renderStyle);
+	if (edgeReflections)
+	    urlstrings.push("edgeReflections="+((edgeReflections==1)?"Soft":"Hard"));
+	if (!dipper)
+	    urlstrings.push("barDipper=off");
+	if (slits!=2)
+	    urlstrings.push("wallSlits="+slits);
+	if (softWallReflections)
+	    urlstrings.push("wallReflections=Soft");
+	if (gapWidth.toFixed(2)!="0.10")
+	    urlstrings.push("gapWidth="+gapWidth.toFixed(2));
+	if (gapDistance!=0.4)
+	    urlstrings.push("gapDistance="+gapDistance.toFixed(2));
+	if(pointDipperMode==1)
+	    urlstrings.push("pointDipperMode="+"Single");
+	else if(pointDipperMode==2)
+	    urlstrings.push("pointDipperMode="+"2InPhase");
+	else if(pointDipperMode==3)
+	    urlstrings.push("pointDipperMode="+"2Antiphase");
+	else if(pointDipperMode==4)
+	    urlstrings.push("pointDipperMode="+"Doppler");
+	if (pointDistance.toFixed(2)!="1.00")
+	    urlstrings.push("pointDistance="+pointDistance.toFixed(2));
+	var urlstring=".";
+	if (urlstrings.length)
+	    urlstring = "?";
+	for (var i = 0; i < urlstrings.length; i++)
+	{
+	    urlstring = urlstring + urlstrings[i];
+	    if (i+1 < urlstrings.length)
+	      urlstring = urlstring + "&";
+	}
+	if (raplace)
+	    window.history.replaceState(null, null, urlstring);
+	else
+	    window.history.pushState(null, null, urlstring);
+    }
+    
+    function setOptionsFromQuery()
+    {
+	var query = getQuery()
+// 	console.log(query);
+	if (render3D != (query["3D"]=="true"))
+	{
+	    render3D = (query["3D"]=="true");
+	    rotateAnim=true;
+	}
+	useBumpmap = !(query["shader"]=="height");
+	renderStyle = query["renderStyle"];
+	if (query["edgeReflections"]=="Soft")
+	    edgeReflections=1;
+	else if (query["edgeReflections"]=="Hard")
+	    edgeReflections=2;
+	else //TODO: Clear the heightmap
+	    edgeReflections=0;
+	dipper = !(query["barDipper"]=="off");
+	if (query["wallSlits"]==1)
+	    slits=1;
+	else if (query["wallSlits"]==0)
+	    slits=0;
+	else
+	    slits=2;
+	softWallReflections=(query["wallSlits"]=="Soft");
+	gapWidth=parseFloat(query["gapWidth"]);
+	if (isNaN(gapWidth))
+	    gapWidth=0.1;	    
+	gapDistance=parseFloat(query["gapDistance"]);
+	if (isNaN(gapDistance))
+	    gapDistance=0.4;	
+	if (query["pointDipperMode"]=="Single")
+	    pointDipperMode = 1;
+	else if (query["pointDipperMode"]=="2InPhase")
+	    pointDipperMode = 2;
+	else if (query["pointDipperMode"]=="2Antiphase")
+	    pointDipperMode = 3;
+	else if (query["pointDipperMode"]=="Doppler")
+	    pointDipperMode = 4;
+	else
+	    pointDipperMode = 0;
+	pointDistance=parseFloat(query["pointDistance"]);
+	if (isNaN(pointDistance))
+	    pointDistance=1;
+	rotX=parseFloat(query["rotX"]);
+	if (isNaN(rotX))
+	    rotX=-1;
+	rotZ=parseFloat(query["rotZ"]);	    
+	if (isNaN(rotZ))
+	    rotZ=0.79;	    
+	updatePointDippers();
+	initWallBuffers();
+	clearWallsOnNextFrame=true;
+	requestFrame();	
+	updateLabels();
+    }
+    
+    function onPopState(event)
+    {
+	setOptionsFromQuery();
+    }
+    
+    //From http://stackoverflow.com/questions/979975/how-to-get-the-value-from-the-url-parameter
+    function getQuery() {
+      // This function is anonymous, is executed immediately and 
+      // the return value is assigned to QueryString!
+      var query_string = {};
+      var query = window.location.search.substring(1);
+      var vars = query.split("&");
+      for (var i=0;i<vars.length;i++) {
+	var pair = vars[i].split("=");
+	    // If first entry with this name
+	if (typeof query_string[pair[0]] === "undefined") {
+	  query_string[pair[0]] = pair[1];
+	    // If second entry with this name
+	} else if (typeof query_string[pair[0]] === "string") {
+	  var arr = [ query_string[pair[0]], pair[1] ];
+	  query_string[pair[0]] = arr;
+	    // If third or later entry with this name
+	} else {
+	  query_string[pair[0]].push(pair[1]);
+	}
+      } 
+	return query_string;
+    }
+    
+    function updateLabels()
+    {
+	if (render3D)
+	    projectionLabel.innerHTML="3D";
+	else
+	    projectionLabel.innerHTML="2D";
+	if (renderStyle=="Grid")
+	    renderLabel.innerHTML="Grid";
+	else if (renderStyle=="Points")
+	    renderLabel.innerHTML="Points";
+	else
+	    renderLabel.innerHTML="Solid";
+	if (useBumpmap)
+	    shaderLabel.innerHTML="Light";
+	else
+	    shaderLabel.innerHTML="Height";
+	if (edgeReflections==1)
+	    edgeBehaviourLabel.innerHTML="Soft";
+	else if (edgeReflections==2)
+	    edgeBehaviourLabel.innerHTML="Hard";
+	else
+	    edgeBehaviourLabel.innerHTML="None";
+	if (dipper)
+	    dipperLabel.innerHTML="On";
+	else
+	    dipperLabel.innerHTML="Off";
+	if (slits==1)
+	    wallLabel.innerHTML="1 Slit";
+	else if (slits==2)
+	    wallLabel.innerHTML="2 Slits";
+	else
+	    wallLabel.innerHTML="No wall";
+	if (softWallReflections)
+	    wallBehaviourLabel.innerHTML="Soft";
+	else
+	    wallBehaviourLabel.innerHTML="Hard";
+	gapWidthLabel.innerHTML=gapWidth.toFixed(2);
+	gapDistanceLabel.innerHTML=gapDistance.toFixed(2);
+	if(pointDipperMode==1)
+	    pointDipperLabel.innerHTML="Single";
+	else if(pointDipperMode==2)
+	    pointDipperLabel.innerHTML="2 In Phase";
+	else if(pointDipperMode==3)
+	    pointDipperLabel.innerHTML="2 Antiphase";
+	else if(pointDipperMode==4)
+	    pointDipperLabel.innerHTML="Doppler";
+	else
+	    pointDipperLabel.innerHTML="Off";
+	pointDistanceLabel.innerHTML=pointDistance.toFixed(2);
+    }
+</script>
+</head>
+<body onpageshow="webGLStart();" onresize="layout()">
+    <!--<div id="mainbody">
+	<h1>Matthew Wellings</h1>
+	<p id ="subtitle">Software Developer</p>
+	<p>
+	Specialising in:<br>
+	Qt (For Desktop, Embedded and Server)<br> 
+	Android (Java and NDK C++)<br>
+	OpenGL (Modern Desktop + ES)<br>
+	LAMP software
+	</p>
+
+	<h2>Contact</h2>
+	<p>
+	I can be contacted:<br>
+	by email <a href="mailto:website@matthewwellings.com">website@matthewwellings.com</a><br>
+	on <a href="https://Google.com/+MatthewWellings">GooglePlus</a><br>
+	on <a href="https://www.facebook.com/matt.wellings.90">Facebook</a><br>
+	on <a href="skype:openforeveryone">Skype</a>
+
+	<h2>Public Projects</h2>
+	<h3>OSS</h3>
+	<p>
+	<a href="http://wordsearchcreator.org/">Word Search Creator</a><br>
+	Other OSS code on <a href="https://github.com/openforeveryone/">my Github page</a>.<br>
+	</p>
+
+	<h2>CV</h2>
+	For my full CV please contact me.
+	on <a href="tel:+441212888633">+44(0)1212888633</a><br>
+    </div>-->
+    <div id="tablescroll" style="overflow:auto">
+    <table  style="height:70" align=center><tr  align=center>
+    <td><button id = "runButton" type="button" onclick="runButtonPressed();" style="height:60px; width:60px">Pause</button></td>
+    <td><button id = "clearButton" type="button" onclick="clearButtonPressed();" style="height:60px; width:60px">Clear</button>
+    <td><button id = "projectionButton" type="button" onclick="projectionButtonPressed();" style="height:40px; width:60px">2D/3D</button> <br>
+    <span id="projectionLabel">2D</span></td>
+    <td><button id = "renderbutton" type="button" onclick="renderButtonPressed();" style="height:40px; width:60px">Render Style</button><br>
+    <span id="renderLabel">Solid</span></td>
+    <td><button id = "shadingbutton" type="button" onclick="shadingButtonPressed();" style="height:40px; width:60px">Shader</button><br>
+    <span id="shaderLabel">Light</span></td>
+    <td><button id = "edgeBehaviourbutton" type="button" onclick="edgeBehaviourButtonPressed();" style="height:40px; width:80px">Edge Behaviour</button><br>
+    <span id="edgeBehaviourLabel">None</span></td>
+    <td><button id = "dipperbutton" type="button" onclick="dipperButtonPressed();" style="height:40px; width:60px">Bar Dipper</button><br>
+    <span id="dipperLabel">On</span></td>   
+    
+    <td><button id = "wallbutton" type="button" onclick="wallButtonPressed();" style="height:40px; width:60px">Wall</button><br>
+    <span id="wallLabel">2 Slit</span></td>
+    <td><button id = "wallBehaviourbutton" type="button" onclick="wallBehaviourButtonPressed();" style="height:40px; width:80px">Wall Behaviour</button><br>
+    <span id="wallBehaviourLabel">Hard</span></td>
+    
+    <td id="gapWidthControls">
+    <span  style="white-space: nowrap;">Gap Width</span><br>
+    <span  style="white-space: nowrap;">
+    <button id = "gapWidthUp" type="button" onclick="gapWidthPressed(1);" style="height:20px; width:30px">+</button>
+    <button id = "gapWidthDn" type="button" onclick="gapWidthPressed(-1);" style="height:20px; width:30px">-</button>
+    </span><br>
+    <span id="gapWidthLabel">.1</span>
+    </td>
+    
+    <td  id="gapDistanceControls">
+    Gap Dist<br>
+    <span  style="white-space: nowrap;"><button id = "gapDistanceUp" type="button" onclick="gapDistancePressed(1);" style="height:20px; width:30px">+</button>
+    <button id = "gapDistanceDn" type="button" onclick="gapDistancePressed(-1);" style="height:20px; width:30px">-</button></span>
+    <br>
+    <span id="gapDistanceLabel">.4</span></td>
+    
+    <td><button id = "pointDipperButton" type="button" onclick="pointDipperButtonPressed();" style="height:40px; width:60px">Point Dipper</button>	<br>
+    <span id="pointDipperLabel">Off</span></td>
+    
+    <td  id="pointDistanceControls">
+    <span  style="white-space: nowrap;">Point Dist</span><br>
+    <span  style="white-space: nowrap;"><button id = "pointDistanceUp" type="button" onclick="pointDistancePressed(1);" style="height:20px; width:30px">+</button>
+    <button id = "pointDistanceDn" type="button" onclick="pointDistancePressed(-1);" style="height:20px; width:30px">-</button></span>
+    <br>
+    <span id="pointDistanceLabel">1</span></td><td>&nbsp;&nbsp;</td>
+     <td style="border: 1px solid black;"><span  style="white-space: nowrap;">&#9426;<a href="http://matthewwellings.com/">Matthew Wellings</a></span><br><span  style="white-space: nowrap;">2015-17 Licence: <a href = "https://matthewwellings.com/rippletank/LICENSE">MIT</a></span><br>
+     <a href="http://matthewwellings.com/rippletank/help">Help</a>&nbsp;&nbsp;&nbsp;<a href="http://matthewwellings.com/rippletank/source">Source</a>
+     </td>
+    </tr></table>
+    <div>
+    <canvas id="water-canvas" style="border: none; width: 100%;"></canvas>
+    
+    <!-- TEMP_CL
+    <script>
+    var ngui = require('nw.gui');
+    var nwin = ngui.Window.get();
+    nwin.enterFullscreen();
+    </script>
+    -->
+
+</body>
+</html>
