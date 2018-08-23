@@ -288,18 +288,27 @@ void setup ()
 	// List all the available serial ports
 	println(Serial.list());
 
-	// One some machines the arduino is the first serial port
-  g_port = new Serial(this, Serial.list()[0], 9600);
-        
-  // On MiniTone, it looks like the second com port is the one we should use
-  //g_port = new Serial(this, Serial.list()[1], 9600);
+	// Different machines have different port indices
+
+  // PandaStation
+  int iTouchtonePort = 1;
+  int iJoanPort = 0;
+  
+  //// Minitone
+  //int iTouchtonePort = 1;
+  //int iJoanPort = 2;
+  
+  //// Work laptop
+  //int iTouchtonePort = 1;
+  //int iJoanPort = 0;  
+  
+  g_port = new Serial(this, Serial.list()[iTouchtonePort], 9600);
         
   if(LOOK_FOR_JOAN_SERIAL && Serial.list().length >= 2)
   {
-    g_portJoan = new Serial(this, Serial.list()[1], 9600);
+    g_portJoan = new Serial(this, Serial.list()[iJoanPort], 9600);
     g_bFoundJoan = true;
   }
-
 
 	// set inital background:
 	background(0);
