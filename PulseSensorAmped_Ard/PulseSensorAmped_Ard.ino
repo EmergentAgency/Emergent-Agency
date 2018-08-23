@@ -10,7 +10,7 @@ https://github.com/WorldFamousElectronics/PulseSensor_Amped_Arduino/blob/master/
 //  Variables
 #define NUM_SENSORS 2
 int g_aiPulsePins[] = {14, 18};		// Pulse Sensor purple wires
-int g_aiFadePins[] = {20, 21};		// pin to do fancy classy fading blink at each beat
+int g_aiFadePins[] = {10, 3};		// pin to do fancy classy fading blink at each beat
 int g_iFadeRate = 15;				// used to fade LED on with PWM on fadePin
 int g_aiCurFade[] = {0, 0};			// Current fade for each of the fade leds
 

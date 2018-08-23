@@ -54,10 +54,27 @@ int[][] g_aiCordSet = {
 };
 int g_iNumCordNotes = 3;
 
-int g_iBaseNote = 60;
+
+
+// Default is C Major, g_iOctaveOffsets = {-2,-1,0};
+
+//                              V
+// Notes:  C  D  E  F  G  A  B  C  D  E  F  G  A  B  C
+// Midi:   48 50 52 53 55 57 59 60 62 64 65 67 69 71 72
+
+int g_iBaseNote = 60; // E
+
+int[] g_aiBaseScaleIntervals = {0,2,4,5,7,9,11}; // Major
+//int[] g_aiBaseScaleIntervals = {0,2,3,5,7,8,10}; // Minor
+
+int[] g_iOctaveOffsets = {-2,-1,0};
+//int[] g_iOctaveOffsets = {-1,0};
+//int[] g_iOctaveOffsets = {-2,-1};
+
+
+
 int[] g_aiPossibleBaseNotes = {60, 60, 60, 62, 65, 57, 55};
 static int CHANGE_KEY_NO_INPUT_TIME_MS = 2000;
-int[] g_aiBaseScaleIntervals = {0,2,4,5,7,9,11};
 int[][] g_aiCordsScaleIndexOffsets = {
 	//{0,2,4}, // This is more commonly called a 1,3,5 cord
 	//{0,3,4}, // This is more commonly called a 1,4,5 cord
@@ -65,10 +82,26 @@ int[][] g_aiCordsScaleIndexOffsets = {
 	{0,3,4}, // This is more commonly called a 1,4,5 cord
 };
 //int[] g_iOctaveOffsets = {-1,0,1};
-int[] g_iOctaveOffsets = {-2,-1,0};
+//int[] g_iOctaveOffsets = {-2,-1,0};
 //int[] g_iOctaveOffsets = {-1,0};
 //int[] g_iOctaveOffsets = {-1};
 //int[] g_iOctaveOffsets = {0};
+
+
+
+// Charonshine
+//int g_iBaseNote = 64; // E
+//int[] g_iOctaveOffsets = {-2,-1,0};
+
+// City of I
+//int g_iBaseNote = 62; // D
+//int[] g_iOctaveOffsets = {-1,0};
+
+// Bystanders
+//int g_iBaseNote = 62; // D
+//int[] g_iOctaveOffsets = {-2,-1};
+
+
 
 // TEMP_CL static float NOTE_OFF_THRESHOLD = 0.02;
 static float NOTE_OFF_THRESHOLD = 0.1;

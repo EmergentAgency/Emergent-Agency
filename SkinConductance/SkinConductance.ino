@@ -235,7 +235,7 @@ void loop()
 		g_bAttractModeActive = true;
 		g_iAttractPeriodPulseStartTimeMS = iCurTimeMS;
 	}
-	if(g_bAttractModeActive)
+	if(g_bAttractModeActive && false) // TEMP_CL turn off Attract for now
 	{
 		float fPeriodRatio = (float(iCurTimeMS - g_iAttractPeriodPulseStartTimeMS) / 1000.0) / g_fAttractPeriodSec;
 		if(fPeriodRatio > g_iAttractRepeats)
