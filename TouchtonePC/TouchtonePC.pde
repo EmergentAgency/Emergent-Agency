@@ -1,14 +1,16 @@
 /**
- * File: InputGraph.pde
+ * File: TouchtonePC.pde
  *
- * Description: Graph serial input in several different ways to help figure out how to detect interesting touch events.
+ * Description: PC code for Touchtone
  *
- * Copyright: 2015 Chris Linder
+ * Copyright: 2018 Chris Linder
  */
  
 import processing.serial.*;
 
-
+static boolean LOOK_FOR_JOAN_SERIAL = true;
+static int JOAN_FIRE_PATTERN = 0x09;
+static float JOAN_FIRE_THRESHOLD = 0.3f;
 
 static int MAX_NUM_SAMPLES = 30;
 
@@ -229,6 +231,15 @@ class ProcessingNode
 // The serial port
 Serial g_port;
 
+// The serial port for Joan if it's attached
+Serial g_portJoan; 
+
+// If we found an extra serial port for JOAN
+boolean g_bFoundJoan;
+
+// The current cannon state of Joan
+int g_iJoanCannonState;
+
 // horizontal position of the graph
 int g_iPosX = 1;         
  
@@ -277,13 +288,17 @@ void setup ()
 	// List all the available serial ports
 	println(Serial.list());
 
-	// I know that the first port in the serial list on my mac
-	// is always my  Arduino, so I open Serial.list()[0].
-	// Open whatever port is the one you're using.
-        g_port = new Serial(this, Serial.list()[0], 9600);
+	// One some machines the arduino is the first serial port
+  g_port = new Serial(this, Serial.list()[0], 9600);
         
-        // On MiniTone, it looks like the second com port is the one we should use
-        //g_port = new Serial(this, Serial.list()[1], 9600);
+  // On MiniTone, it looks like the second com port is the one we should use
+  //g_port = new Serial(this, Serial.list()[1], 9600);
+        
+  if(LOOK_FOR_JOAN_SERIAL && Serial.list().length >= 2)
+  {
+    g_portJoan = new Serial(this, Serial.list()[1], 9600);
+    g_bFoundJoan = true;
+  }
 
 
 	// set inital background:
@@ -405,6 +420,22 @@ void draw ()
 			// TEMP_CL g_iPosX++;
 			g_iPosX += 2;
 		}
+
+    // Joan fire code
+    if(g_bFoundJoan)
+    {
+      int iLastCannonState = g_iJoanCannonState;
+      g_iJoanCannonState = 0;
+      if(fSmoothedInput > JOAN_FIRE_THRESHOLD)
+      {
+        g_iJoanCannonState = JOAN_FIRE_PATTERN;
+      }
+      
+      if(g_iJoanCannonState != iLastCannonState)
+      {
+        g_portJoan.write(g_iJoanCannonState);
+      }
+    }
 	}
 }
 
