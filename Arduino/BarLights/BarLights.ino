@@ -3,10 +3,10 @@
 // copyright 2020, Christopher Linder
 //
 // Works with:
-// * Arduino 1.8.8
-// * Teensyduino 1.45
+// * Arduino 1.8.12
+// * Teensyduino 1.52
 // * Teensy 3.2
-// * FastLED version 3.002.001
+// * FastLED version 3.003.001
 
 
 
