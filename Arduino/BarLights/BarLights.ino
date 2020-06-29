@@ -16,7 +16,10 @@
 //#endif
 #include <FastLED.h>
 
-#define DATA_PIN 5
+// Use Serial to print out debug statements
+static bool USE_SERIAL_FOR_DEBUGGING = true;
+
+#define DATA_PIN 7
 
 #define NUM_LEDS 60 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
@@ -97,7 +100,12 @@ void setup()
 {
 	//FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
 	//FastLED.setBrightness( BRIGHTNESS );
+	
+	// Works with Teensy 3.2
 	FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
+	
+	// Works with Teensy 4.0? Nope... :(
+	//FastLED.addLeds<1, SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
 
 	//gPal = CRGBPalette16(CRGB(64,32,32), CRGB(192,128,64), CRGB(255,192,96), CRGB(255,255,128));
 	//gPal = CRGBPalette16(CRGB(64,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
@@ -121,8 +129,10 @@ void loop()
 	//FastLED.delay(1000 / FRAMES_PER_SECOND);
 	//return;
 
-
-
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.println("loop");
+	}
 
 	// Add entropy to random number generator; we use a lot of it.
 	// TEMP_CL random16_add_entropy( random());
