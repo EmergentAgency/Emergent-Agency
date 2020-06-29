@@ -21,6 +21,8 @@ static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 #define DATA_PIN 7
 
+#define TOUCH_PIN 15
+
 #define NUM_LEDS 60 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
@@ -129,9 +131,12 @@ void loop()
 	//FastLED.delay(1000 / FRAMES_PER_SECOND);
 	//return;
 
+	int touch_value = 0;
+	touch_value = touchRead(TOUCH_PIN);
+	
 	if(USE_SERIAL_FOR_DEBUGGING)
 	{
-		Serial.println("loop");
+		Serial.println(touch_value);
 	}
 
 	// Add entropy to random number generator; we use a lot of it.
@@ -142,7 +147,17 @@ void loop()
   
 	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
 	{
-		//byte yHeatAdd = 64;
+		byte yHeatAdd = 0;
+		//touch_value = touchRead(TOUCH_PIN);
+		//if(touch_value >= 1000)
+		//{
+		//	//yHeatAdd = 128;
+		//	FastLED.setBrightness( 64 );
+		//}
+		//else
+		//{
+		//	FastLED.setBrightness( 255 );
+		//}
 
 		fract8 fLerp = i*256/NUM_INTERP_FRAMES;
 		byte lerpHeat;
@@ -153,6 +168,9 @@ void loop()
 
 			// Scale heat
 			lerpHeat = scale8(lerpHeat, MAX_HEAT);
+			
+			// Add heat
+			//lerpHeat = qadd8(lerpHeat, yHeatAdd);
 
 			leds[j] = ColorFromPalette( gPal, lerpHeat);
 		}
