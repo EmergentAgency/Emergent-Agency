@@ -21,7 +21,14 @@ static bool USE_SERIAL_FOR_DEBUGGING = true;
 
 #define DATA_PIN 7
 
-#define TOUCH_PIN 15
+#define SENSOR_PIN_CONTROL A3    // Touch pin to turn the system on and off and adjust things
+#define SENSOR_PIN_TOUCH   A1    // Touchtone pin
+
+// Global tuning
+#define MIN_SENSOR_VALUE 90
+#define MIN_INPUT_VALUE 10
+#define MIN_CONTROL_ON 200
+
 
 #define NUM_LEDS 60 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
@@ -98,6 +105,16 @@ CRGBPalette16 gPal = heatmap_gp;
 
 
 
+// Touch values
+
+bool g_leds_on = true;
+bool g_last_control_touched = false;
+
+// Smoothied float value of the sensor
+float g_fSmoothedSensor = 0;
+
+
+
 void setup()
 {
 	//FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
@@ -132,7 +149,6 @@ void loop()
 	//return;
 
 	int touch_value = 0;
-	touch_value = touchRead(TOUCH_PIN);
 	
 	if(USE_SERIAL_FOR_DEBUGGING)
 	{
@@ -148,16 +164,65 @@ void loop()
 	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
 	{
 		byte yHeatAdd = 0;
-		//touch_value = touchRead(TOUCH_PIN);
-		//if(touch_value >= 1000)
-		//{
-		//	//yHeatAdd = 128;
-		//	FastLED.setBrightness( 64 );
-		//}
-		//else
-		//{
-		//	FastLED.setBrightness( 255 );
-		//}
+		
+		// Turn lights off and on based on control pin
+		bool control_touched = analogRead(SENSOR_PIN_CONTROL) > MIN_CONTROL_ON;
+		if(control_touched & !g_last_control_touched)
+		{
+			if(g_leds_on) 
+			{
+				g_leds_on = false;
+			}
+			else
+			{
+				g_leds_on = true;
+			}
+		}
+		g_last_control_touched = control_touched;
+		
+		int g_iSensorValue = analogRead(SENSOR_PIN_TOUCH);
+
+		// Sometimes this system has noise, particularlly if people are near the touch lights
+		// and are only holding the sensor read handled (as opposed to the postive voltage handle).
+		// This helps removed that noise.
+		if(g_iSensorValue < MIN_SENSOR_VALUE)
+		{
+			g_iSensorValue = 0;
+		}
+		else
+		{
+			g_iSensorValue = g_iSensorValue - MIN_SENSOR_VALUE;
+		}
+		
+		// Take raw sensor value and turn it unto a useful input value called fInput
+		float fSensor = 0;
+		if(g_iSensorValue > MIN_INPUT_VALUE)
+		{
+			fSensor = g_iSensorValue / 1000.0;
+			if(fSensor > 1.0)
+			{
+				fSensor = 1.0;
+			}
+		}
+		float fSmoothAmount = 0.8;
+		g_fSmoothedSensor = g_fSmoothedSensor * fSmoothAmount + fSensor * (1 - fSmoothAmount);
+		float fInput = pow(g_fSmoothedSensor, 1.5);
+		
+		
+		if(USE_SERIAL_FOR_DEBUGGING)
+		{
+			Serial.print("fInput=");
+			Serial.println(fInput);
+		}
+		
+		if(g_leds_on)
+		{
+			FastLED.setBrightness(127 + fInput * 128);
+		}
+		else
+		{
+			FastLED.setBrightness(0);
+		}
 
 		fract8 fLerp = i*256/NUM_INTERP_FRAMES;
 		byte lerpHeat;
