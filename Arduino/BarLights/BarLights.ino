@@ -40,7 +40,8 @@
 // Global tuning for LED heat effect
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES 20
+#define NUM_INTERP_FRAMES_MIN 5
+#define NUM_INTERP_FRAMES_MAX 100
 #define COOLING_MIN  5
 #define COOLING_MAX  15
 #define SPARKING 130
@@ -250,6 +251,9 @@ int g_iSensorValue = 0;
 // Smoothied float value of the sensor
 float g_fSmoothedSensor = 0;
 
+// Used to might lights go faster or slower
+int g_iNumInterpFrames = NUM_INTERP_FRAMES_MAX;
+
 
 
 // Clamp function - float
@@ -373,6 +377,7 @@ void UpdateFromTouchInput()
 		if(g_bLedsOn) 
 		{
 			g_bLedsOn = false;
+			g_iNumInterpFrames = NUM_INTERP_FRAMES_MAX;
 		}
 		else
 		{
@@ -410,6 +415,7 @@ void UpdateFromTouchInput()
 		}
 		
 		AddSpark(g_ayTouchHeat, NUM_LEDS/2, NUM_LEDS, 10, 255, 255);
+		g_iNumInterpFrames -= 5;
 	}
 	
 	// Take raw sensor value and turn it unto a useful input value called fInput
@@ -442,8 +448,30 @@ void loop()
 
 	// Update the head simulation 
 	UpdateHeat(g_ayHeat, true);
+	
+	// Slow things down naturally
+	if(random8(0, 255) < 64)
+	{
+		g_iNumInterpFrames += 1;
+	}
+	
+	// Contain range
+	if(g_iNumInterpFrames < NUM_INTERP_FRAMES_MIN)
+	{
+		g_iNumInterpFrames = NUM_INTERP_FRAMES_MIN;
+	}
+	else if(g_iNumInterpFrames > NUM_INTERP_FRAMES_MAX)
+	{
+		g_iNumInterpFrames = NUM_INTERP_FRAMES_MAX;
+	}
+	
+	if(USE_SERIAL_FOR_DEBUGGING) 
+	{
+		Serial.print("g_iNumInterpFrames=");
+		Serial.println(g_iNumInterpFrames);
+	}
   
-	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
+	for(int i = 0; i < g_iNumInterpFrames; ++i)
 	{
 		// Update global values based on touch input
 		UpdateFromTouchInput();
@@ -464,7 +492,7 @@ void loop()
 			//FastLED.setBrightness(192);
 
 			// Lerp between the target frames
-			fract8 fLerp = i * 256 / NUM_INTERP_FRAMES;
+			fract8 fLerp = i * 256 / g_iNumInterpFrames;
 			byte yLerpHeat;
 			for(int j = 0; j < NUM_LEDS; ++j)
 			{
