@@ -10,40 +10,53 @@
 
 
 
-//#define FASTLED_ALLOW_INTERRUPTS 0
-//#ifdef __AVR__
-//  #include <avr/power.h>
-//#endif
+// Helps with long strings of LEDs
+#define FASTLED_ALLOW_INTERRUPTS 0
+#ifdef __AVR__
+  #include <avr/power.h>
+#endif
+
+// Fast LED lib
 #include <FastLED.h>
 
 // Use Serial to print out debug statements
-static bool USE_SERIAL_FOR_DEBUGGING = true;
+#define USE_SERIAL_FOR_DEBUGGING true
 
+// LED data pin
 #define DATA_PIN 7
 
+// Number of LEDs
+#define NUM_LEDS 120
+
+// Input pins for touch 
 #define SENSOR_PIN_CONTROL A3    // Touch pin to turn the system on and off and adjust things
 #define SENSOR_PIN_TOUCH   A1    // Touchtone pin
 
-// Global tuning
+// Global tuning for touch
 #define MIN_SENSOR_VALUE 90
 #define MIN_INPUT_VALUE 10
-#define MIN_CONTROL_ON 200
+#define MIN_CONTROL_ON 300
 
-
-#define NUM_LEDS 60 // 70 is the max the 150 led strip in the bottles seems to work past...
+// Global tuning for LED heat effect
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES 100
+#define NUM_INTERP_FRAMES 20
+#define COOLING_MIN  5
+#define COOLING_MAX  15
+#define SPARKING 130
+#define SPARK_HEAT_MIN 50
+#define SPARK_HEAT_MAX 100
+#define SPARK_WIDTH 2
 
-CRGB leds[NUM_LEDS];
-byte heat[NUM_LEDS];
-// TEMP_CL i think I'm running out of memory
-//byte prev_heat[NUM_LEDS]; // Used for frame blending
-byte last_heat[NUM_LEDS]; // Used for interp between heat frames
+// LEDs
+CRGB g_aLeds[NUM_LEDS];
 
+// Heat vars
+byte g_ayHeat[NUM_LEDS];
+byte g_ayLastHeat[NUM_LEDS]; // Used for interp between heat frames
 
 //// Bar light colors - 1 - more white
-//DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
+//DEFINE_GRADIENT_PALETTE( g_oHeatGP ) {
 //  0,     8,  0,  2,   
 //50,     64,  0, 16,   
 //100,   128,  8, 64,   
@@ -52,7 +65,7 @@ byte last_heat[NUM_LEDS]; // Used for interp between heat frames
 //255,   255,255,255 }; //junk value
 
 // Bar light colors - 2 - more amber
-DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
+DEFINE_GRADIENT_PALETTE( g_oHeatGP ) {
   0,     8,  0,  2,   
 50,     64,  0, 16,   
 100,   128,  0, 64,   
@@ -60,11 +73,8 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 240,   255,  0,200, 
 255,   255,  0,255 }; //junk value
 
-
-// Testing
-
 //// R (amber) channel on white LEDs
-//DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
+//DEFINE_GRADIENT_PALETTE( g_oHeatGP ) {
 //  0,     8,  0,  0,   
 //50,     64,  0,  0,   
 //100,   128,  0,  0,   
@@ -73,7 +83,7 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 //255,   255,  0,  0 }; //junk value
 
 //// G (cool white) channel on white LEDs
-//DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
+//DEFINE_GRADIENT_PALETTE( g_oHeatGP ) {
 //  0,     0,  8,  0,   
 //50,      0, 64,  0,   
 //100,     0,128,  0,   
@@ -82,7 +92,7 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 //255,     0,255,  0 }; //junk value
 
 //// B (warm white) channel on white LEDs
-//DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
+//DEFINE_GRADIENT_PALETTE( g_oHeatGP ) {
 //  0,     0,  0,  8,   
 //50,      0,  0, 64,   
 //100,     0,  0,128,   
@@ -90,25 +100,44 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 //240,     0,  0,255, 
 //255,     0,  0,255 }; //junk value
 
-
-// Heat setup
-#define COOLING_MIN  5
-#define COOLING_MAX  15
-#define SPARKING 130
-#define SPARK_HEAT_MIN 50
-#define SPARK_HEAT_MAX 100
-#define SPARK_WIDTH 2
+// Heat palette
+CRGBPalette256 g_oPalHeat = g_oHeatGP;
 
 
+// Cool white gradiant
+DEFINE_GRADIENT_PALETTE( g_oTouchGP ) {
+  0,     0,  0,  0,   
+50,      0, 32,  0,   
+100,     0,128,  0,   
+200,     0,255,  0,   
+240,     0,255,  0, 
+255,   255,255,255 }; //junk value
 
-CRGBPalette16 gPal = heatmap_gp;
-
+// Touch palette
+CRGBPalette256 g_oPalTouch = g_oTouchGP;
 
 
 // Touch values
 
-bool g_leds_on = true;
-bool g_last_control_touched = false;
+//// Tuning vars for touch light
+//#define TOUCH_TRIGGER_FRAMES 10
+//#define MIN_TOUCH_BRIGHTNESS 0.3
+////#define DEAFULT_BRIGHTNESS_LIGHT_1 50
+//#define TOUCH_SMOOTH_ATTACK 0.80
+//#define TOUCH_SMOOTH_DECAY 0.95
+//
+//// Tuning vars for singal processing
+//static float g_fNode0Exp=0.0;
+//static int   g_iNode0Avg=2;
+//static float g_fNode1Exp=0.3;
+//static int   g_iNode1Avg=10;
+//static float g_fDetectThreshold=0.4;
+
+
+
+float g_fTouchInput = 0;
+bool g_bLedsOn = true;
+bool g_bLastControlTouched = false;
 
 // Smoothied float value of the sensor
 float g_fSmoothedSensor = 0;
@@ -117,181 +146,153 @@ float g_fSmoothedSensor = 0;
 
 void setup()
 {
-	//FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
-	//FastLED.setBrightness( BRIGHTNESS );
-	
 	// Works with Teensy 3.2
-	FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
+	FastLED.addLeds<NEOPIXEL, DATA_PIN>(g_aLeds, NUM_LEDS);
 	
 	// Works with Teensy 4.0? Nope... :(
-	//FastLED.addLeds<1, SK6812, DATA_PIN, GRB>(leds, NUM_LEDS);
+	//FastLED.addLeds<1, SK6812, DATA_PIN, GRB>(g_aLeds, NUM_LEDS);
+}
 
-	//gPal = CRGBPalette16(CRGB(64,32,32), CRGB(192,128,64), CRGB(255,192,96), CRGB(255,255,128));
-	//gPal = CRGBPalette16(CRGB(64,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
-	//gPal = CRGBPalette16(CRGB(8,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
-	//gPal = CRGBPalette16(CRGB(0,0,0), CRGB(16,8,0), CRGB(128,32,0), CRGB(255,128,0));
-	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(15,255,128), CHSV(30,255,255));
-	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
-	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
+
+void UpdateFromTouchInput()
+{
+	// Turn lights off and on based on control pin
+	bool bControlTouched = analogRead(SENSOR_PIN_CONTROL) > MIN_CONTROL_ON;
+	if(bControlTouched & !g_bLastControlTouched)
+	{
+		if(g_bLedsOn) 
+		{
+			g_bLedsOn = false;
+		}
+		else
+		{
+			g_bLedsOn = true;
+		}
+	}
+	g_bLastControlTouched = bControlTouched;
+	
+	// Read raw touch input value
+	int iSensorValue = analogRead(SENSOR_PIN_TOUCH);
+
+	// Sometimes this system has noise, particularlly if people are near the touch lights
+	// and are only holding the sensor read handled (as opposed to the postive voltage handle).
+	// This helps removed that noise.
+	if(iSensorValue < MIN_SENSOR_VALUE)
+	{
+		iSensorValue = 0;
+	}
+	else
+	{
+		iSensorValue = iSensorValue - MIN_SENSOR_VALUE;
+	}
+	
+	// Take raw sensor value and turn it unto a useful input value called fInput
+	float fSensor = 0;
+	if(iSensorValue > MIN_INPUT_VALUE)
+	{
+		fSensor = iSensorValue / 1000.0;
+		if(fSensor > 1.0)
+		{
+			fSensor = 1.0;
+		}
+	}
+	float fSmoothAmount = 0.8;
+	g_fSmoothedSensor = g_fSmoothedSensor * fSmoothAmount + fSensor * (1 - fSmoothAmount);
+	g_fTouchInput = pow(g_fSmoothedSensor, 1.5);
+	
+	if(USE_SERIAL_FOR_DEBUGGING)
+	{
+		Serial.print("g_fTouchInput=");
+		Serial.println(g_fTouchInput);
+	}
 }
 
 
 
 void loop()
 {
-	//// TEMP_CL
-	//for( int j = 0; j < NUM_LEDS; ++j)
-	//{
-	//	leds[j] = ColorFromPalette( gPal, random8(0, 240));
-	//}
-	//FastLED.show(); // display this frame
-	//FastLED.delay(1000 / FRAMES_PER_SECOND);
-	//return;
+	// Save off the last heat value to interp between
+	memcpy(g_ayLastHeat, g_ayHeat, NUM_LEDS);
 
-	int touch_value = 0;
-	
-	if(USE_SERIAL_FOR_DEBUGGING)
-	{
-		Serial.println(touch_value);
-	}
-
-	// Add entropy to random number generator; we use a lot of it.
-	// TEMP_CL random16_add_entropy( random());
-
-	memcpy(last_heat, heat, NUM_LEDS);
-	UpdateHeat(); // run simulation frame, using palette colors
+	// Update the head simulation 
+	UpdateHeat(g_ayHeat, true);
   
 	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
 	{
-		byte yHeatAdd = 0;
+		// Update global values based on touch input
+		UpdateFromTouchInput();
 		
-		// Turn lights off and on based on control pin
-		bool control_touched = analogRead(SENSOR_PIN_CONTROL) > MIN_CONTROL_ON;
-		if(control_touched & !g_last_control_touched)
-		{
-			if(g_leds_on) 
-			{
-				g_leds_on = false;
-			}
-			else
-			{
-				g_leds_on = true;
-			}
-		}
-		g_last_control_touched = control_touched;
-		
-		int g_iSensorValue = analogRead(SENSOR_PIN_TOUCH);
-
-		// Sometimes this system has noise, particularlly if people are near the touch lights
-		// and are only holding the sensor read handled (as opposed to the postive voltage handle).
-		// This helps removed that noise.
-		if(g_iSensorValue < MIN_SENSOR_VALUE)
-		{
-			g_iSensorValue = 0;
-		}
-		else
-		{
-			g_iSensorValue = g_iSensorValue - MIN_SENSOR_VALUE;
-		}
-		
-		// Take raw sensor value and turn it unto a useful input value called fInput
-		float fSensor = 0;
-		if(g_iSensorValue > MIN_INPUT_VALUE)
-		{
-			fSensor = g_iSensorValue / 1000.0;
-			if(fSensor > 1.0)
-			{
-				fSensor = 1.0;
-			}
-		}
-		float fSmoothAmount = 0.8;
-		g_fSmoothedSensor = g_fSmoothedSensor * fSmoothAmount + fSensor * (1 - fSmoothAmount);
-		float fInput = pow(g_fSmoothedSensor, 1.5);
-		
-		
-		if(USE_SERIAL_FOR_DEBUGGING)
-		{
-			Serial.print("fInput=");
-			Serial.println(fInput);
-		}
-		
-		if(g_leds_on)
-		{
-			FastLED.setBrightness(127 + fInput * 128);
-		}
-		else
+		// If the LEDs are off, we don't need to do anything else.
+		if(!g_bLedsOn)
 		{
 			FastLED.setBrightness(0);
 		}
-
-		fract8 fLerp = i*256/NUM_INTERP_FRAMES;
-		byte lerpHeat;
-		for( int j = 0; j < NUM_LEDS; ++j)
+		else
 		{
-			// Fade between last and cur heat values
-			lerpHeat = lerp8by8(last_heat[j], heat[j], fLerp);
+			// If the LEDs aren't off, we should adjust the brightness
+			//FastLED.setBrightness(127 + fInput * 128);
+			FastLED.setBrightness(192);
 
-			// Scale heat
-			lerpHeat = scale8(lerpHeat, MAX_HEAT);
-			
-			// Add heat
-			//lerpHeat = qadd8(lerpHeat, yHeatAdd);
+			// Lerp between the target frames
+			fract8 fLerp = i * 256 / NUM_INTERP_FRAMES;
+			byte yLerpHeat;
+			for(int j = 0; j < NUM_LEDS; ++j)
+			{
+				// Fade between last and cur heat values
+				yLerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
 
-			leds[j] = ColorFromPalette( gPal, lerpHeat);
+				// Scale heat
+				yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
+				
+				// Get the heat color
+				CRGB color0 = ColorFromPalette(g_oPalHeat, yLerpHeat);
+				
+				// Get the touch color
+				CRGB color1 = ColorFromPalette(g_oPalTouch, g_fTouchInput * MAX_HEAT);
+				
+				// Blend them together
+				g_aLeds[j] = color0 + color1;
+			}
 		}
 
-		FastLED.show(); // display this frame
+		// Update the LEDs
+		FastLED.show();
+		
+		// Keep a regular framerate
 		FastLED.delay(1000 / FRAMES_PER_SECOND);
 	}
 }
 
 
 
-void UpdateHeat()
+void UpdateHeat(byte ayHeat[], bool bAddSparks)
 {
-	//// TEMP_CL - just do random
-	//for( int i = 0; i < NUM_LEDS; i++)
-	//{
-	//	heat[i] = random8(0, 255);
-	//}
-	//return;
-  
-
 	// Cool down every cell a little
 	for(int i = 0; i < NUM_LEDS; i++)
 	{
-		heat[i] = qsub8( heat[i],  random8(COOLING_MIN, COOLING_MAX));
+		ayHeat[i] = qsub8(ayHeat[i],  random8(COOLING_MIN, COOLING_MAX));
 	}
-	
-	// Save a copy for bluring
- 	// TEMP_CL i think I'm running out of memory
-	//memcpy(prev_heat, heat, NUM_LEDS);
- 
+	 
 	// Heat from each cell drifts out
-	//// TEMP_CL - assume there are only 3 for now
-	//heat[0] = (heat[0]*3 + heat[1]*2 + heat[2]) / 6;
-	//heat[1] = (heat[1]*3 + heat[1]*2 + heat[2]*2) / 7;
-	//heat[2] = (heat[2]*3 + heat[1]*2 + heat[0]) / 6;
 	for(int i = 1; i < NUM_LEDS-1; i++)
 	{
-		// TEMP_CL i think I'm running out of memory
-		//heat[i] = (prev_heat[i]*3 + prev_heat[i-1]*2 + prev_heat[i+1]*2) / 7;
-		heat[i] = (heat[i]*3 + heat[i-1]*2 + heat[i+1]*2) / 7;
+		ayHeat[i] = (ayHeat[i]*3 + ayHeat[i-1]*2 + ayHeat[i+1]*2) / 7;
 	}
 	
 	// Randomly ignite new 'sparks' of heat - per 10 leds
-	for(int i = 0; i < NUM_LEDS / 10; i++) {
-		if( random8() < SPARKING )
+	if(bAddSparks)
+	{
+		for(int i = 0; i < NUM_LEDS / 10; i++)
 		{
-			int y = random8(0, NUM_LEDS - SPARK_WIDTH);
+			if(random8() < SPARKING )
+			{
+				int y = random8(0, NUM_LEDS - SPARK_WIDTH);
 
-			byte newHeat = random8(SPARK_HEAT_MIN, SPARK_HEAT_MAX);
-			for(int j = 0; j < SPARK_WIDTH; ++j) {
-				heat[y+j] = qadd8( heat[y+j],  newHeat);
+				byte yNewHeat = random8(SPARK_HEAT_MIN, SPARK_HEAT_MAX);
+				for(int j = 0; j < SPARK_WIDTH; ++j) {
+					ayHeat[y+j] = qadd8( ayHeat[y+j],  yNewHeat);
+				}
 			}
-			//byte halfHeat = newHeat >> 1;
-			//heat[y-1] = qadd8( heat[y], halfHeat );
-			//heat[y+1] = qadd8( heat[y], halfHeat );
 		}
 	}
 }
