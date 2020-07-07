@@ -26,28 +26,33 @@
 #define DATA_PIN 7
 
 // Number of LEDs
-#define NUM_LEDS 120
+#define NUM_LEDS 98
 
 // Input pins for touch 
 #define SENSOR_PIN_CONTROL A3    // Touch pin to turn the system on and off and adjust things
 #define SENSOR_PIN_TOUCH   A1    // Touchtone pin
 
 // Global tuning for touch
-#define MIN_SENSOR_VALUE 90
+#define MIN_SENSOR_VALUE 400
 #define MIN_INPUT_VALUE 10
-#define MIN_CONTROL_ON 300
+#define MIN_CONTROL_ON 500
 
 // Global tuning for LED heat effect
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES_MIN 5
-#define NUM_INTERP_FRAMES_MAX 100
+#define NUM_INTERP_FRAMES_MIN 4
+#define NUM_INTERP_FRAMES_MAX 60
+#define HEAT_SLOW_DOWN_RATE 40 // Between 0 and 255, larger numbers slow down faster
+#define HEAT_SPEED_UP_RATE 5 // Between 1 and NUM_INTERP_FRAMES_MAX, larger numbers speed up faster
 #define COOLING_MIN  5
 #define COOLING_MAX  15
 #define SPARKING 130
 #define SPARK_HEAT_MIN 50
 #define SPARK_HEAT_MAX 100
 #define SPARK_WIDTH 2
+#define HEAT_TOUCH_ADD 255
+#define LED_BRIGHTNESS_MIN 191 // When added to LED_BRIGHTNESS_TOUCH_ADD must not exceed 255
+#define LED_BRIGHTNESS_TOUCH_ADD 64 // When added to LED_BRIGHTNESS_MIN must not exceed 255
 
 // LEDs
 CRGB g_aLeds[NUM_LEDS];
@@ -229,7 +234,7 @@ class ProcessingNode
 
 // Signal processing node setup
 ProcessingNode g_oNode0(NULL,     false, g_fNode0Exp, g_iNode0Avg, 1.0); // Input
-ProcessingNode g_oNode1(&g_oNode0, true,  g_fNode1Exp, g_iNode1Avg, 0.6); // 1st serivative
+ProcessingNode g_oNode1(&g_oNode0, true,  g_fNode1Exp, g_iNode1Avg, 0.6); // 1st derivative
 
 // Touch vars
 bool g_bDetectOn = false; // If we are actively detecting a touch. This can be TRUE for multiple frames in a row.
@@ -277,8 +282,8 @@ void ProcessSignal()
 {
   float fRawInput = float(g_iSensorValue) / 1024.0; 
 
-  // TEMP_CL - This doesn't match the main loop time right now but I'm just keeping the old value from the PC program for now
-  int iDeltaTimeMS = 10; // TEMP_CL - we might actually get better more consistent results assuming a fixed timestep as opposed to having two loops (the microcontroller and the PC) that sometimes don't sync well.
+  // This doesn't match the main loop time right now but I'm just keeping the old value from the PC program for now
+  int iDeltaTimeMS = 10; // We might actually get better more consistent results assuming a fixed timestep as opposed to having two loops (the microcontroller and the PC) that sometimes don't sync well.
   
   // Update nodes
   g_oNode0.UpdateFromInput(iDeltaTimeMS, fRawInput);
@@ -351,15 +356,6 @@ void UpdateHeat(byte ayHeat[], bool bAddSparks)
 		{
 			if(random8() < SPARKING )
 			{
-				// TEMP_CL
-				//int y = random8(0, NUM_LEDS - SPARK_WIDTH);
-                //
-				//byte yNewHeat = random8(SPARK_HEAT_MIN, SPARK_HEAT_MAX);
-				//for(int j = 0; j < SPARK_WIDTH; ++j)
-				//{
-				//	ayHeat[y+j] = qadd8( ayHeat[y+j],  yNewHeat);
-				//}
-				
 				AddSpark(ayHeat);
 			}
 		}
@@ -412,10 +408,12 @@ void UpdateFromTouchInput()
 			Serial.print("TOUCH!!!!!!!!!!!!!!!!!!!!!!!!!  ");
 			Serial.print("g_fTriggerVelocity=");
 			Serial.println(g_fTriggerVelocity);
+			Serial.print("g_iSensorValue=");
+			Serial.println(g_iSensorValue);
 		}
 		
 		AddSpark(g_ayTouchHeat, NUM_LEDS/2, NUM_LEDS, 10, 255, 255);
-		g_iNumInterpFrames -= 5;
+		g_iNumInterpFrames -= HEAT_SPEED_UP_RATE;
 	}
 	
 	// Take raw sensor value and turn it unto a useful input value called fInput
@@ -450,7 +448,7 @@ void loop()
 	UpdateHeat(g_ayHeat, true);
 	
 	// Slow things down naturally
-	if(random8(0, 255) < 64)
+	if(random8(0, 255) < HEAT_SLOW_DOWN_RATE)
 	{
 		g_iNumInterpFrames += 1;
 	}
@@ -487,9 +485,7 @@ void loop()
 		else
 		{
 			// If the LEDs aren't off, we should adjust the brightness
-			FastLED.setBrightness(191 + g_fTouchInput * 64);
-			//FastLED.setBrightness(64 + g_fTouchInput * 191);
-			//FastLED.setBrightness(192);
+			FastLED.setBrightness(LED_BRIGHTNESS_MIN + g_fTouchInput * LED_BRIGHTNESS_TOUCH_ADD);
 
 			// Lerp between the target frames
 			fract8 fLerp = i * 256 / g_iNumInterpFrames;
@@ -500,7 +496,7 @@ void loop()
 				yLerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
 				
 				// Add based on touch
-				yLerpHeat = qadd8(yLerpHeat, g_fTouchInput * 128);
+				yLerpHeat = qadd8(yLerpHeat, g_fTouchInput * HEAT_TOUCH_ADD);
 
 				// Scale heat
 				yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
