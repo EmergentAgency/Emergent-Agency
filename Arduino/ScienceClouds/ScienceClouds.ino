@@ -1,12 +1,22 @@
 // ScienceClouds
 
+// LED setup
 //#define FASTLED_ALLOW_INTERRUPTS 0
 //#ifdef __AVR__
 //  #include <avr/power.h>
 //#endif
 #include <FastLED.h>
 
-#define DATA_PIN 7
+// Audio setup
+#include <Audio.h>
+#include <Wire.h>
+#include <SD.h>
+#include <SPI.h>
+#include <SerialFlash.h>
+#include <Bounce.h>
+
+// LED vars
+#define DATA_PIN 9
 
 #define NUM_LEDS_PER_STRIP 23 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
@@ -15,7 +25,6 @@
 
 #define NUM_STRIPS 1
 #define NUM_LEDS   NUM_LEDS_PER_STRIP  
-
 
 CRGB leds[NUM_LEDS];
 byte heat[NUM_LEDS];
@@ -108,9 +117,22 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 //#define SPARK_HEAT_MIN 40
 //#define SPARK_HEAT_MAX 50
 
-
-
 CRGBPalette16 gPal = heatmap_gp;
+
+
+// Audio vars
+AudioSynthWaveform    waveform1;
+AudioOutputI2S        i2s1;
+AudioConnection       patchCord1(waveform1, 0, i2s1, 0);
+AudioConnection       patchCord2(waveform1, 0, i2s1, 1);
+AudioControlSGTL5000  sgtl5000_1;
+
+Bounce button0 = Bounce(0, 15);
+Bounce button1 = Bounce(1, 15);
+Bounce button2 = Bounce(2, 15);
+
+int count=1;
+int a1history=0, a2history=0, a3history=0;
 
 
 
@@ -130,6 +152,23 @@ void setup()
 	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(15,255,128), CHSV(30,255,255));
 	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
 	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
+	
+	// Audio 
+	AudioMemory(10);
+	pinMode(0, INPUT_PULLUP);
+	pinMode(1, INPUT_PULLUP);
+	pinMode(2, INPUT_PULLUP);
+	Serial.begin(115200);
+	sgtl5000_1.enable();
+	sgtl5000_1.volume(0.3);
+	waveform1.begin(WAVEFORM_SINE);
+	delay(1000);
+	button0.update();
+	button1.update();
+	button2.update();
+	a1history = analogRead(A1);
+	a2history = analogRead(A2);
+	a3history = analogRead(A3);
 }
 
 
@@ -145,6 +184,14 @@ void loop()
 	//FastLED.delay(1000 / FRAMES_PER_SECOND);
 	//return;
 
+	//Serial.print("Beep #");
+	//Serial.println(count);
+	//count = count + 1;
+	//waveform1.frequency(440 + heat[0]);
+	waveform1.amplitude(0.9);
+	//wait(250);
+	//waveform1.amplitude(0);
+	//wait(250);
 
 
 
@@ -169,6 +216,14 @@ void loop()
 			lerpHeat = scale8(lerpHeat, MAX_HEAT);
 
 			leds[j] = ColorFromPalette( gPal, lerpHeat);
+			
+			// Add audio for test
+			if(j == 2) 
+			{
+				waveform1.frequency(440 + lerpHeat * 2);
+			}
+		
+
 		}
 
 		FastLED.show(); // display this frame
@@ -227,3 +282,41 @@ void UpdateHeat()
 		}
 	}
 }
+
+
+
+void wait(unsigned int milliseconds)
+{
+  elapsedMillis msec=0;
+
+  while (msec <= milliseconds) {
+    button0.update();
+    button1.update();
+    button2.update();
+    if (button0.fallingEdge()) Serial.println("Button (pin 0) Press");
+    if (button1.fallingEdge()) Serial.println("Button (pin 1) Press");
+    if (button2.fallingEdge()) Serial.println("Button (pin 2) Press");
+    if (button0.risingEdge()) Serial.println("Button (pin 0) Release");
+    if (button1.risingEdge()) Serial.println("Button (pin 1) Release");
+    if (button2.risingEdge()) Serial.println("Button (pin 2) Release");
+    int a1 = analogRead(A1);
+    int a2 = analogRead(A2);
+    int a3 = analogRead(A3);
+    if (a1 > a1history + 50 || a1 < a1history - 50) {
+      Serial.print("Knob (pin A1) = ");
+      Serial.println(a1);
+      a1history = a1;
+    }
+    if (a2 > a2history + 50 || a2 < a2history - 50) {
+      Serial.print("Knob (pin A2) = ");
+      Serial.println(a2);
+      a2history = a2;
+    }
+    if (a3 > a3history + 50 || a3 < a3history - 50) {
+      Serial.print("Knob (pin A3) = ");
+      Serial.println(a3);
+      a3history = a3;
+    }
+  }
+}
+
