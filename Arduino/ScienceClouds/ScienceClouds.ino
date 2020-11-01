@@ -15,6 +15,12 @@
 #include <SerialFlash.h>
 #include <Bounce.h>
 
+// Radar setup
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
+
+
 // LED vars
 #define DATA_PIN 9
 
@@ -136,6 +142,65 @@ int a1history=0, a2history=0, a3history=0;
 
 
 
+// Radar
+
+// Interupt pin for motion sensor
+#define INTERUPT_PIN 14
+
+// The motion sensor indicates the speed of the motion detected by oscillating its output pin.
+// The faster the pulses, the faster the motion.  The detect the speed, we are counting the
+// number of microseconds between rising pulses using a hardware interupt pin.  The interupt
+// is called each time a rising pulse is detect and we save off the between the new pulse and
+// the last pulse.  All the other code for calculating speed is done outside of the interupt
+// because the interupt code needs to be as light weight at possible so it returns execution
+// to the main code as quickly as possible.
+
+// This is the last period detected
+volatile unsigned long g_iLastPeriodMicro = 0;
+
+// This is the last time the interupt was called
+volatile unsigned long g_iLastTimeMicro = 0;
+
+// Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
+// considered no motion at all.
+float g_fMinSpeed = 0.02;
+
+// Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
+float g_fMaxSpeed = 0.22;
+
+// Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
+// no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
+// the amount of smoothing will change (see LOOP_DELAY_MS).
+//static float fNewSpeedWeight = 0.15;
+float g_fNewSpeedWeight = 0.05;
+
+// Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
+// to be adjusted in a non-linear fashion.
+float g_fInputExponent = 1.0;
+
+// This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
+// and g_fMinSpeed, g_fMaxSpeed, g_fNewSpeedWeight.
+float g_fSpeedRatio;
+
+
+
+// Clamp function
+float Clamp(float fVal, float fMin, float fMax)
+{
+	if(fVal < fMin)
+	{
+		fVal = fMin;
+	}
+	else if(fVal > fMax)
+	{
+		fVal = fMax;
+	}
+
+	return fVal;
+}
+
+
+
 void setup()
 {
 	//FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
@@ -169,12 +234,58 @@ void setup()
 	a1history = analogRead(A1);
 	a2history = analogRead(A2);
 	a3history = analogRead(A3);
+	
+	// Radar
+	// Attach an Interupt to INTERUPT_PIN for timing period of motion detector input
+	pinMode(INTERUPT_PIN, INPUT);
+	//attachInterrupt(INTERUPT_PIN, MotionDetectorPulse, RISING);
+	attachInterrupt(digitalPinToInterrupt(INTERUPT_PIN), MotionDetectorPulse, RISING);   
+}
+
+
+void update_speed() 
+{
+	// Get the cur
+	float fCurSpeed = GetCurSpeed();
+
+	// Clamp the range of the speed
+	fCurSpeed = Clamp(fCurSpeed, g_fMinSpeed, g_fMaxSpeed);
+
+	// Calculate the new speed ratio
+	float fNewSpeedRatio = (fCurSpeed - g_fMinSpeed) / (g_fMaxSpeed - g_fMinSpeed);
+
+	// TEMP_CL - try this AFTER the smoothing..
+	//// Apply the input exponent to change the input curve
+	//Serial.print("TEMP_CL fNewSpeedRatio pre exponent = ");
+	//Serial.print(fNewSpeedRatio);
+	//fNewSpeedRatio = pow(fNewSpeedRatio, fInputExponent);
+	//Serial.print(" fNewSpeedRatio post exponent = ");
+	//Serial.println(fNewSpeedRatio);
+
+	// Calculate the smoothed speed ratio
+	g_fSpeedRatio = fNewSpeedRatio * g_fNewSpeedWeight + g_fSpeedRatio * (1.0 - g_fNewSpeedWeight);
+
+	// Apply the input exponent to change the input curve.  This is the final output.
+	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
+	Serial.print("TEMP_CL fNewSpeedRatio=");
+	Serial.print(fNewSpeedRatio);
+	Serial.print(" fCurSpeed=");
+	Serial.print(fCurSpeed);
+	Serial.print(" g_fSpeedRatio=");
+	Serial.print(g_fSpeedRatio);
+	Serial.print(" fDisplaySpeedRatio=");
+	Serial.println(fDisplaySpeedRatio);
 }
 
 
 
 void loop()
 {
+
+
+
+
+
 	//// TEMP_CL
 	//for( int j = 0; j < NUM_LEDS; ++j)
 	//{
@@ -203,6 +314,12 @@ void loop()
   
 	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
 	{
+		// Radar
+		update_speed();
+		
+		
+		//LEDs
+		
 		//byte yHeatAdd = 64;
 
 		fract8 fLerp = i*256/NUM_INTERP_FRAMES;
@@ -221,6 +338,7 @@ void loop()
 			if(j == 2) 
 			{
 				waveform1.frequency(440 + lerpHeat * 2);
+				waveform1.amplitude(g_fSpeedRatio);
 			}
 		
 
@@ -319,4 +437,61 @@ void wait(unsigned int milliseconds)
     }
   }
 }
+
+
+
+// Interupt called to get time between pulses
+void MotionDetectorPulse()
+{
+	//Serial.print("MotionDetectorPulse"); // TEMP_CL
+	unsigned long iCurTimeMicro = micros();
+	g_iLastPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
+	g_iLastTimeMicro = iCurTimeMicro;
+}
+
+
+
+// Returns the number of micro seconds for the last period (time between pulses)
+// for the motion sensor.  If the time between this call and
+// the last inpterupt call is greater than the last period , we return the time
+// between this call and the the last interupt.  This is to ensure that if we
+// abruptly go from fast motion to slow motion, that this function will not smoothly
+// transition to slow motion.
+unsigned long GetLastPeriodMicro()
+{
+	unsigned long iCurTimeMicro = micros();
+	unsigned long iThisPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
+	if(iThisPeriodMicro < g_iLastPeriodMicro)
+		return g_iLastPeriodMicro;
+	else
+		return iThisPeriodMicro;
+}
+
+
+
+// Returns the current speed of the detected motion in meters per second.
+// It is calculated with the following formula (pulled from the X-Band website)
+// http://www.parallax.com/Portals/0/Downloads/docs/prod/sens/32213-X-BandMotionDetector-v1.1.pdf
+//
+// Resulting frequency for speed detection:
+//
+// Fd = 2V(Ft/c)cos(theta)
+//
+// Where: 
+// Fd = Difference frequency (sometimes referred to as Doppler frequency) 
+// V = Velocity of the target 
+// Ft = Transmit frequency (10.525 GHz)
+// c = Speed of light at 3 x 10^8 m/s
+// theta = Motion direction angle deviation from perpendicular to the antenna PCB (Figure 1)
+//
+// Thus and object moving at 0.2 ms/2 =
+// 2*0.2*(10.525*10^9/(3*10^8)) = 14.0333
+float GetCurSpeed()
+{
+	float iLastPeriod = GetLastPeriodMicro();
+	float fFreq = 1.0 / (iLastPeriod / 1000000.0);
+	float fSpeed = fFreq / 70.1666; // 70.1666 = (2 * Ft/c) - Ignore angle (cos(theta)) because we have no way of knowing it
+	return fSpeed;
+}
+
 
