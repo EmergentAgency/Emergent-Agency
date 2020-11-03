@@ -26,7 +26,7 @@
 // LED vars
 #define DATA_PIN 17
 
-#define NUM_LEDS_PER_STRIP 250 // 70 is the max the 150 led strip in the bottles seems to work past...
+#define NUM_LEDS_PER_STRIP 500 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
 #define NUM_INTERP_FRAMES 50
@@ -162,21 +162,21 @@ AudioControlSGTL5000     sgtl5000_1;
 
 // Radar
 
-// Interupt pin for motion sensor
-#define INTERUPT_PIN 14
+// Interrupt pin for motion sensor
+#define INTERRUPT_PIN 14
 
 // The motion sensor indicates the speed of the motion detected by oscillating its output pin.
 // The faster the pulses, the faster the motion.  The detect the speed, we are counting the
-// number of microseconds between rising pulses using a hardware interupt pin.  The interupt
+// number of microseconds between rising pulses using a hardware interrupt pin.  The interrupt
 // is called each time a rising pulse is detect and we save off the between the new pulse and
-// the last pulse.  All the other code for calculating speed is done outside of the interupt
-// because the interupt code needs to be as light weight at possible so it returns execution
+// the last pulse.  All the other code for calculating speed is done outside of the interrupt
+// because the interrupt code needs to be as light weight at possible so it returns execution
 // to the main code as quickly as possible.
 
 // This is the last period detected
 volatile unsigned long g_iLastPeriodMicro = 0;
 
-// This is the last time the interupt was called
+// This is the last time the interrupt was called
 volatile unsigned long g_iLastTimeMicro = 0;
 
 // TEMP_CL - Testing x-band
@@ -281,10 +281,10 @@ void setup()
 
 	
 	// Radar
-	// Attach an Interupt to INTERUPT_PIN for timing period of motion detector input
-	pinMode(INTERUPT_PIN, INPUT);
-	//attachInterrupt(INTERUPT_PIN, MotionDetectorPulse, RISING);
-	attachInterrupt(digitalPinToInterrupt(INTERUPT_PIN), MotionDetectorPulse, RISING);   
+	// Attach an Interrupt to INTERRUPT_PIN for timing period of motion detector input
+	pinMode(INTERRUPT_PIN, INPUT);
+	//attachInterrupt(INTERRUPT_PIN, MotionDetectorPulse, RISING);
+	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), MotionDetectorPulse, RISING);   
 }
 
 
@@ -330,7 +330,7 @@ void update_speed()
 void loop()
 {
 	// TEMP_CL - Testing x-band
-	//int raw_sensor = analogRead(INTERUPT_PIN);
+	//int raw_sensor = analogRead(INTERRUPT_PIN);
 	//Serial.print(micros());
 	//Serial.print(",");
 	//Serial.println(raw_sensor);
@@ -462,7 +462,7 @@ void UpdateHeat()
 	for(int i = 0; i < NUM_LEDS / 10; i++) {
 		if( random8() < SPARKING )
 		{
-			int y = random8(0, NUM_LEDS - SPARK_WIDTH);
+			int y = random16(0, NUM_LEDS - SPARK_WIDTH);
 
 			byte newHeat = random8(SPARK_HEAT_MIN, SPARK_HEAT_MAX);
 			for(int j = 0; j < SPARK_WIDTH; ++j) {
@@ -514,12 +514,12 @@ void UpdateHeat()
 
 
 
-// Interupt called to get time between pulses
+// Interrupt called to get time between pulses
 void MotionDetectorPulse()
 {
 	unsigned long iCurTimeMicro = micros();
 	
-	// HACK - For some reason the interupt is getting called twice is
+	// HACK - For some reason the interrupt is getting called twice is
 	// in very quick succession. This prevents the timing from being 
 	// effected by that.
 	unsigned long iPeriod = iCurTimeMicro - g_iLastTimeMicro;
@@ -535,7 +535,7 @@ void MotionDetectorPulse()
 // Returns the number of micro seconds for the last period (time between pulses)
 // for the motion sensor.  If the time between this call and
 // the last inpterupt call is greater than the last period , we return the time
-// between this call and the the last interupt.  This is to ensure that if we
+// between this call and the the last interrupt.  This is to ensure that if we
 // abruptly go from fast motion to slow motion, that this function will not smoothly
 // transition to slow motion.
 unsigned long GetLastPeriodMicro()
