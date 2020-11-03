@@ -1,7 +1,9 @@
 // ScienceClouds
 
 // LED setup
-//#define FASTLED_ALLOW_INTERRUPTS 0
+#include <WS2812Serial.h>
+#define USE_WS2812SERIAL
+//#define FASTLED_ALLOW_INTERRUPTS 1
 //#ifdef __AVR__
 //  #include <avr/power.h>
 //#endif
@@ -22,9 +24,9 @@
 
 
 // LED vars
-#define DATA_PIN 9
+#define DATA_PIN 17
 
-#define NUM_LEDS_PER_STRIP 23 // 70 is the max the 150 led strip in the bottles seems to work past...
+#define NUM_LEDS_PER_STRIP 250 // 70 is the max the 150 led strip in the bottles seems to work past...
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
 #define NUM_INTERP_FRAMES 50
@@ -57,8 +59,6 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 #define SPARK_HEAT_MIN 50
 #define SPARK_HEAT_MAX 100
 #define SPARK_WIDTH 2
-
-
 
 
 // Looks good when you can see the LEDs but too red and white when in bottles
@@ -127,19 +127,37 @@ CRGBPalette16 gPal = heatmap_gp;
 
 
 // Audio vars
-AudioSynthWaveform    waveform1;
-AudioOutputI2S        i2s1;
-AudioConnection       patchCord1(waveform1, 0, i2s1, 0);
-AudioConnection       patchCord2(waveform1, 0, i2s1, 1);
-AudioControlSGTL5000  sgtl5000_1;
 
-Bounce button0 = Bounce(0, 15);
-Bounce button1 = Bounce(1, 15);
-Bounce button2 = Bounce(2, 15);
+//// Sign wave
+//AudioSynthWaveform    waveform1;
+//AudioOutputI2S        i2s1;
+//AudioConnection       patchCord1(waveform1, 0, i2s1, 0);
+//AudioConnection       patchCord2(waveform1, 0, i2s1, 1);
+//AudioControlSGTL5000  sgtl5000_1;
 
-int count=1;
-int a1history=0, a2history=0, a3history=0;
+//Bounce button0 = Bounce(0, 15);
+//Bounce button1 = Bounce(1, 15);
+//Bounce button2 = Bounce(2, 15);
+//
+//int count=1;
+//int a1history=0, a2history=0, a3history=0;
 
+// Wave file
+AudioPlaySdWav           playSdWav1;
+AudioOutputI2S           i2s1;
+AudioConnection          patchCord1(playSdWav1, 0, i2s1, 0);
+AudioConnection          patchCord2(playSdWav1, 1, i2s1, 1);
+AudioControlSGTL5000     sgtl5000_1;
+
+//// Use these with the Teensy 3.0 Audio Shield
+//#define SDCARD_CS_PIN    10
+//#define SDCARD_MOSI_PIN  7
+//#define SDCARD_SCK_PIN   14
+
+// Use these with the Teensy 4.0 Audio Shield
+#define SDCARD_CS_PIN    10
+#define SDCARD_MOSI_PIN  11
+#define SDCARD_SCK_PIN   13
 
 
 // Radar
@@ -208,7 +226,11 @@ void setup()
 	//FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
 	
 	// This works for the Teensy 4.0
-	FastLED.addLeds<NUM_STRIPS, WS2812B, DATA_PIN,GRB>(leds, NUM_LEDS_PER_STRIP);
+	//FastLED.addLeds<NUM_STRIPS, WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS_PER_STRIP);
+	
+	// WS2812Serial
+	LEDS.addLeds<WS2812SERIAL, DATA_PIN, BRG>(leds, NUM_LEDS_PER_STRIP);
+
 
 	//gPal = CRGBPalette16(CRGB(64,32,32), CRGB(192,128,64), CRGB(255,192,96), CRGB(255,255,128));
 	//gPal = CRGBPalette16(CRGB(64,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
@@ -218,22 +240,42 @@ void setup()
 	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
 	//gPal = CRGBPalette16(CHSV(0,0,0), CHSV(30,255,16), CHSV(30,255,128), CHSV(30,255,255));
 	
+	
 	// Audio 
-	AudioMemory(10);
-	pinMode(0, INPUT_PULLUP);
-	pinMode(1, INPUT_PULLUP);
-	pinMode(2, INPUT_PULLUP);
-	Serial.begin(115200);
+	
+	//// Sine wave
+	//AudioMemory(10);
+	//pinMode(0, INPUT_PULLUP);
+	//pinMode(1, INPUT_PULLUP);
+	//pinMode(2, INPUT_PULLUP);
+	//Serial.begin(115200);
+	//sgtl5000_1.enable();
+	//sgtl5000_1.volume(0.3);
+	//waveform1.begin(WAVEFORM_SINE);
+	//delay(1000);
+	//button0.update();
+	//button1.update();
+	//button2.update();
+	//a1history = analogRead(A1);
+	//a2history = analogRead(A2);
+	//a3history = analogRead(A3);
+	
+	// Wave file
+	AudioMemory(8);
 	sgtl5000_1.enable();
-	sgtl5000_1.volume(0.3);
-	waveform1.begin(WAVEFORM_SINE);
+	sgtl5000_1.volume(0.5);
+	SPI.setMOSI(SDCARD_MOSI_PIN);
+	SPI.setSCK(SDCARD_SCK_PIN);
+	if (!(SD.begin(SDCARD_CS_PIN)))
+	{
+		while (1)
+		{
+			Serial.println("Unable to access the SD card");
+			delay(500);
+		}
+	}
 	delay(1000);
-	button0.update();
-	button1.update();
-	button2.update();
-	a1history = analogRead(A1);
-	a2history = analogRead(A2);
-	a3history = analogRead(A3);
+
 	
 	// Radar
 	// Attach an Interupt to INTERUPT_PIN for timing period of motion detector input
@@ -267,6 +309,8 @@ void update_speed()
 
 	// Apply the input exponent to change the input curve.  This is the final output.
 	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
+	
+	// Debug output
 	Serial.print("TEMP_CL fNewSpeedRatio=");
 	Serial.print(fNewSpeedRatio);
 	Serial.print(" fCurSpeed=");
@@ -295,14 +339,29 @@ void loop()
 	//FastLED.delay(1000 / FRAMES_PER_SECOND);
 	//return;
 
+	
+	// Audio
+	
+	// Sine wave
 	//Serial.print("Beep #");
 	//Serial.println(count);
 	//count = count + 1;
 	//waveform1.frequency(440 + heat[0]);
-	waveform1.amplitude(0.9);
+	//waveform1.amplitude(0.9);
 	//wait(250);
 	//waveform1.amplitude(0);
 	//wait(250);
+	
+	// Wave file
+	if (playSdWav1.isPlaying() == false)
+	{
+		Serial.println("Start playing");
+		//playSdWav1.play("SDTEST2.WAV");
+		//playSdWav1.play("elaborate_thunder-Mike_Koenig-1877244752.WAV");
+		playSdWav1.play("thunder.wav");
+		delay(10); // wait for library to parse WAV info
+	}
+
 
 
 
@@ -316,6 +375,10 @@ void loop()
 	{
 		// Radar
 		update_speed();
+		
+		// Wave file
+		sgtl5000_1.volume(g_fSpeedRatio / 2.0 + 0.05);
+
 		
 		
 		//LEDs
@@ -334,12 +397,13 @@ void loop()
 
 			leds[j] = ColorFromPalette( gPal, lerpHeat);
 			
-			// Add audio for test
-			if(j == 2) 
-			{
-				waveform1.frequency(440 + lerpHeat * 2);
-				waveform1.amplitude(g_fSpeedRatio);
-			}
+			// Sine way
+			//// Add audio for test
+			//if(j == 2) 
+			//{
+			//	waveform1.frequency(440 + lerpHeat * 2);
+			//	waveform1.amplitude(g_fSpeedRatio);
+			//}
 		
 
 		}
@@ -402,41 +466,41 @@ void UpdateHeat()
 }
 
 
-
-void wait(unsigned int milliseconds)
-{
-  elapsedMillis msec=0;
-
-  while (msec <= milliseconds) {
-    button0.update();
-    button1.update();
-    button2.update();
-    if (button0.fallingEdge()) Serial.println("Button (pin 0) Press");
-    if (button1.fallingEdge()) Serial.println("Button (pin 1) Press");
-    if (button2.fallingEdge()) Serial.println("Button (pin 2) Press");
-    if (button0.risingEdge()) Serial.println("Button (pin 0) Release");
-    if (button1.risingEdge()) Serial.println("Button (pin 1) Release");
-    if (button2.risingEdge()) Serial.println("Button (pin 2) Release");
-    int a1 = analogRead(A1);
-    int a2 = analogRead(A2);
-    int a3 = analogRead(A3);
-    if (a1 > a1history + 50 || a1 < a1history - 50) {
-      Serial.print("Knob (pin A1) = ");
-      Serial.println(a1);
-      a1history = a1;
-    }
-    if (a2 > a2history + 50 || a2 < a2history - 50) {
-      Serial.print("Knob (pin A2) = ");
-      Serial.println(a2);
-      a2history = a2;
-    }
-    if (a3 > a3history + 50 || a3 < a3history - 50) {
-      Serial.print("Knob (pin A3) = ");
-      Serial.println(a3);
-      a3history = a3;
-    }
-  }
-}
+// TEMP_CL Sine wave
+//void wait(unsigned int milliseconds)
+//{
+//  elapsedMillis msec=0;
+//
+//  while (msec <= milliseconds) {
+//    button0.update();
+//    button1.update();
+//    button2.update();
+//    if (button0.fallingEdge()) Serial.println("Button (pin 0) Press");
+//    if (button1.fallingEdge()) Serial.println("Button (pin 1) Press");
+//    if (button2.fallingEdge()) Serial.println("Button (pin 2) Press");
+//    if (button0.risingEdge()) Serial.println("Button (pin 0) Release");
+//    if (button1.risingEdge()) Serial.println("Button (pin 1) Release");
+//    if (button2.risingEdge()) Serial.println("Button (pin 2) Release");
+//    int a1 = analogRead(A1);
+//    int a2 = analogRead(A2);
+//    int a3 = analogRead(A3);
+//    if (a1 > a1history + 50 || a1 < a1history - 50) {
+//      Serial.print("Knob (pin A1) = ");
+//      Serial.println(a1);
+//      a1history = a1;
+//    }
+//    if (a2 > a2history + 50 || a2 < a2history - 50) {
+//      Serial.print("Knob (pin A2) = ");
+//      Serial.println(a2);
+//      a2history = a2;
+//    }
+//    if (a3 > a3history + 50 || a3 < a3history - 50) {
+//      Serial.print("Knob (pin A3) = ");
+//      Serial.println(a3);
+//      a3history = a3;
+//    }
+//  }
+//}
 
 
 
