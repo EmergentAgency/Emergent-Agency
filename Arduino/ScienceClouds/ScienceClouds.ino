@@ -179,22 +179,25 @@ volatile unsigned long g_iLastPeriodMicro = 0;
 // This is the last time the interupt was called
 volatile unsigned long g_iLastTimeMicro = 0;
 
+// TEMP_CL - Testing x-band
+volatile unsigned long g_iPulseCount = 0;
+
 // Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
 float g_fMinSpeed = 0.02;
 
 // Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
-float g_fMaxSpeed = 0.22;
+float g_fMaxSpeed = 0.50;
 
 // Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
-float g_fNewSpeedWeight = 0.05;
+float g_fNewSpeedWeight = 0.04;
 
 // Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
 // to be adjusted in a non-linear fashion.
-float g_fInputExponent = 1.0;
+float g_fInputExponent = 0.8;
 
 // This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and g_fMinSpeed, g_fMaxSpeed, g_fNewSpeedWeight.
@@ -311,7 +314,8 @@ void update_speed()
 	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
 	
 	// Debug output
-	Serial.print("TEMP_CL fNewSpeedRatio=");
+	Serial.print(micros());
+	Serial.print(" - TEMP_CL fNewSpeedRatio=");
 	Serial.print(fNewSpeedRatio);
 	Serial.print(" fCurSpeed=");
 	Serial.print(fCurSpeed);
@@ -325,11 +329,17 @@ void update_speed()
 
 void loop()
 {
-
-
-
-
-
+	// TEMP_CL - Testing x-band
+	//int raw_sensor = analogRead(INTERUPT_PIN);
+	//Serial.print(micros());
+	//Serial.print(",");
+	//Serial.println(raw_sensor);
+	//
+	//// TEMP_CL
+	//delay(1);
+	//return;
+	
+	
 	//// TEMP_CL
 	//for( int j = 0; j < NUM_LEDS; ++j)
 	//{
@@ -507,10 +517,17 @@ void UpdateHeat()
 // Interupt called to get time between pulses
 void MotionDetectorPulse()
 {
-	//Serial.print("MotionDetectorPulse"); // TEMP_CL
 	unsigned long iCurTimeMicro = micros();
-	g_iLastPeriodMicro = iCurTimeMicro - g_iLastTimeMicro;
-	g_iLastTimeMicro = iCurTimeMicro;
+	
+	// HACK - For some reason the interupt is getting called twice is
+	// in very quick succession. This prevents the timing from being 
+	// effected by that.
+	unsigned long iPeriod = iCurTimeMicro - g_iLastTimeMicro;
+	if(iPeriod > 100) 
+	{
+		g_iLastPeriodMicro = iPeriod;
+		g_iLastTimeMicro = iCurTimeMicro;
+	}
 }
 
 
