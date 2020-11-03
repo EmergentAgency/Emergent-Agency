@@ -187,13 +187,13 @@ volatile unsigned long g_iPulseCount = 0;
 float g_fMinSpeed = 0.02;
 
 // Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
-float g_fMaxSpeed = 0.50;
+float g_fMaxSpeed = 0.10;
 
 // Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
-float g_fNewSpeedWeight = 0.04;
+float g_fNewSpeedWeight = 0.02;
 
 // Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
 // to be adjusted in a non-linear fashion.
