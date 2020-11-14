@@ -26,7 +26,7 @@
 // LED vars
 #define DATA_PIN 17
 
-#define NUM_LEDS_PER_STRIP 500 // 70 is the max the 150 led strip in the bottles seems to work past...
+#define NUM_LEDS_PER_STRIP 500 
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
 #define NUM_INTERP_FRAMES 50
@@ -128,20 +128,6 @@ CRGBPalette16 gPal = heatmap_gp;
 
 // Audio vars
 
-//// Sign wave
-//AudioSynthWaveform    waveform1;
-//AudioOutputI2S        i2s1;
-//AudioConnection       patchCord1(waveform1, 0, i2s1, 0);
-//AudioConnection       patchCord2(waveform1, 0, i2s1, 1);
-//AudioControlSGTL5000  sgtl5000_1;
-
-//Bounce button0 = Bounce(0, 15);
-//Bounce button1 = Bounce(1, 15);
-//Bounce button2 = Bounce(2, 15);
-//
-//int count=1;
-//int a1history=0, a2history=0, a3history=0;
-
 // Wave file
 AudioPlaySdWav           playSdWav1;
 AudioOutputI2S           i2s1;
@@ -158,6 +144,10 @@ AudioControlSGTL5000     sgtl5000_1;
 #define SDCARD_CS_PIN    10
 #define SDCARD_MOSI_PIN  11
 #define SDCARD_SCK_PIN   13
+
+// True of the audio system and the SD card were initialized successfully
+bool g_bAudioInitialized;
+
 
 
 // Radar
@@ -234,7 +224,6 @@ void setup()
 	// WS2812Serial
 	LEDS.addLeds<WS2812SERIAL, DATA_PIN, BRG>(leds, NUM_LEDS_PER_STRIP);
 
-
 	//gPal = CRGBPalette16(CRGB(64,32,32), CRGB(192,128,64), CRGB(255,192,96), CRGB(255,255,128));
 	//gPal = CRGBPalette16(CRGB(64,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
 	//gPal = CRGBPalette16(CRGB(8,0,0), CRGB(92,32,0), CRGB(255,64,0), CRGB(255,128,0));
@@ -245,42 +234,28 @@ void setup()
 	
 	
 	// Audio 
-	
-	//// Sine wave
-	//AudioMemory(10);
-	//pinMode(0, INPUT_PULLUP);
-	//pinMode(1, INPUT_PULLUP);
-	//pinMode(2, INPUT_PULLUP);
-	//Serial.begin(115200);
-	//sgtl5000_1.enable();
-	//sgtl5000_1.volume(0.3);
-	//waveform1.begin(WAVEFORM_SINE);
-	//delay(1000);
-	//button0.update();
-	//button1.update();
-	//button2.update();
-	//a1history = analogRead(A1);
-	//a2history = analogRead(A2);
-	//a3history = analogRead(A3);
-	
+		
 	// Wave file
-	AudioMemory(8);
-	sgtl5000_1.enable();
-	sgtl5000_1.volume(0.5);
+	g_bAudioInitialized = false;
 	SPI.setMOSI(SDCARD_MOSI_PIN);
 	SPI.setSCK(SDCARD_SCK_PIN);
 	if (!(SD.begin(SDCARD_CS_PIN)))
 	{
-		while (1)
-		{
-			Serial.println("Unable to access the SD card");
-			delay(500);
-		}
+		Serial.print("Unable to access the SD card. Audio not initialized.");
+	}
+	else
+	{
+		AudioMemory(8);
+		sgtl5000_1.enable();
+		sgtl5000_1.volume(0.5);
+		Serial.print("Audio and SD card successfully initialized.");
+		g_bAudioInitialized = true;
 	}
 	delay(1000);
 
 	
 	// Radar
+	
 	// Attach an Interrupt to INTERRUPT_PIN for timing period of motion detector input
 	pinMode(INTERRUPT_PIN, INPUT);
 	//attachInterrupt(INTERRUPT_PIN, MotionDetectorPulse, RISING);
@@ -363,7 +338,7 @@ void loop()
 	//wait(250);
 	
 	// Wave file
-	if (playSdWav1.isPlaying() == false)
+	if (g_bAudioInitialized && playSdWav1.isPlaying() == false)
 	{
 		Serial.println("Start playing");
 		//playSdWav1.play("SDTEST2.WAV");
@@ -387,7 +362,9 @@ void loop()
 		update_speed();
 		
 		// Wave file
-		sgtl5000_1.volume(g_fSpeedRatio / 2.0 + 0.05);
+		if(g_bAudioInitialized) {
+			sgtl5000_1.volume(g_fSpeedRatio / 2.0 + 0.05);
+		}
 
 		
 		
