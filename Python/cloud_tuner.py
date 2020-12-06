@@ -13,22 +13,17 @@ import serial
 # Define useful parameters
 window_width = 600
 window_height = 400
-size_of_board = 600
-rows = 10
-cols = 10
 DELAY = 10
 
 BLUE_COLOR = "#0492CF"
-Green_color = "#7BC043"
 RED_COLOR_LIGHT = '#EE7E77'
 
 tuning_param_list = ["MinSpeed", "MaxSpeed", "NewSpeedWeight", "InputExponent"]
-
 display_vars_list = ["fRawSpeed", "fCurSpeed", "fNewSpeedRatio", "fSpeedRatio"]
 
 
 
-class SnakeAndApple:
+class CloudTuner:
     # ------------------------------------------------------------------
     # Initialization Functions:
     # ------------------------------------------------------------------
@@ -55,15 +50,6 @@ class SnakeAndApple:
             return False
 
 
-    def initialize_board(self):
-        self.board = []
-        self.apple_obj = []
-        self.old_apple_cell = []
-        
-        for i in range(rows):
-            for j in range(cols):
-                self.board.append((i, j))
-
     def make_text_entry(self, x, y):
         vcmd = (self.window.register(self.validate), 
                 '%d', '%i', '%P', '%s', '%S', '%v', '%V', '%W')
@@ -76,7 +62,6 @@ class SnakeAndApple:
             
     def init_screen(self):
         self.canvas.delete("all")
-        self.initialize_board()
         self.begin_time = time.time()
         
         self.num_tuning_vars = len(tuning_param_list)
@@ -111,16 +96,6 @@ class SnakeAndApple:
                 fill=BLUE_COLOR,
                 text="",
             ))
-            
-            
-        #self.speed_final_ratio_text = self.canvas.create_text(
-        #    290,
-        #    350 + 10,
-        #    anchor=tk.NE,
-        #    font="cmr 15 bold",
-        #    fill=BLUE_COLOR,
-        #    text="",
-        #)
 
         from serial.tools.list_ports import comports
         if comports:
@@ -128,9 +103,8 @@ class SnakeAndApple:
             for port in com_ports_list:
                 print("TEMP_CL - port=", port)
                 
-        self.serial_port = serial.Serial('COM3', baudrate=9600)
-        #res = self.serial_port.readline().decode('UTF-8')
-        #print(res)
+        # TEMP_CL - fix this!
+        self.serial_port = serial.Serial('COM14', baudrate=9600)
         
         # Request tuning vars
         self.serial_port.write(b'REQUEST_TUNING\n')
@@ -146,110 +120,51 @@ class SnakeAndApple:
 
 
     def update_loop(self):
-        #if not self.crashed:
-        if True:
-            #print("TEMP_CL - not self.crashed")
+        # Init the status string
+        latest_status = ""
+        
+        # Get most recent data
+        while self.serial_port.in_waiting:
+            str_in = self.serial_port.readline().decode('UTF-8')
+            print("got line:", str_in, end='')
+            #c = self.serial_port.read()
+            #print("got char:", c)
             
-            # Init the status string
-            latest_status = ""
-            
-            # Get most recent data
-            while self.serial_port.in_waiting:
-                str_in = self.serial_port.readline().decode('UTF-8')
-                print("got line:", str_in, end='')
-                #c = self.serial_port.read()
-                #print("got char:", c)
-                
-                tuning_vars = str_in.startswith("TUNING")
-                if str_in.startswith("TUNING"):
-                    for i in range(self.num_tuning_vars):
-                        val_string = self.read_val_string(str_in, tuning_param_list[i])
-                        # TEMP_CL print(val_string)
-                        self.text_inputs[i].delete(0, tk.END)
-                        self.text_inputs[i].insert(0, val_string)
-                        self.canvas.itemconfigure(self.cur_tuning_vars[i], text=val_string)
-                       
-                elif str_in.startswith("STATUS"):
-                    latest_status = str_in
-
-            
-            if latest_status != "":
-                for i in range(self.num_display_vars):
-                    val_string = self.read_val_string(latest_status, display_vars_list[i])
-                    val = float(val_string)
+            # Look for new tuning vars
+            tuning_vars = str_in.startswith("TUNING")
+            if str_in.startswith("TUNING"):
+                for i in range(self.num_tuning_vars):
+                    val_string = self.read_val_string(str_in, tuning_param_list[i])
+                    # TEMP_CL print(val_string)
+                    self.text_inputs[i].delete(0, tk.END)
+                    self.text_inputs[i].insert(0, val_string)
+                    self.canvas.itemconfigure(self.cur_tuning_vars[i], text=val_string)
                     
-                    x0, y0, x1, y1 = self.canvas.coords(self.display_bars[i])
-                    self.canvas.coords(self.display_bars[i], x0, y1 - 200 * val, x1, y1)
-                    
-                    self.canvas.itemconfigure(self.display_vals[i], text=val_string)
-
+             # Look for new status      
+            elif str_in.startswith("STATUS"):
+                latest_status = str_in
+        
+        # If we got new status, update based on it
+        if latest_status != "":
+            for i in range(self.num_display_vars):
+                val_string = self.read_val_string(latest_status, display_vars_list[i])
+                val = float(val_string)
                 
-        else:
-            print("TEMP_CL - self.crashed")
-            self.display_gameover()
+                x0, y0, x1, y1 = self.canvas.coords(self.display_bars[i])
+                self.canvas.coords(self.display_bars[i], x0, y1 - 200 * val, x1, y1)
                 
+                self.canvas.itemconfigure(self.display_vals[i], text=val_string)
+        
+        # Keep loop going
         self.window.after(DELAY, self.update_loop)
 
-    # ------------------------------------------------------------------
-    # Drawing Functions:
-    # The modules required to draw required game based object on canvas
-    # ------------------------------------------------------------------
-    def display_gameover(self):
-        # score = len(self.snake)
-        self.canvas.delete("all")
-        score_text = "Scores \n"
-
-        # put gif image on canvas
-        # pic's upper left corner (NW) on the canvas is at x=50 y=10
-
-        self.canvas.create_text(
-            size_of_board / 2,
-            3 * size_of_board / 8,
-            font="cmr 40 bold",
-            fill=Green_color,
-            text=score_text,
-        )
-        score_text = str(score)
-        self.canvas.create_text(
-            size_of_board / 2,
-            1 * size_of_board / 2,
-            font="cmr 50 bold",
-            fill=BLUE_COLOR,
-            text=score_text,
-        )
-        time_spent = str(np.round(time.time() - self.begin_time, 1)) + 'sec'
-        self.canvas.create_text(
-            size_of_board / 2,
-            3 * size_of_board / 4,
-            font="cmr 20 bold",
-            fill=BLUE_COLOR,
-            text=time_spent,
-        )
-        score_text = "Click to play again \n"
-        self.canvas.create_text(
-            size_of_board / 2,
-            15 * size_of_board / 16,
-            font="cmr 20 bold",
-            fill="gray",
-            text=score_text,
-        )
-        self.make_text_entry(80, 20)
-        
-
-    def check_if_key_valid(self, key):
-        valid_keys = ["Up", "Down", "Left", "Right"]
-        if key in valid_keys and self.forbidden_actions[self.snake_heading] != key:
-            return True
-        else:
-            return False
 
     def mouse_input(self, event):
         print("mouse_input")
         byte_written = self.serial_port.write(b'REQUEST_TUNING\n')
         self.serial_port.flush()
         print("byte_written=", byte_written)
-        
-        #self.init_screen()
+
 
     def key_input(self, event):
         # If the user pressed enter, send all tuning vars
@@ -269,6 +184,6 @@ class SnakeAndApple:
             byte_written = self.serial_port.write(b'REQUEST_TUNING\n')
 
 
-game_instance = SnakeAndApple()
+game_instance = CloudTuner()
 game_instance.update_loop()
 tk.mainloop()
