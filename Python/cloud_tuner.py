@@ -9,6 +9,7 @@ import random
 import time
 import numpy as np
 import serial
+import sys
 
 # Define useful parameters
 window_width = 600
@@ -97,14 +98,20 @@ class CloudTuner:
                 text="",
             ))
 
+        com_port_to_use = ""
         from serial.tools.list_ports import comports
         if comports:
             com_ports_list = list(comports())
             for port in com_ports_list:
-                print("TEMP_CL - port=", port)
+                print("Found com port:", port.name)
+                com_port_to_use = port.name
                 
-        # TEMP_CL - fix this!
-        self.serial_port = serial.Serial('COM14', baudrate=9600)
+        if com_port_to_use != "":
+            self.serial_port = serial.Serial(com_port_to_use, baudrate=9600)
+        else:
+            print("ERROR! Could not find a com port for cloud tuning!")
+            print("Please attach a cloud node to this computer via USB.")
+            sys.exit(0)
         
         # Request tuning vars
         self.serial_port.write(b'REQUEST_TUNING\n')
@@ -126,9 +133,14 @@ class CloudTuner:
         # Get most recent data
         while self.serial_port.in_waiting:
             str_in = self.serial_port.readline().decode('UTF-8')
-            print("got line:", str_in, end='')
+            
+            # Fine grain debugging
             #c = self.serial_port.read()
             #print("got char:", c)
+            
+            # Less fine grain debugging
+            if not(str_in.startswith("STATUS")):
+                print("got line:", str_in, end='')
             
             # Look for new tuning vars
             tuning_vars = str_in.startswith("TUNING")
