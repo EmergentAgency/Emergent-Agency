@@ -29,31 +29,75 @@
 // LED
 #define DATA_PIN 17
 
-#define NUM_LEDS 500 
+#define NUM_LEDS 1500 
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES 50
+#define NUM_INTERP_FRAMES 10
 
-CRGB leds[NUM_LEDS];
-byte heat[NUM_LEDS];
-byte last_heat[NUM_LEDS]; // Used for interp between heat frames
+CRGB g_aLeds[NUM_LEDS];
+byte g_ayHeat[NUM_LEDS];
+byte g_ayLastHeat[NUM_LEDS]; // Used for interp between heat frames
 
-// Fire colors
 DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
-  0,     8,  2,  0,   
-50,     64, 16,  0,   
-100,   128, 64,  8,   
-200,   255,128, 64,   
-240,   255,200,100, 
+	
+//// Fire colors
+//  0,     8,  2,  0,   
+//50,     64, 16,  0,   
+//100,   128, 64,  8,   
+//200,   255,128, 64,   
+//240,   255,200,100, 
+//255,   255,255,255 }; //junk value
+
+//// Cool white
+//  0,     8,  8,  6,   
+//50,     64, 64, 48,   
+//100,   128,128, 96,   
+//200,   255,255,192,   
+//240,   255,255,255, 
+//255,   255,255,255 }; //junk value
+
+//// "Natural" white
+//  0,     8,  6,  4,   
+//50,     64, 48, 32,   
+//100,   128, 96, 64,   
+//200,   255,192,128,   
+//240,   255,255,255, 
+//255,   255,255,255 }; //junk value
+
+//// Warm white
+//  0,     8,  6,  2,   
+//50,     64, 48, 16,   
+//100,   128, 96, 32,   
+//200,   255,192, 64,   
+//240,   255,255,255, 
+//255,   255,255,255 }; //junk value
+
+// Alt
+  0,     0,  0,  8,   
+50,     32,  8,  4,   
+100,   128, 64, 32,   
+200,   255,200, 64,   
+240,   255,255,255, 
 255,   255,255,255 }; //junk value
+
+//// Power test
+//  0,     0,  0,  16,   
+//50,     64,  16,  8,   
+//100,   255,255,255,   
+//200,   255,255,255,   
+//240,   255,255,255, 
+//255,   255,255,255 }; //junk value
+
+
 #define COOLING_MIN  5
 #define COOLING_MAX  15
 #define SPARKING 130
 #define SPARK_HEAT_MIN 50
 #define SPARK_HEAT_MAX 100
 #define SPARK_WIDTH 2
+#define HEAT_MOTION_ADD 224
 
-CRGBPalette16 gPal = heatmap_gp;
+CRGBPalette16 g_oPalHeat = heatmap_gp;
 
 
 // Audio
@@ -123,6 +167,11 @@ float g_fInputExponent = 0.8;
 float g_fSpeedRatio;
 
 
+// Reading data from serial port
+char g_acSerialInputBuffer [256];
+int g_iSerialInputBufferPos = 0;
+
+
 
 // Clamp function
 float Clamp(float fVal, float fMin, float fMax)
@@ -143,10 +192,14 @@ float Clamp(float fVal, float fMin, float fMax)
 
 void setup()
 {
+	// Setup serial
+	Serial.begin(9600);
+	
+	
 	// LEDs
 	
 	// WS2812Serial and FastLED
-	LEDS.addLeds<WS2812SERIAL, DATA_PIN, BRG>(leds, NUM_LEDS);
+	LEDS.addLeds<WS2812SERIAL, DATA_PIN, BRG>(g_aLeds, NUM_LEDS);
 	
 	
 	// Audio 
@@ -181,10 +234,10 @@ void setup()
 void update_speed() 
 {
 	// Get the cur
-	float fCurSpeed = GetCurSpeed();
+	float fRawSpeed = GetCurSpeed();
 
 	// Clamp the range of the speed
-	fCurSpeed = Clamp(fCurSpeed, g_fMinSpeed, g_fMaxSpeed);
+	float fCurSpeed = Clamp(fRawSpeed, g_fMinSpeed, g_fMaxSpeed);
 
 	// Calculate the new speed ratio
 	float fNewSpeedRatio = (fCurSpeed - g_fMinSpeed) / (g_fMaxSpeed - g_fMinSpeed);
@@ -203,16 +256,137 @@ void update_speed()
 	// Apply the input exponent to change the input curve.  This is the final output.
 	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
 	
-	// Debug output
+	// Send current status over the serial port either for debugging or talking to tuner program
+	Serial.print("STATUS - ");
 	Serial.print(micros());
-	Serial.print(" - TEMP_CL fNewSpeedRatio=");
-	Serial.print(fNewSpeedRatio);
+	Serial.print(" - ");
+	Serial.print(" fRawSpeed=");
+	Serial.print(fRawSpeed);
 	Serial.print(" fCurSpeed=");
 	Serial.print(fCurSpeed);
+	Serial.print(" fNewSpeedRatio=");
+	Serial.print(fNewSpeedRatio);
 	Serial.print(" g_fSpeedRatio=");
 	Serial.print(g_fSpeedRatio);
 	Serial.print(" fDisplaySpeedRatio=");
-	Serial.println(fDisplaySpeedRatio);
+	Serial.print(fDisplaySpeedRatio);
+	Serial.println("");
+}
+
+
+void send_tuning_vars()
+{
+	// Send the tuning variables over the serial port
+	Serial.print("TUNING - ");
+	Serial.print(" g_fMinSpeed=");
+	Serial.print(g_fMinSpeed);
+	Serial.print(" g_fMaxSpeed=");
+	Serial.print(g_fMaxSpeed);
+	Serial.print(" g_fNewSpeedWeight=");
+	Serial.print(g_fNewSpeedWeight);
+	Serial.print(" g_fInputExponent=");
+	Serial.print(g_fInputExponent);
+	Serial.println("");
+}
+
+
+void check_serial()
+{
+	static const char REQUEST_TUNING[] = "REQUEST_TUNING";
+	static const char NEW_TUNING[] = "NEW_TUNING";
+	static size_t NEW_TUNING_LEN = strlen(NEW_TUNING);
+	
+	// Check to see if tuning variables have been requested
+	while(Serial.available() > 0)
+	{
+        char c = Serial.read();
+		//Serial.print("TEMP_CL - got char:");
+		//Serial.println(c);
+        if ((c == '\n') || (g_iSerialInputBufferPos == sizeof(g_acSerialInputBuffer)-1))
+		{
+			g_acSerialInputBuffer[g_iSerialInputBufferPos] = '\0';
+            g_iSerialInputBufferPos = 0;
+			
+			Serial.print("Got serial input:");
+			Serial.println(g_acSerialInputBuffer);
+			Serial.flush();
+			
+			if(strcmp(g_acSerialInputBuffer, REQUEST_TUNING) == 0)
+			{
+				send_tuning_vars();
+			}
+			// Example = "NEW_TUNING MaxSpeed=0.25"
+			else if(strncmp(g_acSerialInputBuffer, NEW_TUNING, NEW_TUNING_LEN) == 0)
+			{
+				strtok(g_acSerialInputBuffer, " "); // Read off the NEW_TUNING tag
+				char *pTuningKey = NULL;
+				char *pTuningValue = NULL;
+				
+				if((pTuningKey = strtok(NULL, "=")) != NULL && (pTuningValue = strtok(NULL, " ")) != NULL)
+				{
+					Serial.println(pTuningKey);
+					Serial.flush();
+					Serial.println(pTuningValue);
+					Serial.flush();
+					
+					// Test if valid float
+					char *pEndPtr;
+					float fValue = strtof(pTuningValue, &pEndPtr);
+					bool bValidFloat = *pEndPtr == '\0';
+					if(!bValidFloat)
+					{
+						Serial.print("Invalid float format! ");
+						Serial.println(pTuningValue);
+					}
+					else 
+					{
+						bool bGotNewValue = false;
+						if(strcmp(pTuningKey, "MinSpeed") == 0 && bValidFloat)
+						{
+							g_fMinSpeed = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "MaxSpeed") == 0 && bValidFloat)
+						{
+							g_fMaxSpeed = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "NewSpeedWeight") == 0 && bValidFloat)
+						{
+							g_fNewSpeedWeight = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "InputExponent") == 0 && bValidFloat)
+						{
+							g_fInputExponent = fValue;
+							bGotNewValue = true;
+						}
+						
+						if(bGotNewValue) 
+						{
+							Serial.print("Got new tunning: ");
+							Serial.print(pTuningKey);
+							Serial.print("=");
+							Serial.println(fValue);
+						}
+						else
+						{
+							Serial.print("Unrecognised tuning var: ");
+							Serial.println(pTuningKey);
+						}
+					}
+				}
+				else
+				{
+					Serial.println("Invalid tuning format! Should be 'NEW_TUNING MaxSpeed=0.25'.");
+				}
+			}
+		}
+		else 
+		{
+			g_acSerialInputBuffer[g_iSerialInputBufferPos++] = c;
+		}
+	}
 }
 
 
@@ -220,7 +394,7 @@ void update_speed()
 void loop()
 {	
 	// Make sure wav file is playing
-	if (g_bAudioInitialized && playSdWav1.isPlaying() == false)
+	if(g_bAudioInitialized && playSdWav1.isPlaying() == false)
 	{
 		Serial.println("Start playing");
 		//playSdWav1.play("SDTEST2.WAV");
@@ -228,16 +402,20 @@ void loop()
 		playSdWav1.play("thunder.wav");
 		delay(10); // wait for library to parse WAV info
 	}
+	
 
 
 	// Add entropy to random number generator; we use a lot of it.
 	// TEMP_CL random16_add_entropy( random());
 
-	memcpy(last_heat, heat, NUM_LEDS);
+	memcpy(g_ayLastHeat, g_ayHeat, NUM_LEDS);
 	UpdateHeat(); // run simulation frame, using palette colors
   
 	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
 	{
+		// Serial input
+		check_serial();
+		
 		// Radar
 		update_speed();
 		
@@ -246,18 +424,43 @@ void loop()
 			sgtl5000_1.volume(g_fSpeedRatio / 2.0 + 0.05);
 		}
 
+		
 		//LEDs
-		fract8 fLerp = i*256/NUM_INTERP_FRAMES;
-		byte lerpHeat;
-		for( int j = 0; j < NUM_LEDS; ++j)
+		
+		//fract8 fLerp = i*256/NUM_INTERP_FRAMES;
+		//byte lerpHeat;
+		//for( int j = 0; j < NUM_LEDS; ++j)
+		//{
+		//	// Fade between last and cur heat values
+		//	lerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
+        //
+		//	// Scale heat
+		//	lerpHeat = scale8(lerpHeat, MAX_HEAT);
+        //
+		//	g_aLeds[j] = ColorFromPalette( gPal, lerpHeat);
+		//}
+		//FastLED.show(); // display this frame
+		
+		// Lerp between the target frames
+		fract8 fLerp = i * 256 / NUM_INTERP_FRAMES;
+		byte yLerpHeat;
+		for(int j = 0; j < NUM_LEDS / 2; ++j)
 		{
 			// Fade between last and cur heat values
-			lerpHeat = lerp8by8(last_heat[j], heat[j], fLerp);
+			yLerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
+			
+			// TEMP_CL - Scale heat
+			yLerpHeat = scale8(yLerpHeat, 32);
+
+			// Add based on touch
+			yLerpHeat = qadd8(yLerpHeat, g_fSpeedRatio * HEAT_MOTION_ADD);
 
 			// Scale heat
-			lerpHeat = scale8(lerpHeat, MAX_HEAT);
-
-			leds[j] = ColorFromPalette( gPal, lerpHeat);
+			yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
+			
+			// Get the heat color
+			g_aLeds[j*2] = ColorFromPalette(g_oPalHeat, yLerpHeat);
+						
 		}
 		FastLED.show(); // display this frame
 		
@@ -274,13 +477,13 @@ void UpdateHeat()
 	// Cool down every cell a little
 	for(int i = 0; i < NUM_LEDS; i++)
 	{
-		heat[i] = qsub8( heat[i],  random8(COOLING_MIN, COOLING_MAX));
+		g_ayHeat[i] = qsub8( g_ayHeat[i],  random8(COOLING_MIN, COOLING_MAX));
 	}
 	
 	// Heat from each cell drifts out
 	for(int i = 1; i < NUM_LEDS-1; i++)
 	{
-		heat[i] = (heat[i]*3 + heat[i-1]*2 + heat[i+1]*2) / 7;
+		g_ayHeat[i] = (g_ayHeat[i]*3 + g_ayHeat[i-1]*2 + g_ayHeat[i+1]*2) / 7;
 	}
 	
 	// Randomly ignite new 'sparks' of heat - per 10 leds
@@ -291,7 +494,7 @@ void UpdateHeat()
 
 			byte newHeat = random8(SPARK_HEAT_MIN, SPARK_HEAT_MAX);
 			for(int j = 0; j < SPARK_WIDTH; ++j) {
-				heat[y+j] = qadd8( heat[y+j],  newHeat);
+				g_ayHeat[y+j] = qadd8( g_ayHeat[y+j],  newHeat);
 			}
 		}
 	}
