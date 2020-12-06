@@ -29,7 +29,7 @@
 // LED
 #define DATA_PIN 17
 
-#define NUM_LEDS 1500 
+#define NUM_LEDS 1000 
 #define MAX_HEAT 240 // Don't go above 240
 #define FRAMES_PER_SECOND 120
 #define NUM_INTERP_FRAMES 10
@@ -295,6 +295,8 @@ void check_serial()
 	static const char REQUEST_TUNING[] = "REQUEST_TUNING";
 	static const char NEW_TUNING[] = "NEW_TUNING";
 	static size_t NEW_TUNING_LEN = strlen(NEW_TUNING);
+	static const char NEW_COLOR_GRAD[] = "NEW_COLOR_GRAD";
+	static size_t NEW_COLOR_GRAD_LEN = strlen(NEW_COLOR_GRAD);
 	
 	// Check to see if tuning variables have been requested
 	while(Serial.available() > 0)
@@ -381,6 +383,89 @@ void check_serial()
 					Serial.println("Invalid tuning format! Should be 'NEW_TUNING MaxSpeed=0.25'.");
 				}
 			}
+			// Color gradiant
+			else if(strncmp(g_acSerialInputBuffer, NEW_COLOR_GRAD, NEW_COLOR_GRAD_LEN) == 0)
+			{
+				strtok(g_acSerialInputBuffer, " "); // Read off the NEW_TUNING tag
+				char *pTuningKey = NULL;
+				
+				if((pTuningKey = strtok(NULL, "=")) != NULL)
+				{
+					Serial.println(pTuningKey);
+					Serial.flush();
+					
+					char *pTuningValue = NULL;
+					bool bGotValidColorGrad = true;
+					byte ayColorGrad[24];
+					for(int i = 0; i < 24; ++i) 
+					{
+						pTuningValue = strtok(NULL, ",");
+						if(pTuningValue == NULL)
+						{
+							Serial.println("Invalid color gradiant format - Didn't get 24 bytes");
+							bGotValidColorGrad = false;
+							break;
+						}
+						
+						// Test if valid byte
+						char *pEndPtr;
+						long int iValue = strtol(pTuningValue, &pEndPtr, 10);
+						bool bValidInt = *pEndPtr == '\0';
+						if(!bValidInt)
+						{
+							Serial.println("Invalid color gradiant format - Couldn't parse number");
+							bGotValidColorGrad = false;
+							break;
+						}
+						bool bValidByte = iValue >= 0 && iValue <= 255;
+						if(!bValidByte)
+						{
+							Serial.println("Invalid color gradiant format - Data out of range");
+							bGotValidColorGrad = false;
+							break;
+						}
+						
+						ayColorGrad[i] = (byte)iValue;
+					}
+					
+					// Sanity check values
+					if(bGotValidColorGrad &&
+					   (ayColorGrad[0] != 0 ||
+					    ayColorGrad[20] != 255 ||
+					    ayColorGrad[21] != 255 ||
+					    ayColorGrad[22] != 255 ||
+					    ayColorGrad[23] != 255))
+					{
+						Serial.println("Invalid color gradiant format - Bad first or last entry");
+						bGotValidColorGrad = false;
+					}
+					
+					if(bGotValidColorGrad)
+					{
+						bool bGotNewValue = false;
+						if(strcmp(pTuningKey, "PalHeat") == 0)
+						{
+							g_oPalHeat.loadDynamicGradientPalette(ayColorGrad);
+							bGotNewValue = true;
+						}
+						
+						if(bGotNewValue) 
+						{
+							Serial.print("Got new color gradiant for: ");
+							Serial.println(pTuningKey);
+						}
+						else
+						{
+							Serial.print("Unrecognised tuning var: ");
+							Serial.println(pTuningKey);
+						}
+					}
+				}
+				else
+				{
+					Serial.println("Invalid color gradiant format - Should be 'NEW_COLOR_GRAD PalHeat=0,0,0,8,50,32,8,4,100,128,64,32,200,255,200,64,240,255,255,255,255,255,255,255");
+				}
+			}
 		}
 		else 
 		{
@@ -452,8 +537,9 @@ void loop()
 			// TEMP_CL - Scale heat
 			yLerpHeat = scale8(yLerpHeat, 32);
 
-			// Add based on touch
+			// Account for touch
 			yLerpHeat = qadd8(yLerpHeat, g_fSpeedRatio * HEAT_MOTION_ADD);
+			//yLerpHeat = qmul8(yLerpHeat, g_fSpeedRatio * 10 + 1);
 
 			// Scale heat
 			yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
