@@ -30,9 +30,9 @@
 #define DATA_PIN 17
 
 #define NUM_LEDS 1000 
-#define MAX_HEAT 240 // Don't go above 240
+#define MAX_HEAT 255 // Don't go above 240   // TEMP_CL
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES 10
+#define NUM_INTERP_FRAMES 20
 
 CRGB g_aLeds[NUM_LEDS];
 byte g_ayHeat[NUM_LEDS];
@@ -74,11 +74,10 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 
 // Alt
   0,     0,  0,  8,   
-50,     32,  8,  4,   
-100,   128, 64, 32,   
-200,   255,200, 64,   
-240,   255,255,255, 
-255,   255,255,255 }; //junk value
+32,     32,  8,  0,   
+100,   128, 32,  0,   
+200,   255,200, 32,   
+255,   255,255,255}; //junk value
 
 //// Power test
 //  0,     0,  0,  16,   
@@ -86,7 +85,7 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 //100,   255,255,255,   
 //200,   255,255,255,   
 //240,   255,255,255, 
-//255,   255,255,255 }; //junk value
+//255,   255,255,255 }; //junk value // TEMP_CL
 
 
 #define COOLING_MIN  5
@@ -95,9 +94,11 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 #define SPARK_HEAT_MIN 50
 #define SPARK_HEAT_MAX 100
 #define SPARK_WIDTH 2
-#define HEAT_MOTION_ADD 224
+#define HEAT_MOTION_ADD 255 // TEMP_CL
 
-CRGBPalette16 g_oPalHeat = heatmap_gp;
+CRGBPalette256 g_oPalHeat = heatmap_gp;
+
+int g_iLedSpacing = 1;
 
 
 // Audio
@@ -150,7 +151,7 @@ volatile unsigned long g_iPulseCount = 0;
 float g_fMinSpeed = 0.02;
 
 // Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
-float g_fMaxSpeed = 0.10;
+float g_fMaxSpeed = 0.50;
 
 // Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
@@ -166,8 +167,11 @@ float g_fInputExponent = 0.8;
 // and g_fMinSpeed, g_fMaxSpeed, g_fNewSpeedWeight.
 float g_fSpeedRatio;
 
+// TEMP_CL
+int g_iPulsesSinceLastTick = 0;
 
 // Reading data from serial port
+
 char g_acSerialInputBuffer [256];
 int g_iSerialInputBufferPos = 0;
 
@@ -227,7 +231,7 @@ void setup()
 	
 	// Attach an Interrupt to INTERRUPT_PIN for timing period of motion detector input
 	pinMode(INTERRUPT_PIN, INPUT);
-	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), MotionDetectorPulse, RISING);   
+	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), MotionDetectorPulse, CHANGE);   
 }
 
 
@@ -256,6 +260,10 @@ void update_speed()
 	// Apply the input exponent to change the input curve.  This is the final output.
 	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
 	
+	// TEMP_CL
+	float fPulsesSinceLastTick = g_iPulsesSinceLastTick / 10.0;
+	g_iPulsesSinceLastTick = 0;
+	
 	// Send current status over the serial port either for debugging or talking to tuner program
 	Serial.print("STATUS - ");
 	Serial.print(micros());
@@ -270,6 +278,8 @@ void update_speed()
 	Serial.print(g_fSpeedRatio);
 	Serial.print(" fDisplaySpeedRatio=");
 	Serial.print(fDisplaySpeedRatio);
+	Serial.print(" fPulsesSinceLastTick=");
+	Serial.print(fPulsesSinceLastTick);
 	Serial.println("");
 }
 
@@ -529,13 +539,13 @@ void loop()
 		// Lerp between the target frames
 		fract8 fLerp = i * 256 / NUM_INTERP_FRAMES;
 		byte yLerpHeat;
-		for(int j = 0; j < NUM_LEDS / 2; ++j)
+		for(int j = 0; j < NUM_LEDS / g_iLedSpacing; ++j)
 		{
 			// Fade between last and cur heat values
 			yLerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
 			
 			// TEMP_CL - Scale heat
-			yLerpHeat = scale8(yLerpHeat, 32);
+			yLerpHeat = scale8(yLerpHeat, 64);
 
 			// Account for touch
 			yLerpHeat = qadd8(yLerpHeat, g_fSpeedRatio * HEAT_MOTION_ADD);
@@ -545,7 +555,7 @@ void loop()
 			yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
 			
 			// Get the heat color
-			g_aLeds[j*2] = ColorFromPalette(g_oPalHeat, yLerpHeat);
+			g_aLeds[j*g_iLedSpacing] = ColorFromPalette(g_oPalHeat, yLerpHeat);
 						
 		}
 		FastLED.show(); // display this frame
@@ -599,8 +609,11 @@ void MotionDetectorPulse()
 	unsigned long iPeriod = iCurTimeMicro - g_iLastTimeMicro;
 	if(iPeriod > 100) 
 	{
-		g_iLastPeriodMicro = iPeriod;
+		g_iLastPeriodMicro = (iPeriod + g_iLastPeriodMicro) / 2;
 		g_iLastTimeMicro = iCurTimeMicro;
+	
+		// TEMP_CL
+		++g_iPulsesSinceLastTick;
 	}
 }
 
