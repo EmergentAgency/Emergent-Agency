@@ -30,7 +30,7 @@
 #define DATA_PIN 17
 
 #define NUM_LEDS 1000 
-#define MAX_HEAT 255 // Don't go above 240   // TEMP_CL
+#define MAX_HEAT 255
 #define FRAMES_PER_SECOND 120
 #define NUM_INTERP_FRAMES 20
 
@@ -38,55 +38,17 @@ CRGB g_aLeds[NUM_LEDS];
 byte g_ayHeat[NUM_LEDS];
 byte g_ayLastHeat[NUM_LEDS]; // Used for interp between heat frames
 
-DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
-	
-//// Fire colors
-//  0,     8,  2,  0,   
-//50,     64, 16,  0,   
-//100,   128, 64,  8,   
-//200,   255,128, 64,   
-//240,   255,200,100, 
-//255,   255,255,255 }; //junk value
+// Define the color gradient
+byte g_ayColorGrad[] = {
+	  0,     0,  0, 16,   
+	32,     64, 16,  0,   
+	100,   128, 32,  0,   
+	200,   255,200, 32,   
+	255,   255,255,255
+};
+#define COLOR_GRAD_SIZE 20
 
-//// Cool white
-//  0,     8,  8,  6,   
-//50,     64, 64, 48,   
-//100,   128,128, 96,   
-//200,   255,255,192,   
-//240,   255,255,255, 
-//255,   255,255,255 }; //junk value
-
-//// "Natural" white
-//  0,     8,  6,  4,   
-//50,     64, 48, 32,   
-//100,   128, 96, 64,   
-//200,   255,192,128,   
-//240,   255,255,255, 
-//255,   255,255,255 }; //junk value
-
-//// Warm white
-//  0,     8,  6,  2,   
-//50,     64, 48, 16,   
-//100,   128, 96, 32,   
-//200,   255,192, 64,   
-//240,   255,255,255, 
-//255,   255,255,255 }; //junk value
-
-// Alt
-  0,     0,  0,  8,   
-32,     32,  8,  0,   
-100,   128, 32,  0,   
-200,   255,200, 32,   
-255,   255,255,255}; //junk value
-
-//// Power test
-//  0,     0,  0,  16,   
-//50,     64,  16,  8,   
-//100,   255,255,255,   
-//200,   255,255,255,   
-//240,   255,255,255, 
-//255,   255,255,255 }; //junk value // TEMP_CL
-
+CRGBPalette256 g_oPalHeat;
 
 #define COOLING_MIN  5
 #define COOLING_MAX  15
@@ -95,8 +57,6 @@ DEFINE_GRADIENT_PALETTE( heatmap_gp ) {
 #define SPARK_HEAT_MAX 100
 #define SPARK_WIDTH 2
 #define HEAT_MOTION_ADD 255 // TEMP_CL
-
-CRGBPalette256 g_oPalHeat = heatmap_gp;
 
 int g_iLedSpacing = 1;
 
@@ -163,8 +123,11 @@ float g_fNewSpeedWeight = 0.02;
 // to be adjusted in a non-linear fashion.
 float g_fInputExponent = 0.8;
 
-// This is the outout speed ratio [0, 1.0].  It is based on the speed read from the motion detector
+// This is the raw speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and g_fMinSpeed, g_fMaxSpeed, g_fNewSpeedWeight.
+float g_fRawSpeedRatio;
+
+// This is the outout speed ratio [0, 1.0] after being adjusted with g_fInputExponent 
 float g_fSpeedRatio;
 
 // TEMP_CL
@@ -204,6 +167,9 @@ void setup()
 	
 	// WS2812Serial and FastLED
 	LEDS.addLeds<WS2812SERIAL, DATA_PIN, BRG>(g_aLeds, NUM_LEDS);
+	
+	// Define color gradiant
+	g_oPalHeat.loadDynamicGradientPalette(g_ayColorGrad);
 	
 	
 	// Audio 
@@ -255,10 +221,10 @@ void update_speed()
 	//Serial.println(fNewSpeedRatio);
 
 	// Calculate the smoothed speed ratio
-	g_fSpeedRatio = fNewSpeedRatio * g_fNewSpeedWeight + g_fSpeedRatio * (1.0 - g_fNewSpeedWeight);
+	g_fRawSpeedRatio = fNewSpeedRatio * g_fNewSpeedWeight + g_fRawSpeedRatio * (1.0 - g_fNewSpeedWeight);
 
 	// Apply the input exponent to change the input curve.  This is the final output.
-	float fDisplaySpeedRatio = pow(g_fSpeedRatio, g_fInputExponent);
+	g_fSpeedRatio = pow(g_fRawSpeedRatio, g_fInputExponent);
 	
 	// TEMP_CL
 	float fPulsesSinceLastTick = g_iPulsesSinceLastTick / 10.0;
@@ -267,17 +233,17 @@ void update_speed()
 	// Send current status over the serial port either for debugging or talking to tuner program
 	Serial.print("STATUS - ");
 	Serial.print(micros());
-	Serial.print(" - ");
+	Serial.print(" -");
 	Serial.print(" fRawSpeed=");
 	Serial.print(fRawSpeed);
 	Serial.print(" fCurSpeed=");
 	Serial.print(fCurSpeed);
 	Serial.print(" fNewSpeedRatio=");
 	Serial.print(fNewSpeedRatio);
+	Serial.print(" g_fRawSpeedRatio=");
+	Serial.print(g_fRawSpeedRatio);
 	Serial.print(" g_fSpeedRatio=");
 	Serial.print(g_fSpeedRatio);
-	Serial.print(" fDisplaySpeedRatio=");
-	Serial.print(fDisplaySpeedRatio);
 	Serial.print(" fPulsesSinceLastTick=");
 	Serial.print(fPulsesSinceLastTick);
 	Serial.println("");
@@ -287,7 +253,7 @@ void update_speed()
 void send_tuning_vars()
 {
 	// Send the tuning variables over the serial port
-	Serial.print("TUNING - ");
+	Serial.print("TUNING -");
 	Serial.print(" g_fMinSpeed=");
 	Serial.print(g_fMinSpeed);
 	Serial.print(" g_fMaxSpeed=");
@@ -300,9 +266,26 @@ void send_tuning_vars()
 }
 
 
+void send_color_gradient()
+{
+	// Send the tuning variables over the serial port
+	Serial.print("COLORS - ");
+	for(int i = 0; i < COLOR_GRAD_SIZE; ++i) 
+	{
+		Serial.print(g_ayColorGrad[i]);
+		if(i != COLOR_GRAD_SIZE - 1)
+		{
+			Serial.print(",");
+		}
+	}
+	Serial.println("");
+}
+
+
 void check_serial()
 {
 	static const char REQUEST_TUNING[] = "REQUEST_TUNING";
+	static const char REQUEST_COLORS[] = "REQUEST_COLORS";
 	static const char NEW_TUNING[] = "NEW_TUNING";
 	static size_t NEW_TUNING_LEN = strlen(NEW_TUNING);
 	static const char NEW_COLOR_GRAD[] = "NEW_COLOR_GRAD";
@@ -326,6 +309,10 @@ void check_serial()
 			if(strcmp(g_acSerialInputBuffer, REQUEST_TUNING) == 0)
 			{
 				send_tuning_vars();
+			}
+			else if(strcmp(g_acSerialInputBuffer, REQUEST_COLORS) == 0)
+			{
+				send_color_gradient();
 			}
 			// Example = "NEW_TUNING MaxSpeed=0.25"
 			else if(strncmp(g_acSerialInputBuffer, NEW_TUNING, NEW_TUNING_LEN) == 0)
@@ -406,13 +393,15 @@ void check_serial()
 					
 					char *pTuningValue = NULL;
 					bool bGotValidColorGrad = true;
-					byte ayColorGrad[24];
-					for(int i = 0; i < 24; ++i) 
+					byte ayColorGrad[COLOR_GRAD_SIZE];
+					for(int i = 0; i < COLOR_GRAD_SIZE; ++i) 
 					{
 						pTuningValue = strtok(NULL, ",");
 						if(pTuningValue == NULL)
 						{
-							Serial.println("Invalid color gradiant format - Didn't get 24 bytes");
+							Serial.print("Invalid color gradiant format - Didn't get ");
+							Serial.print(COLOR_GRAD_SIZE);
+							Serial.println(" bytes");
 							bGotValidColorGrad = false;
 							break;
 						}
@@ -441,10 +430,7 @@ void check_serial()
 					// Sanity check values
 					if(bGotValidColorGrad &&
 					   (ayColorGrad[0] != 0 ||
-					    ayColorGrad[20] != 255 ||
-					    ayColorGrad[21] != 255 ||
-					    ayColorGrad[22] != 255 ||
-					    ayColorGrad[23] != 255))
+					    ayColorGrad[COLOR_GRAD_SIZE - 4] != 255))
 					{
 						Serial.println("Invalid color gradiant format - Bad first or last entry");
 						bGotValidColorGrad = false;
@@ -455,7 +441,8 @@ void check_serial()
 						bool bGotNewValue = false;
 						if(strcmp(pTuningKey, "PalHeat") == 0)
 						{
-							g_oPalHeat.loadDynamicGradientPalette(ayColorGrad);
+							memcpy(g_ayColorGrad, ayColorGrad, COLOR_GRAD_SIZE);
+							g_oPalHeat.loadDynamicGradientPalette(g_ayColorGrad);
 							bGotNewValue = true;
 						}
 						
@@ -473,7 +460,8 @@ void check_serial()
 				}
 				else
 				{
-					Serial.println("Invalid color gradiant format - Should be 'NEW_COLOR_GRAD PalHeat=0,0,0,8,50,32,8,4,100,128,64,32,200,255,200,64,240,255,255,255,255,255,255,255");
+					Serial.println("Invalid color gradiant format - Should be:");
+					Serial.println("NEW_COLOR_GRAD PalHeat=0,0,0,8,50,32,8,4,100,128,64,32,200,255,200,64,255,255,255,255");
 				}
 			}
 		}
