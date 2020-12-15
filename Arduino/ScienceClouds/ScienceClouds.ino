@@ -25,6 +25,9 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
+// EEPROM includes
+#include <EEPROM.h>
+
 
 // LED
 #define DATA_PIN 17
@@ -39,6 +42,7 @@ byte g_ayHeat[NUM_LEDS];
 byte g_ayLastHeat[NUM_LEDS]; // Used for interp between heat frames
 
 // Define the color gradient
+#define COLOR_GRAD_SIZE 20
 byte g_ayColorGrad[] = {
 	  0,     0,  0, 16,   
 	32,     64, 16,  0,   
@@ -46,7 +50,8 @@ byte g_ayColorGrad[] = {
 	200,   255,200, 32,   
 	255,   255,255,255
 };
-#define COLOR_GRAD_SIZE 20
+byte g_ayColorGradSaved[COLOR_GRAD_SIZE];
+byte g_ayColorGradDefault[COLOR_GRAD_SIZE];
 
 CRGBPalette256 g_oPalHeat;
 
@@ -109,19 +114,27 @@ volatile unsigned long g_iPulseCount = 0;
 // Tuning - The min speed in meters per second to respond to.  Any motion at or below this will be 
 // considered no motion at all.
 float g_fMinSpeed = 0.02;
+float g_fMinSpeedSaved = g_fMinSpeed;
+float g_fMinSpeedDefault = g_fMinSpeed;
 
 // Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
-float g_fMaxSpeed = 0.50;
+float g_fMaxSpeed = 0.40;
+float g_fMaxSpeedSaved = g_fMaxSpeed;
+float g_fMaxSpeedDefault = g_fMaxSpeed;
 
 // Tuning - This is the speed smoothing factor (0, 1.0].  Low values mean more smoothing while a value of 1 means 
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
 float g_fNewSpeedWeight = 0.02;
+float g_fNewSpeedWeightSaved = g_fNewSpeedWeight;
+float g_fNewSpeedWeightDefault = g_fNewSpeedWeight;
 
 // Tuning - The exponent to apply to the linear 0.0 to 1.0 value from the sensor.  This allows the sensitivity curve
 // to be adjusted in a non-linear fashion.
-float g_fInputExponent = 0.8;
+float g_fInputExponent = 1.2;
+float g_fInputExponentSaved = g_fInputExponent;
+float g_fInputExponentDefault = g_fInputExponent;
 
 // This is the raw speed ratio [0, 1.0].  It is based on the speed read from the motion detector
 // and g_fMinSpeed, g_fMaxSpeed, g_fNewSpeedWeight.
@@ -137,6 +150,14 @@ int g_iPulsesSinceLastTick = 0;
 
 char g_acSerialInputBuffer [256];
 int g_iSerialInputBufferPos = 0;
+
+
+// EEPROM saved settigs
+
+#define EEPROM_VERSION 1
+#define EEPROM_ADDR_VER 0
+#define EEPROM_ADDR_COLORS 2
+#define EEPROM_ADDR_TUNING 100 // Make sure this is far enough along for larger color arrays
 
 
 
@@ -180,7 +201,7 @@ void setup()
 	SPI.setSCK(SDCARD_SCK_PIN);
 	if (!(SD.begin(SDCARD_CS_PIN)))
 	{
-		Serial.print("Unable to access the SD card. Audio not initialized.");
+		Serial.println("Unable to access the SD card. Audio not initialized.");
 	}
 	else
 	{
@@ -198,6 +219,16 @@ void setup()
 	// Attach an Interrupt to INTERRUPT_PIN for timing period of motion detector input
 	pinMode(INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), MotionDetectorPulse, CHANGE);   
+	
+	
+	// EEPROM
+	
+	// Save off the saved and default copies
+	memcpy(g_ayColorGradSaved, g_ayColorGrad, COLOR_GRAD_SIZE);
+	memcpy(g_ayColorGradDefault, g_ayColorGrad, COLOR_GRAD_SIZE);
+
+	// Load from memory
+	load_eeprom_to_current_settings();
 }
 
 
@@ -221,7 +252,14 @@ void update_speed()
 	//Serial.println(fNewSpeedRatio);
 
 	// Calculate the smoothed speed ratio
-	g_fRawSpeedRatio = fNewSpeedRatio * g_fNewSpeedWeight + g_fRawSpeedRatio * (1.0 - g_fNewSpeedWeight);
+	if(isnan(g_fRawSpeedRatio))
+	{
+		g_fRawSpeedRatio = fNewSpeedRatio;
+	}
+	else
+	{
+		g_fRawSpeedRatio = fNewSpeedRatio * g_fNewSpeedWeight + g_fRawSpeedRatio * (1.0 - g_fNewSpeedWeight);
+	}
 
 	// Apply the input exponent to change the input curve.  This is the final output.
 	g_fSpeedRatio = pow(g_fRawSpeedRatio, g_fInputExponent);
@@ -265,6 +303,21 @@ void send_tuning_vars()
 	Serial.println("");
 }
 
+void send_tuning_vars_saved()
+{
+	// Send the tuning variables over the serial port
+	Serial.print("TUNING_SAVED -");
+	Serial.print(" g_fMinSpeed=");
+	Serial.print(g_fMinSpeedSaved);
+	Serial.print(" g_fMaxSpeed=");
+	Serial.print(g_fMaxSpeedSaved);
+	Serial.print(" g_fNewSpeedWeight=");
+	Serial.print(g_fNewSpeedWeightSaved);
+	Serial.print(" g_fInputExponent=");
+	Serial.print(g_fInputExponentSaved);
+	Serial.println("");
+}
+
 
 void send_color_gradient()
 {
@@ -281,11 +334,118 @@ void send_color_gradient()
 	Serial.println("");
 }
 
+void send_color_gradient_saved()
+{
+	// Send the tuning variables over the serial port
+	Serial.print("COLORS_SAVED - ");
+	for(int i = 0; i < COLOR_GRAD_SIZE; ++i) 
+	{
+		Serial.print(g_ayColorGradSaved[i]);
+		if(i != COLOR_GRAD_SIZE - 1)
+		{
+			Serial.print(",");
+		}
+	}
+	Serial.println("");
+}
+
+
+void save_current_settings_to_eeprom()
+{
+	// First copy to the saved vars
+	memcpy(g_ayColorGradSaved, g_ayColorGrad, COLOR_GRAD_SIZE);
+	g_fMinSpeedSaved = g_fMinSpeed;
+	g_fMaxSpeedSaved = g_fMaxSpeed;
+	g_fNewSpeedWeightSaved = g_fNewSpeedWeight;
+	g_fInputExponentSaved = g_fInputExponent;
+	
+	// Write the current version out first
+	EEPROM.write(EEPROM_ADDR_VER, EEPROM_VERSION);
+	
+	// Write out the color array
+	EEPROM.put(EEPROM_ADDR_COLORS, g_ayColorGradSaved);
+	
+	// Write out all the tuning vars
+	int iCurTuningAddr = EEPROM_ADDR_TUNING;
+	EEPROM.put(iCurTuningAddr, g_fMinSpeedSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_fMaxSpeedSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_fNewSpeedWeightSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_fInputExponentSaved);
+	iCurTuningAddr += sizeof(float);
+}
+
+void load_eeprom_to_current_settings()
+{
+	if(load_eeprom())
+	{
+		memcpy(g_ayColorGrad, g_ayColorGradSaved, COLOR_GRAD_SIZE);
+		g_oPalHeat.loadDynamicGradientPalette(g_ayColorGrad);
+
+		g_fMinSpeed = g_fMinSpeedSaved;
+		g_fMaxSpeed = g_fMaxSpeedSaved;
+		g_fNewSpeedWeight = g_fNewSpeedWeightSaved;
+		g_fInputExponent = g_fInputExponentSaved;
+	}
+}
+
+bool load_eeprom()
+{
+	// Get the saved version.
+	// If it doesn't match the saved version, don't load anything else.
+	byte yCurVer = EEPROM.read(EEPROM_ADDR_VER);
+	if(yCurVer != EEPROM_VERSION)
+	{
+		Serial.println("Wrong EEPROM version!");
+		Serial.print("Got ");
+		Serial.print(yCurVer);
+		Serial.print(" when expecting ");
+		Serial.println(EEPROM_VERSION);
+		
+		return false;
+	}
+	
+	// Get the color array
+	EEPROM.get(EEPROM_ADDR_COLORS, g_ayColorGradSaved);
+	
+	// Get all the tuning vars
+	int iCurTuningAddr = EEPROM_ADDR_TUNING;
+	EEPROM.get(iCurTuningAddr, g_fMinSpeedSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_fMaxSpeedSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_fNewSpeedWeightSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_fInputExponentSaved);
+	iCurTuningAddr += sizeof(float);
+	
+	return true;
+}
+
+void restore_defaults_to_current_settings()
+{
+	memcpy(g_ayColorGrad, g_ayColorGradDefault, COLOR_GRAD_SIZE);
+	g_oPalHeat.loadDynamicGradientPalette(g_ayColorGrad);
+
+	g_fMinSpeed = g_fMinSpeedDefault;
+	g_fMaxSpeed = g_fMaxSpeedDefault;
+	g_fNewSpeedWeight = g_fNewSpeedWeightDefault;
+	g_fInputExponent = g_fInputExponentDefault;
+
+}
+
 
 void check_serial()
 {
 	static const char REQUEST_TUNING[] = "REQUEST_TUNING";
 	static const char REQUEST_COLORS[] = "REQUEST_COLORS";
+	static const char REQUEST_TUNING_SAVED[] = "REQUEST_TUNING_SAVED";
+	static const char REQUEST_COLORS_SAVED[] = "REQUEST_COLORS_SAVED";
+	static const char SAVE_CURRENT[] = "SAVE_CURRENT";
+	static const char OVERWRITE_CURRENT_WITH_SAVED[] = "OVERWRITE_CURRENT_WITH_SAVED";
+	static const char RESTORE_DEFAULTS[] = "RESTORE_DEFAULTS";
 	static const char NEW_TUNING[] = "NEW_TUNING";
 	static size_t NEW_TUNING_LEN = strlen(NEW_TUNING);
 	static const char NEW_COLOR_GRAD[] = "NEW_COLOR_GRAD";
@@ -313,6 +473,39 @@ void check_serial()
 			else if(strcmp(g_acSerialInputBuffer, REQUEST_COLORS) == 0)
 			{
 				send_color_gradient();
+			}
+			if(strcmp(g_acSerialInputBuffer, REQUEST_TUNING_SAVED) == 0)
+			{
+				send_tuning_vars_saved();
+			}
+			else if(strcmp(g_acSerialInputBuffer, REQUEST_COLORS_SAVED) == 0)
+			{
+				send_color_gradient_saved();
+			}
+			if(strcmp(g_acSerialInputBuffer, SAVE_CURRENT) == 0)
+			{
+				save_current_settings_to_eeprom();
+				load_eeprom_to_current_settings();
+				send_tuning_vars();
+				send_color_gradient();
+				send_tuning_vars_saved();
+				send_color_gradient_saved();
+			}
+			else if(strcmp(g_acSerialInputBuffer, OVERWRITE_CURRENT_WITH_SAVED) == 0)
+			{
+				load_eeprom_to_current_settings();
+				send_tuning_vars();
+				send_color_gradient();
+				send_tuning_vars_saved();
+				send_color_gradient_saved();
+			}
+			else if(strcmp(g_acSerialInputBuffer, RESTORE_DEFAULTS) == 0)
+			{
+				restore_defaults_to_current_settings();
+				send_tuning_vars();
+				send_color_gradient();
+				send_tuning_vars_saved();
+				send_color_gradient_saved();
 			}
 			// Example = "NEW_TUNING MaxSpeed=0.25"
 			else if(strncmp(g_acSerialInputBuffer, NEW_TUNING, NEW_TUNING_LEN) == 0)

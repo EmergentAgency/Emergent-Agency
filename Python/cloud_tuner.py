@@ -26,14 +26,14 @@ num_color_grad_rows = 5
 # Canvas layout vars
 text_enty_label_height = 15
 tuning_vars_x = 25
-tuning_vars_y = 25
+tuning_vars_y = 200 - text_enty_label_height
 tuning_vars_vert_spacing = 40
 colors_x = 25
-colors_y = 310
+colors_y = 25
 colors_vert_spacing = 20
 colors_horiz_spacing = 30
 live_bars_x = 300
-live_bars_y = 25
+live_bars_y = 200
 live_bars_width = 50
 live_bars_height = 200
 live_bars_horiz_spacing = 110
@@ -52,7 +52,7 @@ class CloudTuner:
         self.canvas.pack()
         # Input from user in form of clicks and keyboard
         self.window.bind("<Key>", self.key_input)
-        self.window.bind("<Button-1>", self.mouse_input)
+        # TEMP_CL self.window.bind("<Button-1>", self.mouse_input)
         self.init_screen()
         
         
@@ -188,6 +188,19 @@ class CloudTuner:
         #    fill="", 
         #    outline=BLUE_COLOR,
         #)
+        
+        # Create buttons
+        button1 = tk.Button(self.canvas, text="Permanently Save Current Values", command=self.save_current, anchor=tk.N)
+        button1.configure(width = 25)
+        button1_window = self.canvas.create_window(800, 25, anchor=tk.NW, window=button1)
+
+        button2 = tk.Button(self.canvas, text="Overwrite Current With Saved", command=self.overwrite_current_with_saved, anchor=tk.N)
+        button2.configure(width = 25)
+        button2_window = self.canvas.create_window(800, 55, anchor=tk.NW, window=button2)
+
+        button2 = tk.Button(self.canvas, text="Restore Defaults to Current", command=self.restore_defaults, anchor=tk.N)
+        button2.configure(width = 25)
+        button2_window = self.canvas.create_window(800, 85, anchor=tk.NW, window=button2)
 
         com_port_to_use = ""
         from serial.tools.list_ports import comports
@@ -207,6 +220,21 @@ class CloudTuner:
         # Request tuning vars
         self.serial_port.write(b'REQUEST_TUNING\n')
         self.serial_port.write(b'REQUEST_COLORS\n')
+        self.serial_port.write(b'REQUEST_TUNING_SAVED\n')
+        self.serial_port.write(b'REQUEST_COLORS_SAVED\n')
+
+        
+    def save_current(self):
+        print("Save Current")
+        self.serial_port.write(b'SAVE_CURRENT\n')
+       
+    def overwrite_current_with_saved(self):
+        print("Overwrite Current with Saved")
+        self.serial_port.write(b'OVERWRITE_CURRENT_WITH_SAVED\n')
+ 
+    def restore_defaults(self):
+        print("Restore Defaults")
+        self.serial_port.write(b'RESTORE_DEFAULTS\n')
  
 
     def read_val_string(self, str_in, match_string):
@@ -235,13 +263,20 @@ class CloudTuner:
                 print("got line:", str_in, end='')
             
             # Look for new tuning vars
-            if str_in.startswith("TUNING"):
+            if str_in.startswith("TUNING - "):
                 for i in range(self.num_tuning_vars):
                     val_string = self.read_val_string(str_in, tuning_param_list[i])
                     # TEMP_CL print(val_string)
                     self.text_inputs[i].delete(0, tk.END)
                     self.text_inputs[i].insert(0, val_string)
                     self.canvas.itemconfigure(self.cur_tuning_vars[i], text=val_string)
+                    
+            # Look for saved tuning vars
+            if str_in.startswith("TUNING_SAVED - "):
+                for i in range(self.num_tuning_vars):
+                    val_string = self.read_val_string(str_in, tuning_param_list[i])
+                    # TEMP_CL print(val_string)
+                    self.canvas.itemconfigure(self.tuning_vars_saved[i], text=val_string)
                     
             # Look for a new color gradient
             color_prefix = "COLORS - "
@@ -262,6 +297,19 @@ class CloudTuner:
                        
                         # Label
                         self.canvas.itemconfigure(self.color_vals[color_entry_index], text=colors[color_entry_index])
+                        
+            # Look for a saved color gradient
+            color_prefix = "COLORS_SAVED - "
+            if str_in.startswith(color_prefix):
+                color_str = str_in[len(color_prefix):]
+                colors = color_str.replace("\r\n","").split(',')
+                for row in range(num_color_grad_rows):
+                    for i in range(4):
+                        color_entry_index = row * 4 + i
+                        # TEMP_CL print(colors[color_entry_index])
+                                               
+                        # Label
+                        self.canvas.itemconfigure(self.color_vals_saved[color_entry_index], text=colors[color_entry_index])
                    
             # Look for new status      
             elif str_in.startswith("STATUS"):
@@ -271,22 +319,26 @@ class CloudTuner:
         if latest_status != "":
             for i in range(self.num_display_vars):
                 val_string = self.read_val_string(latest_status, display_vars_list[i])
-                val = float(val_string)
+                try:
+                    val = float(val_string)
                 
-                x0, y0, x1, y1 = self.canvas.coords(self.display_bars[i])
-                self.canvas.coords(self.display_bars[i], x0, y1 - 200 * val, x1, y1)
-                
+                    x0, y0, x1, y1 = self.canvas.coords(self.display_bars[i])
+                    self.canvas.coords(self.display_bars[i], x0, y1 - 200 * val, x1, y1)
+                except:
+                    print("Invalid float value in status!", val_string)
+
                 self.canvas.itemconfigure(self.display_vals[i], text=val_string)
         
         # Keep loop going
         self.window.after(DELAY, self.update_loop)
 
 
-    def mouse_input(self, event):
-        print("mouse_input")
-        byte_written = self.serial_port.write(b'REQUEST_TUNING\n')
-        self.serial_port.flush()
-        print("byte_written=", byte_written)
+    # TEMP_CL
+    #def mouse_input(self, event):
+    #    print("mouse_input")
+    #    byte_written = self.serial_port.write(b'REQUEST_TUNING\n')
+    #    self.serial_port.flush()
+    #    print("byte_written=", byte_written)
 
 
     def key_input(self, event):
