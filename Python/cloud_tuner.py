@@ -13,29 +13,29 @@ import sys
 
 # Define useful parameters
 window_width = 1000
-window_height = 450
+window_height = 480
 DELAY = 10
 
 BLUE_COLOR = "#0492CF"
 RED_COLOR_LIGHT = '#EE7E77'
 
-tuning_param_list = ["MinSpeed", "MaxSpeed", "NewSpeedWeight", "InputExponent"]
+tuning_param_list = ["MinSpeed", "MaxSpeed", "NewSpeedWeight", "InputExponent", "BaseHeatMax", "MotionHeadMult", "MotionHeatAdd", "NumInterpFrames"]
 display_vars_list = ["fSpeedRatio", "fRawSpeedRatio", "fNewSpeedRatio", "fCurSpeed", "fRawSpeed", "fPulsesSinceLastTick"]
 num_color_grad_rows = 5
 
 # Canvas layout vars
 text_enty_label_height = 15
 tuning_vars_x = 25
-tuning_vars_y = 200 - text_enty_label_height
-tuning_vars_vert_spacing = 40
+tuning_vars_y = 180 - text_enty_label_height
+tuning_vars_vert_spacing = 35
 colors_x = 25
 colors_y = 25
 colors_vert_spacing = 20
 colors_horiz_spacing = 30
 live_bars_x = 300
-live_bars_y = 200
+live_bars_y = 180
 live_bars_width = 50
-live_bars_height = 200
+live_bars_height = 240
 live_bars_horiz_spacing = 110
 live_bats_label_vert_spacing = 20
 
@@ -208,7 +208,8 @@ class CloudTuner:
             com_ports_list = list(comports())
             for port in com_ports_list:
                 print("Found com port:", port.name)
-                com_port_to_use = port.name
+                if port.name != "COM3": 
+                    com_port_to_use = port.name
                 
         if com_port_to_use != "":
             self.serial_port = serial.Serial(com_port_to_use, baudrate=9600)
@@ -282,7 +283,7 @@ class CloudTuner:
             color_prefix = "COLORS - "
             if str_in.startswith(color_prefix):
                 color_str = str_in[len(color_prefix):]
-                colors = color_str.replace("\r\n","").split(',')
+                colors = color_str.replace("\r\n","").split(',') # Won't work on Macs???
                 for row in range(num_color_grad_rows):
                     for i in range(4):
                         color_entry_index = row * 4 + i
@@ -323,7 +324,7 @@ class CloudTuner:
                     val = float(val_string)
                 
                     x0, y0, x1, y1 = self.canvas.coords(self.display_bars[i])
-                    self.canvas.coords(self.display_bars[i], x0, y1 - 200 * val, x1, y1)
+                    self.canvas.coords(self.display_bars[i], x0, y1 - live_bars_height * val, x1, y1)
                 except:
                     print("Invalid float value in status!", val_string)
 

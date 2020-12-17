@@ -35,7 +35,6 @@
 #define NUM_LEDS 1000 
 #define MAX_HEAT 255
 #define FRAMES_PER_SECOND 120
-#define NUM_INTERP_FRAMES 20
 
 CRGB g_aLeds[NUM_LEDS];
 byte g_ayHeat[NUM_LEDS];
@@ -44,10 +43,10 @@ byte g_ayLastHeat[NUM_LEDS]; // Used for interp between heat frames
 // Define the color gradient
 #define COLOR_GRAD_SIZE 20
 byte g_ayColorGrad[] = {
-	  0,     0,  0, 16,   
-	32,     64, 16,  0,   
-	100,   128, 32,  0,   
-	200,   255,200, 32,   
+	  0,     0,  0, 24,   
+	 64,    64, 16,  0,   
+	128,   128, 50,  8,   
+	192,   255,128, 64,   
 	255,   255,255,255
 };
 byte g_ayColorGradSaved[COLOR_GRAD_SIZE];
@@ -55,15 +54,32 @@ byte g_ayColorGradDefault[COLOR_GRAD_SIZE];
 
 CRGBPalette256 g_oPalHeat;
 
-#define COOLING_MIN  5
-#define COOLING_MAX  15
+#define COOLING_MIN  8
+#define COOLING_MAX  22
 #define SPARKING 130
-#define SPARK_HEAT_MIN 50
-#define SPARK_HEAT_MAX 100
+#define SPARK_HEAT_MIN 75
+#define SPARK_HEAT_MAX 150
 #define SPARK_WIDTH 2
-#define HEAT_MOTION_ADD 255 // TEMP_CL
 
 int g_iLedSpacing = 1;
+
+// Color tuning
+
+byte g_yBaseHeatMax = 96;
+byte g_yBaseHeatMaxSaved = g_yBaseHeatMax;
+byte g_yBaseHeatMaxDefault = g_yBaseHeatMax;
+
+float g_fMotionHeadMult = 3.0;
+float g_fMotionHeadMultSaved = g_fMotionHeadMult;
+float g_fMotionHeadMultDefault = g_fMotionHeadMult;
+
+byte g_yMotionHeatAdd = 230;
+byte g_yMotionHeatAddSaved = g_yMotionHeatAdd;
+byte g_yMotionHeatAddDefault = g_yMotionHeatAdd;
+
+int g_iNumInterpFrames = 20;
+int g_iNumInterpFramesSaved = g_iNumInterpFrames;
+int g_iNumInterpFramesDefault = g_iNumInterpFrames;
 
 
 // Audio
@@ -118,7 +134,7 @@ float g_fMinSpeedSaved = g_fMinSpeed;
 float g_fMinSpeedDefault = g_fMinSpeed;
 
 // Tuning The max speed in meters per second.  All motion above this speed will be treated like this speed
-float g_fMaxSpeed = 0.40;
+float g_fMaxSpeed = 0.45;
 float g_fMaxSpeedSaved = g_fMaxSpeed;
 float g_fMaxSpeedDefault = g_fMaxSpeed;
 
@@ -126,7 +142,7 @@ float g_fMaxSpeedDefault = g_fMaxSpeed;
 // no smoothing at all.  This value depends on the loop speed so if anything changes the loop speed,
 // the amount of smoothing will change (see LOOP_DELAY_MS).
 //static float fNewSpeedWeight = 0.15;
-float g_fNewSpeedWeight = 0.02;
+float g_fNewSpeedWeight = 0.03;
 float g_fNewSpeedWeightSaved = g_fNewSpeedWeight;
 float g_fNewSpeedWeightDefault = g_fNewSpeedWeight;
 
@@ -154,7 +170,7 @@ int g_iSerialInputBufferPos = 0;
 
 // EEPROM saved settigs
 
-#define EEPROM_VERSION 1
+#define EEPROM_VERSION 2
 #define EEPROM_ADDR_VER 0
 #define EEPROM_ADDR_COLORS 2
 #define EEPROM_ADDR_TUNING 100 // Make sure this is far enough along for larger color arrays
@@ -221,14 +237,20 @@ void setup()
 	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), MotionDetectorPulse, CHANGE);   
 	
 	
-	// EEPROM
+	// EEPROM saved settigs
 	
 	// Save off the saved and default copies
 	memcpy(g_ayColorGradSaved, g_ayColorGrad, COLOR_GRAD_SIZE);
 	memcpy(g_ayColorGradDefault, g_ayColorGrad, COLOR_GRAD_SIZE);
-
+	
 	// Load from memory
-	load_eeprom_to_current_settings();
+	// If the load doesn't work, it's because there wasn't a save found
+	// or the version has changed. Either way, take the current defaults
+	// and save them.
+	if(!load_eeprom_to_current_settings())
+	{
+		save_current_settings_to_eeprom();
+	}
 }
 
 
@@ -300,6 +322,14 @@ void send_tuning_vars()
 	Serial.print(g_fNewSpeedWeight);
 	Serial.print(" g_fInputExponent=");
 	Serial.print(g_fInputExponent);
+	Serial.print(" g_yBaseHeatMax=");
+	Serial.print(g_yBaseHeatMax);
+	Serial.print(" g_fMotionHeadMult=");
+	Serial.print(g_fMotionHeadMult);
+	Serial.print(" g_yMotionHeatAdd=");
+	Serial.print(g_yMotionHeatAdd);
+	Serial.print(" g_iNumInterpFrames=");
+	Serial.print(g_iNumInterpFrames);
 	Serial.println("");
 }
 
@@ -315,6 +345,14 @@ void send_tuning_vars_saved()
 	Serial.print(g_fNewSpeedWeightSaved);
 	Serial.print(" g_fInputExponent=");
 	Serial.print(g_fInputExponentSaved);
+	Serial.print(" g_yBaseHeatMax=");
+	Serial.print(g_yBaseHeatMaxSaved);
+	Serial.print(" g_fMotionHeadMult=");
+	Serial.print(g_fMotionHeadMultSaved);
+	Serial.print(" g_yMotionHeatAdd=");
+	Serial.print(g_yMotionHeatAddSaved);
+	Serial.print(" g_iNumInterpFrames=");
+	Serial.print(g_iNumInterpFramesSaved);
 	Serial.println("");
 }
 
@@ -358,6 +396,10 @@ void save_current_settings_to_eeprom()
 	g_fMaxSpeedSaved = g_fMaxSpeed;
 	g_fNewSpeedWeightSaved = g_fNewSpeedWeight;
 	g_fInputExponentSaved = g_fInputExponent;
+	g_yBaseHeatMaxSaved = g_yBaseHeatMax;
+	g_fMotionHeadMultSaved = g_fMotionHeadMult;
+	g_yMotionHeatAddSaved = g_yMotionHeatAdd;
+	g_iNumInterpFramesSaved = g_iNumInterpFrames;
 	
 	// Write the current version out first
 	EEPROM.write(EEPROM_ADDR_VER, EEPROM_VERSION);
@@ -375,9 +417,17 @@ void save_current_settings_to_eeprom()
 	iCurTuningAddr += sizeof(float);
 	EEPROM.put(iCurTuningAddr, g_fInputExponentSaved);
 	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_yBaseHeatMaxSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_fMotionHeadMultSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_yMotionHeatAddSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.put(iCurTuningAddr, g_iNumInterpFramesSaved);
+	iCurTuningAddr += sizeof(float);
 }
 
-void load_eeprom_to_current_settings()
+bool load_eeprom_to_current_settings()
 {
 	if(load_eeprom())
 	{
@@ -388,7 +438,15 @@ void load_eeprom_to_current_settings()
 		g_fMaxSpeed = g_fMaxSpeedSaved;
 		g_fNewSpeedWeight = g_fNewSpeedWeightSaved;
 		g_fInputExponent = g_fInputExponentSaved;
+		g_yBaseHeatMax = g_yBaseHeatMaxSaved;
+		g_fMotionHeadMult = g_fMotionHeadMultSaved;
+		g_yMotionHeatAdd = g_yMotionHeatAddSaved;
+		g_iNumInterpFrames = g_iNumInterpFramesSaved;
+		
+		return true;
 	}
+	
+	return false;
 }
 
 bool load_eeprom()
@@ -420,6 +478,14 @@ bool load_eeprom()
 	iCurTuningAddr += sizeof(float);
 	EEPROM.get(iCurTuningAddr, g_fInputExponentSaved);
 	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_yBaseHeatMaxSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_fMotionHeadMultSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_yMotionHeatAddSaved);
+	iCurTuningAddr += sizeof(float);
+	EEPROM.get(iCurTuningAddr, g_iNumInterpFramesSaved);
+	iCurTuningAddr += sizeof(float);
 	
 	return true;
 }
@@ -433,6 +499,10 @@ void restore_defaults_to_current_settings()
 	g_fMaxSpeed = g_fMaxSpeedDefault;
 	g_fNewSpeedWeight = g_fNewSpeedWeightDefault;
 	g_fInputExponent = g_fInputExponentDefault;
+	g_yBaseHeatMax = g_yBaseHeatMaxDefault;
+	g_fMotionHeadMult = g_fMotionHeadMultDefault;
+	g_yMotionHeatAdd = g_yMotionHeatAddDefault;
+	g_iNumInterpFrames = g_iNumInterpFramesDefault;
 
 }
 
@@ -551,6 +621,26 @@ void check_serial()
 						else if(strcmp(pTuningKey, "InputExponent") == 0 && bValidFloat)
 						{
 							g_fInputExponent = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "BaseHeatMax") == 0 && bValidFloat)
+						{
+							g_yBaseHeatMax = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "MotionHeadMult") == 0 && bValidFloat)
+						{
+							g_fMotionHeadMult = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "MotionHeatAdd") == 0 && bValidFloat)
+						{
+							g_yMotionHeatAdd = fValue;
+							bGotNewValue = true;
+						}
+						else if(strcmp(pTuningKey, "NumInterpFrames") == 0 && bValidFloat)
+						{
+							g_iNumInterpFrames = fValue;
 							bGotNewValue = true;
 						}
 						
@@ -687,7 +777,7 @@ void loop()
 	memcpy(g_ayLastHeat, g_ayHeat, NUM_LEDS);
 	UpdateHeat(); // run simulation frame, using palette colors
   
-	for(int i = 0; i < NUM_INTERP_FRAMES; ++i)
+	for(int i = 0; i < g_iNumInterpFrames; ++i)
 	{
 		// Serial input
 		check_serial();
@@ -702,23 +792,9 @@ void loop()
 
 		
 		//LEDs
-		
-		//fract8 fLerp = i*256/NUM_INTERP_FRAMES;
-		//byte lerpHeat;
-		//for( int j = 0; j < NUM_LEDS; ++j)
-		//{
-		//	// Fade between last and cur heat values
-		//	lerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
-        //
-		//	// Scale heat
-		//	lerpHeat = scale8(lerpHeat, MAX_HEAT);
-        //
-		//	g_aLeds[j] = ColorFromPalette( gPal, lerpHeat);
-		//}
-		//FastLED.show(); // display this frame
-		
+
 		// Lerp between the target frames
-		fract8 fLerp = i * 256 / NUM_INTERP_FRAMES;
+		fract8 fLerp = i * 256 / g_iNumInterpFrames;
 		byte yLerpHeat;
 		for(int j = 0; j < NUM_LEDS / g_iLedSpacing; ++j)
 		{
@@ -726,11 +802,11 @@ void loop()
 			yLerpHeat = lerp8by8(g_ayLastHeat[j], g_ayHeat[j], fLerp);
 			
 			// TEMP_CL - Scale heat
-			yLerpHeat = scale8(yLerpHeat, 64);
+			yLerpHeat = scale8(yLerpHeat, g_yBaseHeatMax);
 
 			// Account for touch
-			yLerpHeat = qadd8(yLerpHeat, g_fSpeedRatio * HEAT_MOTION_ADD);
-			//yLerpHeat = qmul8(yLerpHeat, g_fSpeedRatio * 10 + 1);
+			yLerpHeat = byte(Clamp(yLerpHeat * (g_fSpeedRatio * (g_fMotionHeadMult-1.0) + 1.0), 0, 255));
+			yLerpHeat = qadd8(yLerpHeat, g_fSpeedRatio * g_yMotionHeatAdd);
 
 			// Scale heat
 			yLerpHeat = scale8(yLerpHeat, MAX_HEAT);
